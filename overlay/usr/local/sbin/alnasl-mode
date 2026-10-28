@@ -1,42 +1,59 @@
 #!/bin/bash
-# alnasl-mode: which of the two things this box is (v6, docs/v6-plan.md section 1).
+# alnasl-mode: what this box is (v7, docs/v7-plan.md section 1). One box, one job:
 #
-#   master   Alnasl (the hall's server) and the hall screen (the kiosk).   <- the default
-#   slave    Arkab only: reads the DGT boards and passes them to a master. No Alnasl, no screen.
+#   alnasl   Alnasl, the hall's server, and the hall screen.        <- the default ("master" in v6)
+#   arkab    Arkab: reads the DGT boards, passes them to an Alnasl.  ("slave" in v6)
+#   polis    Polis: prints what the arbiter publishes (CUPS).
+#   nunki    Nunki: reads the pairings aloud (espeak-ng, ALSA).
 #
-# That is all there is to it. /var/lib/alnasl-setup/mode holds "master" or "slave" (it lives on the data
-# partition, so it survives system updates and is gone after a factory reset: back to the wizard, back to
-# master). The wizard's first question, Settings > "Switch to slave/master" and Arkab's page write it;
-# /boot/efi/alnasl-mode.txt can too, for a box with no screen (first line "master" or "slave", read
-# at boot and deleted, like alnasl-reset.txt).
+# Four words and a default; that is all the logic there is. /var/lib/alnasl-setup/mode holds the word (it
+# lives on the data partition, so it survives system updates and is gone after a factory reset: back to the
+# wizard, back to alnasl). v6 wrote "master" and "slave": they still mean alnasl and arkab, in that file and
+# in mode-applied, so a box that upgrades stays what it was and does not switch anything back on.
+# The wizard, Settings > "Change what this box is" and Arkab's page write it; /boot/efi/alnasl-mode.txt can
+# too, for a box with no screen (first line one of the six words, read at boot and deleted).
 #
 # Runs at every boot, early (alnasl-mode.service), before any of the units below:
-#   - writes /run/alnasl-mode/{mode,master,slave}. The units of the other side carry a
-#     ConditionPathExists on that flag (drop-ins in /etc/systemd/system/<unit>.d/alnasl-mode.conf), so a
-#     unit of the other mode cannot start, whoever asks: Wants= from another unit, the app's own updater
-#     that rewrites its unit file, a later "systemctl start". (Masking was the first idea; a mask replaces
-#     the unit file, and Alnasl's and Arkab's updaters write those files.)
-#   - when the mode is not the one applied last, enables the right side and disables the other, and
-#     starts the right side now (the boot's own job list was made before this ran).
-#   - keeps the data of both: /var/lib/alnasl and /var/lib/arkab are never touched here, so switching
-#     back loses nothing.
+#   - writes /run/alnasl-mode/{mode,role,<role>}. Every role's units carry a ConditionPathExists on their
+#     flag (drop-ins in /etc/systemd/system/<unit>.d/alnasl-mode.conf), so another role's unit cannot start,
+#     whoever asks. Not masks: a mask replaces the unit file, and the apps' updaters write those files.
+#     "mode" keeps the v6 word for the two v6 roles (master, slave); "role" is always the v7 word.
+#   - disables what is still enabled of the other roles, every boot (a new slot comes with all of it on).
+#   - on a change of role (or the first boot after a reset) enables this role's units and the screen.
+#   - never touches any role's data: switching back loses nothing.
 #
 #   alnasl-mode            at boot
-#   alnasl-mode --status   prints the mode this boot runs as
+#   alnasl-mode --status   prints the role this boot runs as
 set -u
 STATE=/var/lib/alnasl-setup
 MODEFILE=$STATE/mode
 APPLIED=$STATE/mode-applied
 TXT=/boot/efi/alnasl-mode.txt
 RUN=/run/alnasl-mode
+ROLES="alnasl arkab polis nunki"
 
-MASTER_UNITS="alnasl.service alnasl-update.path alnasl-kiosk.service"
-SLAVE_UNITS="arkab.service arkab-update.path"
+units() {
+  case "$1" in
+    alnasl) echo "alnasl.service alnasl-update.path" ;;
+    arkab)  echo "arkab.service arkab-update.path" ;;
+    polis)  echo "cups.socket cups.path cups.service polis.service polis-update.path" ;;
+    nunki)  echo "alnasl-sound.service nunki.service nunki-update.path" ;;
+  esac
+}
+# The v6 words and the v7 ones; anything else is not a role.
+canon() {
+  case "$1" in
+    master|alnasl) echo alnasl ;;
+    slave|arkab) echo arkab ;;
+    polis|nunki) echo "$1" ;;
+  esac
+}
+legacy() { case "$1" in alnasl) echo master ;; arkab) echo slave ;; *) echo "$1" ;; esac; }
 
 say() { echo "alnasl-mode: $*"; }
 
 if [ "${1:-}" = "--status" ]; then
-  cat "$RUN/mode" 2>/dev/null || echo unknown
+  cat "$RUN/role" 2>/dev/null || echo unknown
   exit 0
 fi
 
@@ -46,38 +63,44 @@ mkdir -p "$STATE" "$RUN"
 if [ -f "$TXT" ]; then
   word=$(head -n 1 "$TXT" | tr -d '\r[:space:]' | tr '[:upper:]' '[:lower:]')
   rm -f "$TXT"; sync
-  case "$word" in
-    master|slave)
-      echo "$word" > "$MODEFILE.new" && mv -f "$MODEFILE.new" "$MODEFILE"
-      say "set to $word by $TXT" ;;
-    *) say "$TXT did not say master or slave on its first line; removed it, changed nothing" ;;
-  esac
+  r=$(canon "$word")
+  if [ -n "$r" ]; then
+    echo "$r" > "$MODEFILE.new" && mv -f "$MODEFILE.new" "$MODEFILE"
+    say "set to $r by $TXT"
+  else
+    say "$TXT did not say alnasl, arkab, polis or nunki on its first line; removed it, changed nothing"
+  fi
 fi
 
-# 2. the mode: what the file says, master when it says nothing (or nonsense)
-mode=$({ tr -d '[:space:]' < "$MODEFILE"; } 2>/dev/null)  # no file is the normal case, not news for the journal
-case "$mode" in master|slave) ;; *) mode=master ;; esac
-case "$mode" in master) want="$MASTER_UNITS"; other="$SLAVE_UNITS" ;; *) want="$SLAVE_UNITS"; other="$MASTER_UNITS" ;; esac
+# 2. the role: what the file says, alnasl when it says nothing (or nonsense)
+role=$(canon "$({ tr -d '[:space:]' < "$MODEFILE"; } 2>/dev/null)")  # no file is the normal case
+[ -n "$role" ] || role=alnasl
+applied=$(canon "$({ tr -d '[:space:]' < "$APPLIED"; } 2>/dev/null)")
+want=$(units "$role")
+other=""
+for r in $ROLES; do [ "$r" = "$role" ] || other="$other $(units "$r")"; done
 
-rm -f "$RUN/master" "$RUN/slave"
-echo "$mode" > "$RUN/mode"
-touch "$RUN/$mode"
-say "this boot runs as $mode"
+for r in $ROLES master slave; do rm -f "$RUN/$r"; done
+legacy "$role" > "$RUN/mode"
+echo "$role" > "$RUN/role"
+touch "$RUN/$role"
+say "this boot runs as $role"
 
-# 3. the units. Only on a change of mode (or the first boot after a reset), so what a person switched
-# off in Settings > Services (the screen, say) stays off on a master that has not changed.
-# The other side is switched off every boot (a new system slot comes with everything enabled). Only what is
-# still enabled is touched: enable and disable make systemd reload its units, and nothing needs that on a
-# boot where nothing changed.
+# 3. the units. The other roles are switched off every boot; only what is still enabled is touched (enable
+# and disable make systemd reload, and a boot where nothing changed needs none of that).
 for u in $other; do systemctl is-enabled -q "$u" 2>/dev/null && systemctl disable "$u" >/dev/null 2>&1; done
-if [ "$(cat "$APPLIED" 2>/dev/null)" != "$mode" ]; then
-  say "applying $mode"
+# This role's units are switched on only when the role changed, so what somebody switched off in Settings >
+# Services (the screen, say) stays off on a box that is still what it was.
+if [ "$applied" != "$role" ]; then
+  say "applying $role"
   # shellcheck disable=SC2086
-  systemctl enable $want >/dev/null 2>&1
-  echo "$mode" > "$APPLIED"
+  systemctl enable $want alnasl-kiosk.service >/dev/null 2>&1
+  echo "$role" > "$APPLIED"
+elif [ "$(tr -d '[:space:]' < "$APPLIED" 2>/dev/null)" != "$role" ]; then
+  echo "$role" > "$APPLIED"     # a v6 word for the same role: the v7 word, nothing switched
 fi
-# Whatever is running of the other side stops (a live switch; at boot there is nothing to stop). What is
-# enabled of this side starts now: the job list of this boot was made before this unit decided anything.
+# What runs of another role stops (a live switch; at boot nothing runs yet). What is enabled of this role
+# starts now: this boot's job list was made before this unit decided anything.
 for u in $other; do systemctl is-active -q "$u" 2>/dev/null && systemctl stop --no-block "$u"; done
 for u in $want; do systemctl is-enabled -q "$u" 2>/dev/null && systemctl start --no-block "$u"; done
 exit 0

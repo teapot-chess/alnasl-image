@@ -105,3 +105,41 @@ pre.raw { margin: 0; padding: 12px; background: #0b1015; border: 1px solid var(-
 .pbar { height: 8px; border-radius: 4px; background: var(--panel2); overflow: hidden; margin-top: 10px; }
 .pbar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .6s ease; }
 .card.offer { border-color: var(--accent); }
+/* v7: printers and sound. A row of buttons under an item instead of beside it; a range big enough to drag. */
+.item.wrap { flex-wrap: wrap; cursor: default; } .item.wrap .grow { white-space: normal; flex-basis: 260px; }
+input.range { flex: 1; min-width: 180px; height: 44px; accent-color: var(--accent); }
+/* v7 small screens: 800x480 and 1024x600 panels, 720x720 squares. One column, nothing cut off, and nothing
+   to tap smaller than 44 px. The kiosk's own size setting still scales all of it; these are for 100%. */
+@media (max-width: 900px), (max-height: 640px) {
+  :root { --tap: 48px; }
+  html, body { font-size: 17px; }
+  h1 { font-size: 26px; } h2 { font-size: 20px; }
+  .top { padding: 8px 14px; gap: 10px; flex-wrap: wrap; } .top .brand { font-size: 18px; }
+  .page { padding: 14px 14px; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+  .tile { min-height: 96px; padding: 14px; border-radius: 14px; } .tile .t { font-size: 20px; } .tile .d { font-size: 14px; }
+  .btn { padding: 0 16px; } .btn.sm { min-height: 44px; font-size: 15px; padding: 0 12px; }
+  .card { padding: 14px; } .item { padding: 8px 12px; } .steps { margin-bottom: 12px; }
+  .foot { margin-top: 14px; position: sticky; bottom: 0; background: var(--bg); padding: 8px 0; }
+  #modal { padding: 8px; align-items: flex-start; overflow-y: auto; }
+  #modal .box { padding: 16px; border-radius: 14px; max-height: none; }
+  #osk { padding: 4px; } #osk .kr { gap: 3px; margin-bottom: 3px; }
+  #osk button { min-height: 44px; font-size: 18px; } #osk button.w { font-size: 14px; }
+  body.osk-open #app { padding-bottom: 250px; }
+  .helpcode { font-size: 56px; }
+  .center[style] { padding: 16px 0 !important; }
+  pre.raw { font-size: 12px; max-height: 40vh; }
+}
+/* One column where two tiles do not fit side by side (720x720 at a larger size, or narrower). */
+@media (max-width: 560px) {
+  .grid { grid-template-columns: 1fr; }
+  .tile { min-height: 64px; flex-direction: row; align-items: baseline; justify-content: flex-start; flex-wrap: wrap; }
+  .tile .t { margin-top: 0; }
+  .kv { grid-template-columns: 1fr; gap: 0; } .kv dd { margin-bottom: 8px; }
+  .foot .btn { flex: 1; }
+}
+/* A square or short screen: the key/value table and the wizard dots stay compact. */
+@media (max-height: 520px) {
+  .tile { min-height: 72px; } .steps i { height: 4px; }
+  #modal { align-items: flex-start; }
+}

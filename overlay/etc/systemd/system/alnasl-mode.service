@@ -1,5 +1,5 @@
 [Unit]
-Description=Alnasl mode: master (Alnasl and the hall screen) or slave (Arkab only)
+Description=Alnasl role: what this box is (alnasl, arkab, polis or nunki)
 Documentation=file:///usr/local/sbin/alnasl-mode
 # Early, and before sysinit.target: the path units (alnasl-update.path, arkab-update.path) are started
 # before paths.target, which is before basic.target, and they carry a condition on the flag this unit writes.

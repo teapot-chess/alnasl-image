@@ -1,0 +1,76 @@
+#!/bin/bash
+# alnasl-sound: where a nunki box's voice comes out, and how loud (v7, docs/v7-plan.md section 1).
+#
+#   /var/lib/alnasl-setup/sound.conf   OUTPUT=hdmi|hdmi2|jack   VOLUME=0..100   (Settings > Sound writes it)
+#
+# Writes /etc/asound.conf so ALSA's default device (what espeak-ng, and so Nunki, plays to) is a software
+# volume control, "Alnasl Volume", in front of the chosen output:
+#   hdmi    the first HDMI port (vc4hdmi0; the "hdmi" device of alsa-lib's vc4-hdmi card file does the
+#           IEC958 framing the vc4 HDMI audio wants)
+#   hdmi2   the second HDMI port (vc4hdmi1)
+#   jack    the 3.5 mm jack (snd_bcm2835, its "Headphones" card)
+# then sets the volume. Runs at the start of the nunki role (alnasl-sound.service) and after every change.
+#
+#   alnasl-sound           apply sound.conf
+#   alnasl-sound --cards   the outputs this box has, one word a line
+#   alnasl-sound --test    say a sentence through the default device
+set -u
+CONF=/var/lib/alnasl-setup/sound.conf
+ASOUND=/etc/asound.conf
+say() { echo "alnasl-sound: $*"; }
+
+has_card() { grep -q "\[$1 *\]" /proc/asound/cards 2>/dev/null; }
+
+# The jack needs the firmware's audio driver, which the image does not load for the other roles.
+modprobe -q snd_bcm2835 2>/dev/null || true
+
+if [ "${1:-}" = "--cards" ]; then
+  has_card vc4hdmi0 && echo hdmi
+  has_card vc4hdmi1 && echo hdmi2
+  has_card Headphones && echo jack
+  exit 0
+fi
+if [ "${1:-}" = "--test" ]; then
+  exec /usr/local/bin/espeak-ng -v "${2:-en}" "${3:-This is the announcer. One, two, three.}"
+fi
+
+out=hdmi; vol=80
+if [ -r "$CONF" ]; then
+  o=$(sed -n 's/^OUTPUT=\([a-z0-9]*\).*/\1/p' "$CONF" | head -n 1)
+  v=$(sed -n 's/^VOLUME=\([0-9]*\).*/\1/p' "$CONF" | head -n 1)
+  case "$o" in hdmi|hdmi2|jack) out=$o ;; esac
+  [ -n "$v" ] && [ "$v" -le 100 ] 2>/dev/null && vol=$v
+fi
+case "$out" in
+  hdmi)  card=vc4hdmi0;   pcm="hdmi:CARD=vc4hdmi0,DEV=0" ;;
+  hdmi2) card=vc4hdmi1;   pcm="hdmi:CARD=vc4hdmi1,DEV=0" ;;
+  jack)  card=Headphones; pcm="hw:CARD=Headphones,DEV=0" ;;
+esac
+# A card that takes a moment to appear (HDMI after the display driver) is waited for, briefly.
+for _ in $(seq 1 20); do has_card "$card" && break; sleep 0.5; done
+has_card "$card" || say "there is no $card card (yet); written anyway, it is used once it appears"
+
+tmp=$ASOUND.new
+cat > "$tmp" <<EOF
+# Written by alnasl-sound from $CONF; changed in Settings > Sound. Not by hand: it is rewritten.
+pcm.alnasl_out { type plug; slave.pcm "$pcm" }
+pcm.alnasl_vol {
+  type softvol
+  slave.pcm "alnasl_out"
+  control { name "Alnasl Volume"; card $card }
+  min_dB -40.0
+  max_dB 0.0
+}
+pcm.!default { type plug; slave.pcm "alnasl_vol" }
+ctl.!default { type hw; card $card }
+EOF
+chmod 0644 "$tmp" && mv -f "$tmp" "$ASOUND"
+
+# A softvol control exists only once its device has been opened: a moment of silence does that.
+if has_card "$card"; then
+  aplay -q -D default -f S16_LE -r 48000 -c 2 -d 1 /dev/zero >/dev/null 2>&1 &
+  p=$!; sleep 0.3; kill "$p" 2>/dev/null; wait "$p" 2>/dev/null
+  amixer -q -c "$card" sset "Alnasl Volume" "${vol}%" 2>/dev/null || say "could not set the volume on $card"
+fi
+say "output $out ($card), volume $vol"
+exit 0

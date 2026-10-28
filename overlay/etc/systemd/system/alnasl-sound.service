@@ -1,0 +1,13 @@
+[Unit]
+Description=Alnasl sound: the announcer's output and volume (nunki role)
+Documentation=file:///usr/local/sbin/alnasl-sound
+After=alnasl-data.service systemd-modules-load.service systemd-udev-settle.service
+Before=nunki.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/alnasl-sound
+
+[Install]
+WantedBy=multi-user.target

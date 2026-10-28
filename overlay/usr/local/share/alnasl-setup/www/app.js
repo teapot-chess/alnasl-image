@@ -26,7 +26,7 @@ const TX = {
     s_alnasl: "Alnasl", s_alnasl_d: "Board relay and web page for the hall (port 4040).",
     s_kiosk: "Display", s_kiosk_d: "Shows Alnasl full screen on the HDMI screen.",
     kiosk_warn: "Without the display this screen disappears. Run 'alnasl-setup' on the box, or use the web page, to get back.",
-    done_title: "All set", done_d: "Alnasl opens next. The menu button in the corner brings you back here.", open_alnasl: "Open Alnasl",
+    done_title: "All set", done_d: "%s opens next. The menu button in the corner brings you back here.", open_alnasl: "Open %s",
     menu: "Menu", m_alnasl: "Alnasl", m_alnasl_d: "The boards and pairings", m_settings: "Settings", m_settings_d: "Network, keyboard, services, display",
     m_info: "System info", m_info_d: "Addresses, versions, uptime", m_power: "Restart / Shut down", m_power_d: "Switch the box off safely",
     alnasl_down: "Alnasl is not running on this box. Turn it on in Settings > Services.",
@@ -37,13 +37,33 @@ const TX = {
     error: "Something went wrong", retry: "Try again", rerun: "Run the first-time setup again", first_run: "First-time setup",
     reset: "Erase this box", reset_d: "Everything this box has kept goes: Alnasl's data and recordings, the settings, the Wi-Fi networks, the logs and the update results. It then restarts as new, into the first-time setup.",
     reset_keep: "The system and Alnasl itself stay. Diagnostics files saved to the SD card stay too.", reset_hold: "Hold to erase",
-    mode_title: "Master or slave?", mode_master: "Master", mode_master_d: "Master runs the hall: Alnasl and the hall screen.",
-    mode_slave: "Slave", mode_slave_d: "Slave only reads DGT boards and passes them to a master.",
-    mode_switch_slave: "Switch to slave", mode_switch_master: "Switch to master", mode_yes: "Switch and restart",
-    mode_q_slave: "Switch this box to slave?", mode_q_master: "Switch this box to master?",
-    mode_d_slave: "Alnasl and the hall screen stop and Arkab starts, after a restart. Nothing is erased: switching back loses nothing.",
-    mode_d_master: "Arkab stops and Alnasl and the hall screen start, after a restart. Nothing is erased: switching back loses nothing.",
-    done_slave_d: "The box restarts as a slave. Arkab takes over; open its page at port 4050 of this box to join it to a master.", restart_now: "Restart",
+    role_title: "What is this box?", role_d: "One box, one job. You can change it later in Settings.",
+    role_alnasl_d: "Runs the hall: the boards, the pairings and the hall screen.",
+    role_arkab_d: "Only reads DGT boards and passes them to an Alnasl box.",
+    role_polis_d: "Prints the pairings and place cards of every round.",
+    role_nunki_d: "Reads the pairings aloud and counts down to the round.",
+    role_now: "This box is %s.", role_change: "Change what this box is", role_yes: "Change and restart",
+    role_q: "Make this box %s?", role_switch_d: "%s stops and %s starts, after a restart. Nothing is erased: switching back loses nothing.",
+    done_arkab_d: "The box restarts as Arkab. Its page opens on this screen: join it to an Alnasl box there.",
+    done_polis_d: "The box restarts as Polis. Add the printer in Settings > Printers, then join a tournament on Polis's page.",
+    done_nunki_d: "The box restarts as Nunki. Pick the speakers in Settings > Sound, then join a tournament on Nunki's page.",
+    restart_now: "Restart",
+    m_arkab_d: "The board bridge", m_polis_d: "The print station", m_nunki_d: "The announcer",
+    role_down: "%s is not running on this box. Diagnostics says why; a restart often helps.",
+    printers: "Printers", printers_tile: "Where Polis prints",
+    printers_d: "Polis prints through these. A printer that understands PDF works, as most network printers do. There is no search: type the printer's address.",
+    printers_none: "No printer yet.", printer_default: "default", printer_make_default: "Make default", printer_remove: "Remove",
+    printer_test: "Test page", printer_test_sent: "Sent to the printer.", printer_add: "Add a network printer",
+    printer_addr: "Address (IP or name)", printer_name: "Name (optional)", add: "Add", adding: "Adding...",
+    printer_usb: "USB printers", printer_usb_scan: "Look for USB printers", printer_usb_none: "No USB printer found.",
+    printer_cups_off: "The printing service is not running.",
+    bad_printer_address: "That is not a printer address.", bad_printer_name: "Letters, digits, - and _ only, at most 32.",
+    printer_not_added: "The printer could not be added. Check the address and that the printer is switched on.",
+    printer_test_failed: "The test page could not be sent.",
+    sound: "Sound", sound_tile: "Speakers and volume", sound_d: "Where the announcer speaks, and how loud.",
+    out_hdmi: "HDMI (the screen's speakers)", out_hdmi2: "HDMI 2", out_jack: "3.5 mm jack", volume: "Volume", sound_test: "Test",
+    sound_none: "No sound output found yet. Connect the screen or the speakers and open this page again.",
+    sound_saved: "Saved.", sound_testing: "Listen...",
     m_diag: "Diagnostics", m_diag_d: "Is the Wi-Fi working? Network, services, logs", m_console: "Console", m_console_d: "Text console, or stop the screen",
     diag: "Diagnostics", d_wifi_q: "Does the Wi-Fi work at all?", d_loading: "Collecting...", d_refresh: "Refresh", d_test_scan: "Test Wi-Fi scan",
     d_save: "Save diagnostics to the SD card", d_saved: "Saved as %s on the boot partition of the SD card. Put the card in a PC and open the file there.",
@@ -127,7 +147,7 @@ const TX = {
     s_alnasl: "Alnasl", s_alnasl_d: "Bordenrelay en webpagina voor de zaal (poort 4040).",
     s_kiosk: "Scherm", s_kiosk_d: "Toont Alnasl schermvullend op het HDMI-scherm.",
     kiosk_warn: "Zonder scherm verdwijnt dit scherm. Voer 'alnasl-setup' op de box uit, of gebruik de webpagina, om terug te komen.",
-    done_title: "Alles klaar", done_d: "Alnasl opent nu. Met de menuknop in de hoek kom je hier terug.", open_alnasl: "Alnasl openen",
+    done_title: "Alles klaar", done_d: "%s opent nu. Met de menuknop in de hoek kom je hier terug.", open_alnasl: "%s openen",
     menu: "Menu", m_alnasl: "Alnasl", m_alnasl_d: "De borden en de indelingen", m_settings: "Instellingen", m_settings_d: "Netwerk, toetsenbord, diensten, scherm",
     m_info: "Systeeminfo", m_info_d: "Adressen, versies, looptijd", m_power: "Herstarten / Afsluiten", m_power_d: "Zet de box veilig uit",
     alnasl_down: "Alnasl draait niet op deze box. Zet het aan via Instellingen > Diensten.",
@@ -138,13 +158,33 @@ const TX = {
     error: "Er ging iets mis", retry: "Opnieuw proberen", rerun: "De eerste installatie opnieuw doen", first_run: "Eerste installatie",
     reset: "Deze box wissen", reset_d: "Alles wat deze box bewaard heeft verdwijnt: de gegevens en opnames van Alnasl, de instellingen, de wifi-netwerken, de logs en de updateresultaten. Daarna start hij opnieuw als nieuw, in de eerste installatie.",
     reset_keep: "Het systeem en Alnasl zelf blijven. Diagnosebestanden op de SD-kaart blijven ook.", reset_hold: "Ingedrukt houden om te wissen",
-    mode_title: "Master of slave?", mode_master: "Master", mode_master_d: "Master beheert de zaal: Alnasl en het zaalscherm.",
-    mode_slave: "Slave", mode_slave_d: "Slave leest alleen DGT-borden en geeft ze door aan een master.",
-    mode_switch_slave: "Omschakelen naar slave", mode_switch_master: "Omschakelen naar master", mode_yes: "Omschakelen en herstarten",
-    mode_q_slave: "Deze box omschakelen naar slave?", mode_q_master: "Deze box omschakelen naar master?",
-    mode_d_slave: "Alnasl en het zaalscherm stoppen en Arkab start, na een herstart. Er wordt niets gewist: terugschakelen verliest niets.",
-    mode_d_master: "Arkab stopt en Alnasl en het zaalscherm starten, na een herstart. Er wordt niets gewist: terugschakelen verliest niets.",
-    done_slave_d: "De box herstart als slave. Arkab neemt het over; open de pagina op poort 4050 van deze box om hem aan een master te koppelen.", restart_now: "Herstarten",
+    role_title: "Wat is deze box?", role_d: "Een box, een taak. Je kunt het later wijzigen in Instellingen.",
+    role_alnasl_d: "Beheert de zaal: de borden, de paringen en het zaalscherm.",
+    role_arkab_d: "Leest alleen DGT-borden en geeft ze door aan een Alnasl-box.",
+    role_polis_d: "Drukt de paringen en tafelkaartjes van elke ronde af.",
+    role_nunki_d: "Leest de paringen voor en telt af naar de ronde.",
+    role_now: "Deze box is %s.", role_change: "Wijzigen wat deze box is", role_yes: "Wijzigen en herstarten",
+    role_q: "Deze box %s maken?", role_switch_d: "%s stopt en %s start, na een herstart. Er wordt niets gewist: terugschakelen verliest niets.",
+    done_arkab_d: "De box herstart als Arkab. De pagina opent op dit scherm: koppel hem daar aan een Alnasl-box.",
+    done_polis_d: "De box herstart als Polis. Voeg de printer toe in Instellingen > Printers en koppel daarna een toernooi op de pagina van Polis.",
+    done_nunki_d: "De box herstart als Nunki. Kies de luidsprekers in Instellingen > Geluid en koppel daarna een toernooi op de pagina van Nunki.",
+    restart_now: "Herstarten",
+    m_arkab_d: "De bordenbrug", m_polis_d: "Het printstation", m_nunki_d: "De omroeper",
+    role_down: "%s draait niet op deze box. Diagnose zegt waarom; herstarten helpt vaak.",
+    printers: "Printers", printers_tile: "Waar Polis afdrukt",
+    printers_d: "Polis drukt hierlangs af. Een printer die PDF begrijpt werkt, zoals de meeste netwerkprinters. Er wordt niet gezocht: typ het adres van de printer.",
+    printers_none: "Nog geen printer.", printer_default: "standaard", printer_make_default: "Standaard maken", printer_remove: "Verwijderen",
+    printer_test: "Testpagina", printer_test_sent: "Naar de printer gestuurd.", printer_add: "Een netwerkprinter toevoegen",
+    printer_addr: "Adres (IP of naam)", printer_name: "Naam (niet verplicht)", add: "Toevoegen", adding: "Toevoegen...",
+    printer_usb: "USB-printers", printer_usb_scan: "USB-printers zoeken", printer_usb_none: "Geen USB-printer gevonden.",
+    printer_cups_off: "De printdienst draait niet.",
+    bad_printer_address: "Dat is geen printeradres.", bad_printer_name: "Alleen letters, cijfers, - en _, hoogstens 32.",
+    printer_not_added: "De printer kon niet worden toegevoegd. Controleer het adres en of de printer aan staat.",
+    printer_test_failed: "De testpagina kon niet worden verstuurd.",
+    sound: "Geluid", sound_tile: "Luidsprekers en volume", sound_d: "Waar de omroeper spreekt, en hoe luid.",
+    out_hdmi: "HDMI (de luidsprekers van het scherm)", out_hdmi2: "HDMI 2", out_jack: "3,5 mm-aansluiting", volume: "Volume", sound_test: "Testen",
+    sound_none: "Nog geen geluidsuitgang gevonden. Sluit het scherm of de luidsprekers aan en open deze pagina opnieuw.",
+    sound_saved: "Opgeslagen.", sound_testing: "Luister...",
     m_diag: "Diagnose", m_diag_d: "Werkt de wifi? Netwerk, diensten, logs", m_console: "Console", m_console_d: "Tekstconsole, of het scherm stoppen",
     diag: "Diagnose", d_wifi_q: "Werkt de wifi wel?", d_loading: "Gegevens verzamelen...", d_refresh: "Vernieuwen", d_test_scan: "Wifi-scan testen",
     d_save: "Diagnose opslaan op de SD-kaart", d_saved: "Opgeslagen als %s op de opstartpartitie van de SD-kaart. Steek de kaart in een pc en open het bestand daar.",
@@ -361,13 +401,26 @@ async function route() {
 function tile(title, desc, fn) {
   return h("button", { class: "tile", onclick: fn }, h("div", { class: "t" }, title), h("div", { class: "d" }, desc));
 }
+// v7: the box is one of four things (docs/v7-plan.md). The first tile opens that thing's own page.
+const ROLES = ["alnasl", "arkab", "polis", "nunki"];
+const ROLE_NAME = { alnasl: "Alnasl", arkab: "Arkab", polis: "Polis", nunki: "Nunki" };
+const ROLE_PORT = { alnasl: 4040, arkab: 4050, polis: 4061, nunki: 4062 };
+const ALIAS = { master: "alnasl", slave: "arkab" };
+const canonRole = (w) => { const r = ALIAS[w] || w; return ROLES.includes(r) ? r : null; };
+function roleNow() { return (S.mode && (canonRole(S.mode.running_role) || canonRole(S.mode.running))) || "alnasl"; }
+function roleChosen() { return (S.mode && (canonRole(S.mode.role) || canonRole(S.mode.mode))) || roleNow(); }
 async function openAlnasl() {
-  if (S.services.alnasl && S.services.alnasl.active) { await leaveToAlnasl(); location.href = "http://localhost:4040/"; return; }
-  const m = modal([h("p", {}, t("alnasl_down")), h("button", { class: "btn", onclick: () => m() }, t("close"))]);
+  const r = roleNow();
+  if (S.role_up) { await leaveToAlnasl(); location.href = "http://localhost:" + ROLE_PORT[r] + "/"; return; }
+  const m = modal([h("p", {}, r === "alnasl" ? t("alnasl_down") : tf("role_down", ROLE_NAME[r])),
+    h("button", { class: "btn", onclick: () => m() }, t("close"))]);
 }
+// An error from the server is a word; the sentence for it, when there is one.
+const errText = (e) => (TX.en[e.message] ? t(e.message) : e.message);
 function menu() {
+  const r = roleNow();
   shell(t("menu"), h("div", { class: "grid" },
-    tile(t("m_alnasl"), t("m_alnasl_d"), openAlnasl),
+    tile(ROLE_NAME[r], t(r === "alnasl" ? "m_alnasl_d" : "m_" + r + "_d"), openAlnasl),
     tile(t("m_settings"), t("m_settings_d"), () => go("/settings")),
     tile(t("m_info"), t("m_info_d"), () => go("/info")),
     tile(t("m_help"), t("m_help_d"), () => go("/help")),
@@ -581,7 +634,8 @@ function updPage() {
 }
 
 function settings(sub) {
-  const subs = { network: netPage, keyboard: kbdPage, services: svcPage, display: dispPage, help: helpSettings, updates: updPage };
+  const subs = { network: netPage, keyboard: kbdPage, services: svcPage, display: dispPage, help: helpSettings, updates: updPage,
+    printers: printersPage, sound: soundPage };
   if (!sub || !subs[sub]) {
     return shell(t("settings"), [
       h("div", { class: "grid" },
@@ -590,9 +644,12 @@ function settings(sub) {
         tile(t("services"), "", () => go("/settings/services")),
         tile(t("display"), "", () => go("/settings/display")),
         tile(t("m_help"), "", () => go("/settings/help")),
-        tile(t("upd"), t("upd_tile"), () => go("/settings/updates"))),
-      h("div", { class: "row", style: "margin-top:22px" }, h("button", { class: "btn sm", onclick: rerun }, t("rerun")),
-        h("button", { class: "btn sm", id: "mode-open", onclick: modeDialog }, t(modeNow() === "slave" ? "mode_switch_master" : "mode_switch_slave")),
+        tile(t("upd"), t("upd_tile"), () => go("/settings/updates")),
+        roleNow() === "polis" ? tile(t("printers"), t("printers_tile"), () => go("/settings/printers")) : null,
+        roleNow() === "nunki" ? tile(t("sound"), t("sound_tile"), () => go("/settings/sound")) : null),
+      h("p", { class: "dim", id: "role-now", style: "margin-top:22px" }, tf("role_now", ROLE_NAME[roleNow()])),
+      h("div", { class: "row" }, h("button", { class: "btn sm", onclick: rerun }, t("rerun")),
+        h("button", { class: "btn sm", id: "mode-open", onclick: modeDialog }, t("role_change")),
         h("button", { class: "btn sm danger", id: "reset-open", onclick: resetDialog }, t("reset")))], { home: true });
   }
   subs[sub](false);
@@ -627,17 +684,32 @@ function resetDialog() {
   const close = modal([h("h2", {}, t("reset")), h("p", {}, t("reset_d")), h("p", { class: "dim small" }, t("reset_keep")),
     h("div", { class: "row" }, btn, h("button", { class: "btn", onclick: () => close() }, t("cancel"))), out]);
 }
-// Master / slave. The mode is a file; the switch is that file and a restart (the boot screen shows it).
-function modeNow() { return (S.mode && S.mode.mode) || "master"; }
+// What this box is. The role is a file; the switch is that file and a restart (the boot screen shows it).
+function roleItem(id, sel, onpick) {
+  return h("button", { class: "item" + (sel ? " sel" : ""), id: "role-" + id, onclick: onpick },
+    h("span", { class: "grow", style: "white-space:normal" }, h("strong", {}, ROLE_NAME[id]), h("br"), h("span", { class: "dim" }, t("role_" + id + "_d"))));
+}
 function modeDialog() {
-  const to = modeNow() === "slave" ? "master" : "slave";
+  const now = roleNow();
+  let to = null;
   const out = h("div", {});
-  const yes = h("button", { class: "btn primary", id: "mode-yes", onclick: async () => {
+  const ask = h("div", {});
+  const list = h("div", { class: "list" }, ROLES.map((id) => {
+    const it = roleItem(id, id === now, () => {
+      [...list.children].forEach((c) => c.classList.remove("sel")); it.classList.add("sel");
+      to = id === now ? null : id;
+      ask.replaceChildren(...(to ? [h("p", {}, tf("role_switch_d", ROLE_NAME[now], ROLE_NAME[to]))] : []));
+      yes.disabled = !to;
+    });
+    return it;
+  }));
+  const yes = h("button", { class: "btn primary", id: "mode-yes", disabled: true, onclick: async () => {
+    if (!to) return;
     yes.disabled = true;
     try { await api("/api/mode", { mode: to, confirm: "SWITCH", by: "menu" }); location.href = "/screen"; }
-    catch (e) { out.replaceChildren(msg("bad", e.message)); yes.disabled = false; }
-  } }, t("mode_yes"));
-  const close = modal([h("h2", {}, t("mode_q_" + to)), h("p", {}, t("mode_d_" + to)),
+    catch (e) { out.replaceChildren(msg("bad", errText(e))); yes.disabled = false; }
+  } }, t("role_yes"));
+  const close = modal([h("h2", {}, t("role_change")), list, ask,
     h("div", { class: "row" }, yes, h("button", { class: "btn", onclick: () => close() }, t("cancel"))), out]);
 }
 async function rerun() { await api("/api/reopen", {}); sessionStorage.setItem("wizstep", "0"); sessionStorage.removeItem("wizmode"); WMODE = null; go("/setup"); }
@@ -669,7 +741,8 @@ function kbdPage(wiz, nav) {
 /* ---------------------------------------------------------- services ----- */
 function svcPage(wiz) {
   const sv = S.services;
-  const defs = [["alnasl", "s_alnasl", "s_alnasl_d"], ["kiosk", "s_kiosk", "s_kiosk_d"]];
+  // The role's own app is not switched here, except Alnasl (as in v6); the screen is every role's.
+  const defs = (wiz ? WMODE : roleNow()) === "alnasl" ? [["alnasl", "s_alnasl", "s_alnasl_d"], ["kiosk", "s_kiosk", "s_kiosk_d"]] : [["kiosk", "s_kiosk", "s_kiosk_d"]];
   const boxes = {};
   const warn = h("div", {});
   const status = h("div", {});
@@ -685,7 +758,8 @@ function svcPage(wiz) {
   const saveBtn = h("button", { class: "btn primary", onclick: save }, wiz ? t("next") : t("save"));
   async function save() {
     try {
-      const body = { alnasl: boxes.alnasl.checked, kiosk: boxes.kiosk.checked };
+      const body = { kiosk: boxes.kiosk.checked };
+      if (boxes.alnasl) body.alnasl = boxes.alnasl.checked;
       S.services = await api("/api/services", body);
       status.replaceChildren(msg("ok", t("kbd_saved_w")));
       return true;
@@ -695,6 +769,78 @@ function svcPage(wiz) {
   showWarn();
   if (wiz) { body.save = save; return body; }
   sub(t("services"), body);
+}
+
+/* ---------------------------------------------------------- printers ----- */
+// Polis prints through CUPS; this page is CUPS's printer list, as small as it can be (docs/v7-plan.md).
+async function printersPage() {
+  const list = h("div", {});
+  const status = h("div", {});
+  const usb = h("div", {});
+  async function draw(r) {
+    try { r = r || await api("/api/printers"); } catch (e) { status.replaceChildren(msg("bad", errText(e))); return; }
+    const act = (path, name, okText) => async () => {
+      try { const j = await api(path, { name }); status.replaceChildren(msg("ok", okText || t("sound_saved"))); if (j.printers) draw(j); }
+      catch (e) { status.replaceChildren(msg("bad", errText(e))); }
+    };
+    list.replaceChildren(
+      r.cups ? null : msg("warn", t("printer_cups_off")),
+      r.printers.length ? h("div", { class: "list" }, r.printers.map((p) => h("div", { class: "item wrap", id: "printer-" + p.name },
+        h("span", { class: "grow" }, h("strong", {}, p.name), " ", p.default ? h("span", { class: "pill" }, t("printer_default")) : null,
+          h("br"), h("span", { class: "dim small" }, p.uri)),
+        h("span", { class: "row" },
+          h("button", { class: "btn sm", onclick: act("/api/printers/test", p.name, t("printer_test_sent")) }, t("printer_test")),
+          p.default ? null : h("button", { class: "btn sm", onclick: act("/api/printers/default", p.name) }, t("printer_make_default")),
+          h("button", { class: "btn sm danger", onclick: act("/api/printers/remove", p.name) }, t("printer_remove"))))))
+        : h("p", { class: "dim" }, t("printers_none")));
+  }
+  const addr = field(t("printer_addr"), { value: "", id: "printer-addr" });
+  const name = field(t("printer_name"), { value: "", id: "printer-name" });
+  const addBtn = h("button", { class: "btn primary", id: "printer-add", onclick: async () => {
+    addBtn.disabled = true; status.replaceChildren(busy(t("adding")));
+    try { const r = await api("/api/printers/add", { address: addr.input.value.trim(), name: name.input.value.trim() }); closeOsk(); status.replaceChildren(msg("ok", t("sound_saved"))); draw(r); }
+    catch (e) { status.replaceChildren(msg("bad", errText(e))); }
+    addBtn.disabled = false;
+  } }, t("add"));
+  const usbBtn = h("button", { class: "btn", id: "printer-usb-scan", onclick: async () => {
+    usb.replaceChildren(busy(t("printer_usb_scan")));
+    try {
+      const r = await api("/api/printers/usb");
+      usb.replaceChildren(r.usb.length ? h("div", { class: "list" }, r.usb.map((u) => h("button", { class: "item", onclick: async () => {
+        status.replaceChildren(busy(t("adding")));
+        try { draw(await api("/api/printers/add", { usb: u })); status.replaceChildren(msg("ok", t("sound_saved"))); } catch (e) { status.replaceChildren(msg("bad", errText(e))); }
+      } }, h("span", { class: "grow" }, decodeURIComponent(u.slice(6).split("?")[0])), h("span", { class: "pill" }, t("add")))))
+        : h("p", { class: "dim" }, t("printer_usb_none")));
+    } catch (e) { usb.replaceChildren(msg("bad", errText(e))); }
+  } }, t("printer_usb_scan"));
+  sub(t("printers"), [h("p", { class: "dim" }, t("printers_d")), list, status,
+    h("div", { class: "card" }, h("h2", {}, t("printer_add")), addr.el, name.el, addBtn),
+    h("div", { class: "card" }, h("h2", {}, t("printer_usb")), usbBtn, usb)]);
+  draw();
+}
+
+/* ------------------------------------------------------------- sound ----- */
+async function soundPage() {
+  const status = h("div", {});
+  let r;
+  try { r = await api("/api/sound"); } catch (e) { sub(t("sound"), [msg("bad", errText(e))]); return; }
+  const outs = r.outputs.length ? r.outputs : [];
+  const list = h("div", { class: "list" }, outs.map((o) => {
+    const it = h("button", { class: "item" + (o === r.output ? " sel" : ""), id: "out-" + o, onclick: async () => {
+      try { r = await api("/api/sound", { output: o }); [...list.children].forEach((c) => c.classList.remove("sel")); it.classList.add("sel"); status.replaceChildren(msg("ok", t("sound_saved"))); }
+      catch (e) { status.replaceChildren(msg("bad", errText(e))); }
+    } }, h("span", { class: "grow" }, t("out_" + o)));
+    return it;
+  }));
+  const val = h("b", {}, r.volume + "%");
+  const vol = h("input", { type: "range", min: "0", max: "100", step: "5", value: String(r.volume), id: "volume", class: "range",
+    oninput: () => { val.textContent = vol.value + "%"; },
+    onchange: async () => { try { r = await api("/api/sound", { volume: Number(vol.value) }); status.replaceChildren(msg("ok", t("sound_saved"))); } catch (e) { status.replaceChildren(msg("bad", errText(e))); } } });
+  const test = h("button", { class: "btn primary", id: "sound-test", onclick: async () => {
+    try { await api("/api/sound/test", {}); status.replaceChildren(msg("ok", t("sound_testing"))); } catch (e) { status.replaceChildren(msg("bad", errText(e))); }
+  } }, t("sound_test"));
+  sub(t("sound"), [h("p", { class: "dim" }, t("sound_d")), outs.length ? list : msg("warn", t("sound_none")),
+    h("div", { class: "card" }, h("h2", {}, t("volume")), h("div", { class: "row" }, vol, val)), h("div", { class: "row" }, test), status]);
 }
 
 /* ----------------------------------------------------------- display ----- */
@@ -869,12 +1015,12 @@ function confirmNet(iface, secs, redraw) {
 
 /* ------------------------------------------------------------ wizard ---- */
 const STEPS = ["welcome", "mode", "keyboard", "network", "services", "finish"];
-let WMODE = null;  // the choice of the mode step; only sent (and applied) at the end of the wizard
-// The step after `step`; a slave has no Alnasl and no screen to switch on or off, so it skips "services".
-function stepAfter(step) { let n = step + 1; if (WMODE === "slave" && STEPS[n] === "services") n++; return n; }
-function stepBefore(step) { let n = step - 1; if (WMODE === "slave" && STEPS[n] === "services") n--; return n; }
+let WMODE = null;  // the choice of the role step ("mode", as in v6); only sent (and applied) at the end of the wizard
+// The step after `step`; only an Alnasl box has the Services step (Alnasl on or off, the screen on or off).
+function stepAfter(step) { let n = step + 1; if (WMODE !== "alnasl" && STEPS[n] === "services") n++; return n; }
+function stepBefore(step) { let n = step - 1; if (WMODE !== "alnasl" && STEPS[n] === "services") n--; return n; }
 function wizard(step) {
-  if (WMODE === null) WMODE = sessionStorage.getItem("wizmode") || modeNow();
+  if (WMODE === null) WMODE = canonRole(sessionStorage.getItem("wizmode")) || roleChosen();
   sessionStorage.setItem("wizstep", String(step));
   if (location.pathname === "/setup") qset({ step: String(step) });
   const name = STEPS[step];
@@ -889,14 +1035,14 @@ function wizard(step) {
       nav(() => wizard(stepAfter(step)), t("next"))];
   } else if (name === "mode") {
     const choice = (id) => {
-      const it = h("button", { class: "item" + (WMODE === id ? " sel" : ""), id: "mode-" + id, onclick: () => {
+      const it = roleItem(id, WMODE === id, () => {
         WMODE = id; sessionStorage.setItem("wizmode", id);
         [...list.children].forEach((c) => c.classList.remove("sel")); it.classList.add("sel");
-      } }, h("span", { class: "grow", style: "white-space:normal" }, h("strong", {}, t("mode_" + id)), h("br"), h("span", { class: "dim" }, t("mode_" + id + "_d"))));
+      });
       return it;
     };
-    const list = h("div", { class: "list" }, [choice("master"), choice("slave")]);
-    body = [h("h1", {}, t("mode_title")), list, nav(() => wizard(stepAfter(step)), t("next"))];
+    const list = h("div", { class: "list" }, ROLES.map(choice));
+    body = [h("h1", {}, t("role_title")), h("p", { class: "dim" }, t("role_d")), list, nav(() => wizard(stepAfter(step)), t("next"))];
   } else if (name === "keyboard") {
     body = [h("h1", {}, t("keyboard")), kbdPage(true), nav(() => wizard(stepAfter(step)), t("next"))];
   } else if (name === "network") {
@@ -905,17 +1051,18 @@ function wizard(step) {
     const sb = svcPage(true);
     body = [h("h1", {}, t("services")), sb, nav(() => wizard(stepAfter(step)), t("next"), sb.save)];
   } else {
-    const slave = WMODE === "slave";
-    body = [h("div", { class: "center", style: "padding:50px 0" }, h("h1", {}, t("done_title")), h("p", { class: "dim" }, t(slave ? "done_slave_d" : "done_d")),
+    const change = WMODE !== roleNow();
+    body = [h("div", { class: "center", style: "padding:50px 0" }, h("h1", {}, t("done_title")),
+      h("p", { class: "dim" }, change && WMODE !== "alnasl" ? t("done_" + WMODE + "_d") : tf("done_d", ROLE_NAME[WMODE])),
       h("button", { class: "btn primary", id: "wiz-finish", onclick: async () => {
         LEAVING = true;
-        // The mode goes with the last request: a box that lost power half way must not come back as a slave. A change
-        // of mode restarts the box (the other app takes over at boot); the same mode just opens Alnasl.
+        // The role goes with the last request: a box that lost power half way must not come back as something else.
+        // A change of role restarts the box (the other app takes over at boot); the same role just opens its page.
         const r = await api("/api/finish", { mode: WMODE }).catch(() => ({}));
         sessionStorage.removeItem("wizstep"); sessionStorage.removeItem("wizmode");
         if (r.reboot) { modal([busy(t("restart_now"))]); location.href = "/screen"; return; }
-        modal([busy(t("open_alnasl"))]); await sleep(4500); location.href = "/";
-      } }, t(slave ? "restart_now" : "open_alnasl")))];
+        modal([busy(tf("open_alnasl", ROLE_NAME[WMODE]))]); await sleep(4500); location.href = "/";
+      } }, change ? t("restart_now") : tf("open_alnasl", ROLE_NAME[WMODE])))];
   }
   shell(t("first_run"), [dots, ...body], {});
 }

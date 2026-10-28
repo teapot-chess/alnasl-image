@@ -924,41 +924,234 @@ SUPPORT_DEFAULT_URL = "https://alnasl.zerotwo.cloud/support/upload"
 SUPPORT_MAX_BYTES = 2000000              # the server refuses more than 2 MiB
 SUPPORT_TIMEOUT = 25
 MODE_FILE = STATE_DIR + "/mode"
-MODE_RUN = "/run/alnasl-mode/mode"        # what alnasl-mode started this boot as
-MODES = ("master", "slave")
+ROLE_RUN = "/run/alnasl-mode/role"        # what alnasl-mode started this boot as (v7 word)
+# v7: four roles (docs/v7-plan.md section 1). v6's two words still mean the first two, everywhere.
+ROLES = ("alnasl", "arkab", "polis", "nunki")
+ALIASES = {"master": "alnasl", "slave": "arkab"}
+LEGACY = {"alnasl": "master", "arkab": "slave"}
+MODES = ROLES + tuple(ALIASES)            # what a request may say
+# The page each role shows on the box's screen; its port answering is "up".
+ROLE_PORT = {"alnasl": 4040, "arkab": 4050, "polis": 4061, "nunki": 4062}
+
+
+def canon_role(word):
+    w = (word or "").strip().lower()
+    w = ALIASES.get(w, w)
+    return w if w in ROLES else None
 
 
 def get_mode():
-    """The box's mode as chosen: master (Alnasl and the hall screen) or slave (Arkab only). Nothing set
-    means master."""
-    m = read(MODE_FILE).strip()
-    return m if m in MODES else "master"
+    """The box's role as chosen. Nothing set (or nonsense) means alnasl."""
+    return canon_role(read(MODE_FILE)) or "alnasl"
+
+
+def running_role():
+    return canon_role(read(ROLE_RUN)) or get_mode()
 
 
 def mode_status():
-    return {"mode": get_mode(), "set": read(MODE_FILE).strip() in MODES,
-            "running": (read(MODE_RUN).strip() or get_mode())}
+    """GET /api/mode. "mode" stays v6's word for the two v6 roles (Arkab's page compares it with
+    master/slave); "role" is the v7 word."""
+    role, run_ = get_mode(), running_role()
+    return {"mode": LEGACY.get(role, role), "role": role, "roles": list(ROLES),
+            "set": canon_role(read(MODE_FILE)) is not None,
+            "running": LEGACY.get(run_, run_), "running_role": run_}
 
 
 def set_mode(mode):
-    if mode not in MODES:
+    role = canon_role(mode)
+    if role is None:
         raise ValueError("bad_mode")
-    write_atomic(MODE_FILE, mode + "\n", 0o644)
+    write_atomic(MODE_FILE, role + "\n", 0o644)
+    return role
 
 
 def switch_mode(mode, confirm):
-    """Settings > Switch to slave/master, and Arkab's page. The mode is only a file that alnasl-mode reads
+    """Settings > Change what this box is, and Arkab's page. The role is only a file that alnasl-mode reads
     at boot, so the switch is that file and a restart (the boot screen shows it). Nothing is deleted:
-    both apps keep their data, switching back loses nothing."""
+    every app keeps its data, switching back loses nothing."""
     if confirm != "SWITCH":
         raise ValueError("Not confirmed.")
-    if mode not in MODES:
+    role = canon_role(mode)
+    if role is None:
         raise ValueError("bad_mode")
-    if mode == mode_status()["running"] and mode == get_mode():
-        return {"ok": True, "mode": mode, "same": True}
-    set_mode(mode)
+    if role == running_role() and role == get_mode():
+        return {"ok": True, "mode": LEGACY.get(role, role), "role": role, "same": True}
+    set_mode(role)
     power("reboot")
-    return {"ok": True, "mode": mode, "same": False}
+    return {"ok": True, "mode": LEGACY.get(role, role), "role": role, "same": False}
+
+
+def role_up(role=None):
+    try:
+        with socket.create_connection(("127.0.0.1", ROLE_PORT[role or running_role()]), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+def role_wanted(role=None):
+    """The role's own app is switched on (Settings > Services can switch Alnasl off)."""
+    role = role or running_role()
+    return unit_state("%s.service" % role)["enabled"]
+
+
+# ------------------------------------------------------------------ printers --
+# Settings > Printers, on a polis box (docs/v7-plan.md, "Polis on the box"). CUPS from Photon, without
+# cups-filters or Ghostscript: a PDF goes to the printer as it is (/etc/cups/local.convs), so a printer that
+# understands PDF prints (IPP Everywhere network printers, most office printers). Nothing is discovered: the
+# address is typed in, or a USB printer is picked from what CUPS sees.
+PRINTER_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
+PRINTER_ADDR_RE = re.compile(r"^[A-Za-z0-9.:\[\]-]{1,253}$")
+
+
+def _lpstat(*args):
+    rc, out = run(["lpstat", *args], timeout=10)
+    return out if rc == 0 else ""
+
+
+def printers_status():
+    default = ""
+    m = re.search(r"system default destination: (\S+)", _lpstat("-d"))
+    if m:
+        default = m.group(1)
+    uris = dict(re.findall(r"^device for (\S+): (\S+)$", _lpstat("-v"), re.M))
+    out = []
+    for name, rest in re.findall(r"^printer (\S+) (.*)$", _lpstat("-p"), re.M):
+        uri = uris.get(name, "")
+        # what is shown of the address: scheme and host, never a user name or a query in it
+        shown = re.sub(r"//[^@/]*@", "//", uri).split("?")[0]
+        out.append({"name": name, "uri": shown, "default": name == default,
+                    "state": "disabled" if "disabled" in rest else ("printing" if "now printing" in rest else "idle")})
+    return {"printers": out, "cups": unit_state("cups.service")["active"]}
+
+
+def printers_usb():
+    rc, out = run(["lpinfo", "--include-schemes", "usb", "-v"], timeout=30)
+    return {"usb": [u for u in re.findall(r"^direct (usb://\S+)$", out, re.M)][:16] if rc == 0 else []}
+
+
+def _printer_name(b, fallback):
+    n = str(b.get("name") or "").strip()
+    if not n:
+        n = re.sub(r"[^A-Za-z0-9_-]+", "-", fallback).strip("-")[:32] or "printer"
+    if not PRINTER_NAME_RE.fullmatch(n):
+        raise ValueError("bad_printer_name")
+    return n
+
+
+def printer_add(b):
+    usb = str(b.get("usb") or "")
+    if usb:
+        if not usb.startswith("usb://") or usb not in printers_usb()["usb"]:
+            raise ValueError("bad_printer_address")
+        name = _printer_name(b, usb[6:].split("?")[0].replace("/", "-"))
+        cmd = ["lpadmin", "-p", name, "-E", "-v", usb, "-m", "raw"]
+    else:
+        addr = str(b.get("address") or "").strip()
+        if not PRINTER_ADDR_RE.fullmatch(addr):
+            raise ValueError("bad_printer_address")
+        name = _printer_name(b, addr)
+        cmd = ["lpadmin", "-p", name, "-E", "-v", "ipp://%s/ipp/print" % addr, "-m", "everywhere"]
+    rc, out = run(cmd, timeout=60)
+    if rc != 0:
+        log("lpadmin failed for", name)
+        raise ValueError("printer_not_added")
+    if not any(p["default"] for p in printers_status()["printers"]):
+        run(["lpadmin", "-d", name], timeout=20)
+    log("printer added:", name)
+    return printers_status()
+
+
+def _known_printer(b):
+    name = str(b.get("name") or "")
+    if not PRINTER_NAME_RE.fullmatch(name) or name not in [p["name"] for p in printers_status()["printers"]]:
+        raise ValueError("bad_printer_name")
+    return name
+
+
+def printer_default(b):
+    run(["lpadmin", "-d", _known_printer(b)], timeout=20)
+    return printers_status()
+
+
+def printer_remove(b):
+    name = _known_printer(b)
+    run(["lpadmin", "-x", name], timeout=20)
+    log("printer removed:", name)
+    return printers_status()
+
+
+def test_pdf(title, line):
+    """A one-page A4 PDF with two lines of Helvetica: what the printer gets is a PDF, as Polis sends."""
+    def esc(t):
+        return t.encode("ascii", "replace").decode().replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+    content = ("BT /F1 28 Tf 72 740 Td (%s) Tj ET BT /F1 14 Tf 72 700 Td (%s) Tj ET" % (esc(title), esc(line))).encode()
+    objs = [b"<< /Type /Catalog /Pages 2 0 R >>",
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream"]
+    pdf, offs = b"%PDF-1.4\n", []
+    for i, o in enumerate(objs, 1):
+        offs.append(len(pdf))
+        pdf += b"%d 0 obj\n" % i + o + b"\nendobj\n"
+    xref = len(pdf)
+    pdf += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1)
+    pdf += b"".join(b"%010d 00000 n \n" % o for o in offs)
+    pdf += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, xref)
+    return pdf
+
+
+def printer_test(b):
+    name = _known_printer(b)
+    path = "/run/alnasl-setup-testpage.pdf"
+    with open(path, "wb") as f:
+        f.write(test_pdf("Alnasl - test page", "Printer %s, %s" % (name, time.strftime("%Y-%m-%d %H:%M"))))
+    rc, _ = run(["lp", "-d", name, "-t", "Alnasl test page", "-o", "media=A4", path], timeout=30)
+    if rc != 0:
+        raise ValueError("printer_test_failed")
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------- sound --
+# Settings > Sound, on a nunki box: which output the announcer speaks through, and how loud. alnasl-sound
+# writes /etc/asound.conf from sound.conf and sets the volume.
+SOUND_CONF = STATE_DIR + "/sound.conf"
+SOUND = "/usr/local/sbin/alnasl-sound"
+SOUND_OUTPUTS = ("hdmi", "hdmi2", "jack")
+
+
+def sound_status():
+    kv = dict(re.findall(r"^([A-Z]+)=([a-z0-9]*)", read(SOUND_CONF), re.M))
+    rc, out = run([SOUND, "--cards"], timeout=20)
+    have = [w for w in out.split() if w in SOUND_OUTPUTS] if rc == 0 else []
+    out_ = kv.get("OUTPUT") if kv.get("OUTPUT") in SOUND_OUTPUTS else "hdmi"
+    vol = int(kv["VOLUME"]) if kv.get("VOLUME", "").isdigit() and int(kv["VOLUME"]) <= 100 else 80
+    return {"outputs": have, "output": out_, "volume": vol}
+
+
+def set_sound(b):
+    cur = sound_status()
+    out = b.get("output", cur["output"])
+    if out not in SOUND_OUTPUTS:
+        raise ValueError("bad_output")
+    try:
+        vol = int(b.get("volume", cur["volume"]))
+    except (TypeError, ValueError):
+        raise ValueError("bad_volume")
+    if not 0 <= vol <= 100:
+        raise ValueError("bad_volume")
+    write_atomic(SOUND_CONF, "OUTPUT=%s\nVOLUME=%d\n" % (out, vol), 0o644)
+    run([SOUND], timeout=30)
+    return sound_status()
+
+
+def sound_test():
+    lang = get_state().get("lang", "en")
+    line = "Dit is de omroeper. Een, twee, drie." if lang == "nl" else "This is the announcer. One, two, three."
+    later(0.2, run, [SOUND, "--test", "nl" if lang == "nl" else "en", line], 30)
+    return {"ok": True}
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -1010,7 +1203,7 @@ def help_status():
 
 def help_headers():
     s = sysinfo()
-    mode = get_mode()
+    mode = running_role()
     box = (s["serial"] or s["hostname"] or "unknown")
     return {"x-alnasl-box": box[:100], "x-alnasl-version": ("%s/%s" % (s["alnasl"], s["image"]))[:50],
             "x-alnasl-mode": mode[:50]}
@@ -1122,7 +1315,8 @@ def screen_geom():
 def bootscreen():
     st = read(SCREEN_STATE).strip()
     out = {"state": st if st in screen_states() else "", "lang": get_state().get("lang", "en"),
-           "alnasl_wanted": setup_done() and unit_state("alnasl.service")["enabled"], "alnasl_up": alnasl_up()}
+           # v7: "alnasl" here is the role's own app (the page the screen goes to), whatever the role.
+           "alnasl_wanted": setup_done() and role_wanted(), "alnasl_up": role_up(), "role": running_role()}
     val = read(SCREEN_VALUE).strip()
     prog = read(SCREEN_PROGRESS).strip()
     if out["state"] and (val or prog):
@@ -1225,7 +1419,8 @@ def api_get(path, q):
         return {"done": setup_done(), "lang": get_state().get("lang", "en"),
                 "layouts": [{"id": l[0], "label": l[1]} for l in LAYOUTS],
                 "keyboard": get_keyboard(), "services": services_status(),
-                "scale": get_kiosk_conf()["KIOSK_SCALE"], "alnasl_up": alnasl_up(), "mode": mode_status()}
+                "scale": get_kiosk_conf()["KIOSK_SCALE"], "alnasl_up": alnasl_up(), "mode": mode_status(),
+                "role_up": role_up(), "role_port": ROLE_PORT[running_role()]}
     if path == "/api/resolution":
         return res_status()
     if path == "/api/net":
@@ -1260,6 +1455,12 @@ def api_get(path, q):
         return system_status()
     if path == "/api/mode":
         return mode_status()
+    if path == "/api/printers":
+        return printers_status()
+    if path == "/api/printers/usb":
+        return printers_usb()
+    if path == "/api/sound":
+        return sound_status()
     if path == "/healthz":
         return {"ok": True}
     return None
@@ -1302,16 +1503,14 @@ def api_post(path, b):
     if path == "/api/resolution/undo":
         return cancel_resolution()
     if path == "/api/finish":
-        # The wizard's first question (Master / Slave) is only written here, at the end: a box that lost
-        # power half way through the wizard must not come back as a slave with no screen to finish on.
+        # The wizard's first question (what is this box) is only written here, at the end: a box that lost
+        # power half way through the wizard must not come back as something it cannot finish the wizard on.
         want = b.get("mode")
-        if want is not None and want not in MODES:
-            raise ValueError("bad_mode")
         if want is not None:
-            set_mode(want)
+            want = set_mode(str(want))
         write_atomic(DONE, "1\n")
         page_ping("")
-        if want is not None and want != mode_status()["running"]:
+        if want is not None and want != running_role():
             power("reboot")  # the other app takes the box over at the next boot
             return {"ok": True, "reboot": True}
         restart_kiosk()
@@ -1338,8 +1537,20 @@ def api_post(path, b):
         return power(b.get("action", ""))
     if path == "/api/reset":
         return factory_reset(b.get("confirm", ""))
-    if path == "/api/mode":  # {"mode": "master"|"slave", "confirm": "SWITCH"}; Settings and Arkab's page
+    # {"mode": "alnasl"|"arkab"|"polis"|"nunki" (or v6's "master"|"slave"), "confirm": "SWITCH"};
+    # Settings and Arkab's page
+    if path == "/api/mode":
         return switch_mode(str(b.get("mode", "")), b.get("confirm", ""))
+    # Settings > Printers (polis) and Settings > Sound (nunki)
+    if path in ("/api/printers/add", "/api/printers/default", "/api/printers/remove", "/api/printers/test"):
+        if running_role() != "polis":
+            raise ValueError("not_polis")
+        return {"add": printer_add, "default": printer_default, "remove": printer_remove,
+                "test": printer_test}[path.rsplit("/", 1)[1]](b)
+    if path in ("/api/sound", "/api/sound/test"):
+        if running_role() != "nunki":
+            raise ValueError("not_nunki")
+        return set_sound(b) if path == "/api/sound" else sound_test()
     # System updates (menu > Settings > System updates; Arkab's status page through the same API).
     if path == "/api/system/check":
         return system_check()
@@ -1405,11 +1616,12 @@ class H(BaseHTTPRequestHandler):
                 if back:
                     log("start page: returning to", back)
                     return self._send(302, b"", extra={"Location": back})
-                # Where the kiosk starts: the wizard until setup is done, then Alnasl.
+                # Where the kiosk starts: the wizard until setup is done, then the role's own page (Alnasl,
+                # Arkab, Polis or Nunki); the menu, which says what is wrong, when that is not up.
                 if not setup_done():
                     return self._send(302, b"", extra={"Location": "/setup"})
-                if unit_state("alnasl.service")["enabled"] and alnasl_up():
-                    return self._send(302, b"", extra={"Location": "http://localhost:%d/" % ALNASL_PORT})
+                if role_wanted() and role_up():
+                    return self._send(302, b"", extra={"Location": "http://localhost:%d/" % ROLE_PORT[running_role()]})
                 return self._send(302, b"", extra={"Location": "/menu"})
             if path in ("/boot", "/screen"):
                 # The kiosk's first page, and where it waits while Alnasl is away: the boot screen.
