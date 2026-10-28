@@ -78,7 +78,7 @@ rep = diag.report_text(info, jl, {"hostname": "alnasl-test", "note": secret_blob
 check(not leaked(rep), "the full report has no secret (%d bytes)" % len(rep))
 check("HomeNet" in rep and "486f6d654e6574" in rep, "the report keeps SSIDs")
 check(all(not leaked(s["text"]) for s in info["sections"]) and all(not leaked(j["text"]) for j in jl), "sections and journals are clean on their own")
-check({s["id"] for s in info["sections"]} == {"wifi", "network", "services", "kiosk", "updates"}, "the five sections exist")
+check({s["id"] for s in info["sections"]} == {"wifi", "network", "role", "services", "kiosk", "updates"}, "the six sections exist (v7.1: the role)")
 check(all(c["id"] in ("driver", "hardware", "firmware", "interface", "link", "supplicant") for c in info["checks"]), "the check ids are known")
 
 # 4. the file on the 'boot partition' (a temp directory here)
