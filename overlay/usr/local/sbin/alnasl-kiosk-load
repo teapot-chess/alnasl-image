@@ -45,7 +45,12 @@ with open(path, "rb") as f:
         pct = min(99, done * 100 // size)  # 100 once docker says it is done, not when the last byte leaves
         if pct != last and time.monotonic() - t >= 1:
             last, t = pct, time.monotonic()
-            subprocess.run(["/usr/local/sbin/alnasl-splash", "--progress", str(pct)], timeout=20)
+            # v7.1: the bar is a nicety. A painter slow to start (a busy SD card) used to raise here, which
+            # cut the pipe and failed the whole load ("gzip: unexpected end of file"); now it only skips a step.
+            try:
+                subprocess.run(["/usr/local/sbin/alnasl-splash", "--progress", str(pct)], timeout=20)
+            except Exception:
+                pass
 out.flush()
 ' "$TAR" | gzip -dc | docker load; then
   /usr/local/sbin/alnasl-splash --progress 100

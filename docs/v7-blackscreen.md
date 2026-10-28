@@ -68,6 +68,19 @@ three of these hold:
 So a screen that goes black **after** Chromium's first page counts as healthy, and the box does not
 roll back by itself.
 
+A second weak point appeared in the same boot's journal. alnasl-kiosk-load's reader calls
+`alnasl-splash --progress N` with a 20 s timeout. When the painter was slow to start, the reader raised
+`subprocess.TimeoutExpired`, which cut the pipe into `docker load`:
+
+```
+TimeoutExpired: Command '['/usr/local/sbin/alnasl-splash', '--progress', '6']' timed out after 19.9 seconds
+gzip: stdin: unexpected end of file
+alnasl-kiosk-load: docker load failed
+```
+
+The load then starts again from 0 % every 30 s. On a slow or busy card it may never finish. That boot's
+other failed attempt was real gzip corruption, which is qemu's SD emulation.
+
 ## Ruled out (with what)
 
 - **The role mapping.** "master" becomes alnasl. alnasl-mode's chroot tests in verify.sh pass, and in
@@ -87,6 +100,8 @@ roll back by itself.
 
 - **`alnasl-kiosk-load.service`:** `Wants=docker.service`, not `Requires`. The script waits up to
   15 min for `docker info` and kicks `docker.service` while it waits.
+- **The progress call in alnasl-kiosk-load** can no longer raise. A slow painter skips a step of the bar;
+  it never fails the load.
 - **`alnasl-kiosk`:** after 60 s with no image and no alnasl-kiosk-load running, it starts the load
   again.
 - **`containerd.service.d/alnasl.conf`:** `TimeoutStartSec=300`, `Restart=on-failure`.

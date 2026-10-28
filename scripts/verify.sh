@@ -724,6 +724,7 @@ echo "== v7.1: the screen after an update, and what a box with no screen can sti
 KL=$R/etc/systemd/system/alnasl-kiosk-load.service
 grep -q '^Requires=docker.service' $KL && bad "alnasl-kiosk-load Requires=docker: a late docker drops it for good" || ok "alnasl-kiosk-load does not Require docker (a late docker cannot drop it)"
 grep -q 'docker info' $R/usr/local/sbin/alnasl-kiosk-load && ok "alnasl-kiosk-load waits for docker itself" || bad "alnasl-kiosk-load does not wait for docker"
+grep -B1 -A3 '"--progress", str(pct)' $R/usr/local/sbin/alnasl-kiosk-load | grep -q 'except Exception' && ok "alnasl-kiosk-load: a slow progress painter cannot cut the docker load" || bad "alnasl-kiosk-load: the progress call can still kill the load"
 grep -q 'systemctl start --no-block alnasl-kiosk-load.service' $R/usr/local/sbin/alnasl-kiosk && ok "alnasl-kiosk asks for the image again when nothing is loading it" || bad "alnasl-kiosk never asks for the image again"
 cdd=$(cat $R/etc/systemd/system/containerd.service.d/*.conf 2>/dev/null)
 grep -q '^TimeoutStartSec=300$' <<<"$cdd" && grep -q '^Restart=on-failure$' <<<"$cdd" && ok "containerd: 5 min to start, and another try (drop-in)" || bad "containerd start timeout/restart drop-in missing"
