@@ -1,0 +1,52 @@
+#!/bin/bash
+# Loads the kiosk container image baked into this system slot. No internet.
+# v6 A/B: docker's store is on the data partition and outlives slots, so "already loaded" is not enough:
+# the store must hold THIS slot's kiosk (assemble.sh wrote its image ID next to the tarball). It is
+# loaded at the first boot, after a reset (the store was emptied) and after an update brought a new
+# kiosk. The tarball stays in the slot for exactly those cases; the old image is pruned afterwards.
+TAR=/var/lib/alnasl-image/alnasl-kiosk.tar.gz
+WANT=$(cat /usr/share/alnasl/kiosk-image-id 2>/dev/null)
+HAVE=$(docker image inspect alnasl-kiosk:latest --format '{{.Id}}' 2>/dev/null)
+if [ -n "$HAVE" ] && { [ -z "$WANT" ] || [ "$HAVE" = "$WANT" ]; }; then
+  exit 0
+fi
+if [ ! -f "$TAR" ]; then
+  [ -n "$HAVE" ] && { echo "alnasl-kiosk-load: no tarball in this slot; keeping the loaded kiosk ($HAVE)"; exit 0; }
+  echo "alnasl-kiosk-load: no image at $TAR and none loaded; no kiosk"
+  exit 0
+fi
+echo "alnasl-kiosk-load: loading $TAR (${HAVE:+replacing $HAVE; }a few minutes on an SD card)"
+/usr/local/sbin/alnasl-splash --progress 0
+/usr/local/sbin/alnasl-splash --set firstboot-2
+# The bar follows how much of the tarball has been read: docker load reads as fast as it unpacks, so the
+# pipe keeps the two honest. Last few percent can sit a while as docker commits the layers. It still beats
+# a sentence about the display.
+set -o pipefail
+if python3 -c '
+import os, subprocess, sys, time
+path = sys.argv[1]
+size, done, last, t = os.path.getsize(path) or 1, 0, -1, 0.0
+out = sys.stdout.buffer
+with open(path, "rb") as f:
+    while True:
+        b = f.read(1 << 20)
+        if not b:
+            break
+        out.write(b)
+        done += len(b)
+        pct = min(99, done * 100 // size)  # 100 once docker says it is done, not when the last byte leaves
+        if pct != last and time.monotonic() - t >= 1:
+            last, t = pct, time.monotonic()
+            subprocess.run(["/usr/local/sbin/alnasl-splash", "--progress", str(pct)], timeout=20)
+out.flush()
+' "$TAR" | gzip -dc | docker load; then
+  /usr/local/sbin/alnasl-splash --progress 100
+  docker image prune -f >/dev/null 2>&1
+  /usr/local/sbin/alnasl-splash --progress clear
+  /usr/local/sbin/alnasl-splash --set firstboot-3
+  echo "alnasl-kiosk-load: done ($(docker image inspect alnasl-kiosk:latest --format '{{.Id}}' 2>/dev/null))"
+  exit 0
+fi
+/usr/local/sbin/alnasl-splash --progress clear
+echo "alnasl-kiosk-load: docker load failed" >&2
+exit 1

@@ -1,0 +1,13 @@
+[Unit]
+Description=Alnasl A/B: is this a new slot on trial, is it healthy, was there a rollback
+Documentation=file:///usr/local/sbin/alnasl-system-update
+RequiresMountsFor=/boot/efi /var/lib/alnasl-os-update
+After=alnasl-data.service alnasl-setup.service
+
+[Service]
+# Not oneshot: it may wait up to 15 minutes for Alnasl and the screen, and nothing should wait for it.
+Type=simple
+ExecStart=/usr/local/sbin/alnasl-system-update --boot-check
+
+[Install]
+WantedBy=multi-user.target

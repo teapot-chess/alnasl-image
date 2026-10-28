@@ -1,0 +1,19 @@
+[Unit]
+Description=Alnasl data partition (grow, check, mount on /data, bind what the box keeps)
+Documentation=file:///usr/local/sbin/alnasl-data
+# Before anything that reads or writes what lives there: the journal, the network, Wi-Fi, docker,
+# Alnasl, the setup server. Nothing here may stop the boot (the script never fails).
+DefaultDependencies=no
+After=systemd-remount-fs.service local-fs-pre.target
+Wants=local-fs-pre.target
+Before=local-fs.target systemd-journal-flush.service systemd-tmpfiles-setup.service systemd-networkd.service shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/alnasl-data
+TimeoutStartSec=15min
+
+[Install]
+WantedBy=local-fs.target

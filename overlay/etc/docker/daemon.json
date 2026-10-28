@@ -1,0 +1,8 @@
+{
+  "iptables": false,
+  "ip6tables": false,
+  "bridge": "none",
+  "ip-forward": false,
+  "storage-driver": "overlay2",
+  "log-driver": "journald"
+}

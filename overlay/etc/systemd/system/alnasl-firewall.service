@@ -1,0 +1,19 @@
+[Unit]
+Description=Alnasl firewall (fail-open-safe: Alnasl always let in, nothing else)
+Documentation=file:///usr/local/sbin/alnasl-firewall
+DefaultDependencies=no
+After=systemd-modules-load.service local-fs.target
+Before=network-pre.target
+Wants=network-pre.target
+Conflicts=shutdown.target iptables.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/alnasl-firewall start
+ExecStop=/usr/local/sbin/alnasl-firewall stop
+# The script always exits 0; if even that is not so, the box stays open.
+SuccessExitStatus=0 1 2
+
+[Install]
+WantedBy=multi-user.target

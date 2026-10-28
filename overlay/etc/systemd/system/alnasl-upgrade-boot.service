@@ -1,0 +1,16 @@
+[Unit]
+Description=Alnasl train upgrade from /boot/efi/alnasl-upgrade.txt
+Documentation=file:///usr/local/sbin/alnasl-system-update
+RequiresMountsFor=/boot/efi /var/lib/alnasl-os-update
+ConditionPathExists=/boot/efi/alnasl-upgrade.txt
+After=alnasl-data.service alnasl-wifi.service network.target alnasl-slot-check.service
+
+[Service]
+# The file is consumed (deleted) first, so a failed upgrade cannot loop; the result says what happened.
+Type=oneshot
+ExecStart=/usr/local/sbin/alnasl-system-update --from-boot-file
+TimeoutStartSec=120min
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

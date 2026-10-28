@@ -1,0 +1,28 @@
+#!/bin/bash
+# alnasl-screen: start or stop the full-screen display (the kiosk) from a text console.
+#
+#   alnasl-screen stop      stop the screen until the next boot (Alnasl keeps running)
+#   alnasl-screen start     bring the screen back
+#   alnasl-screen status    is it running
+#
+# Text consoles: Ctrl+Alt+F2 / F3 (log in as root); Ctrl+Alt+F1 returns to the screen.
+case "${1:-status}" in
+  start)
+    systemctl enable alnasl-kiosk.service >/dev/null 2>&1
+    systemctl start --no-block alnasl-kiosk.service
+    chvt 1 2>/dev/null
+    echo "The screen is starting (a few seconds)."
+    ;;
+  stop)
+    systemctl stop alnasl-kiosk.service
+    chvt 1 2>/dev/null
+    echo "The screen is stopped until the next boot. 'alnasl-screen start' brings it back."
+    ;;
+  status)
+    systemctl is-active alnasl-kiosk.service
+    ;;
+  *)
+    echo "usage: alnasl-screen [start|stop|status]" >&2
+    exit 2
+    ;;
+esac

@@ -1,0 +1,11 @@
+# Erase the Alnasl hall box back to new, without a screen.
+#
+# To use it: make a file called "alnasl-reset.txt" in this folder whose FIRST
+# line is the word RESET (capitals, nothing else on that line), and boot the Pi.
+# This example does not count as it is: its first line is this comment.
+#
+# At boot the box deletes the file first (so it cannot happen twice), then
+# erases Alnasl's data, the settings, the Wi-Fi networks and the logs, showing
+# its progress on the screen, and restarts into the first-time setup wizard.
+# The system and Alnasl itself stay. Anything else on the first line: the file
+# is deleted and nothing is erased.

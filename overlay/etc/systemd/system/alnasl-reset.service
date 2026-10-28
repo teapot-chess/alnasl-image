@@ -1,0 +1,8 @@
+[Unit]
+Description=Alnasl reset: erase this box back to new (started from the menu)
+Documentation=file:///usr/local/sbin/alnasl-reset
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/alnasl-reset --yes
+TimeoutStartSec=15min

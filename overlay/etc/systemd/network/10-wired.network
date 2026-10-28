@@ -1,0 +1,15 @@
+# Wired: DHCP on any Ethernet interface. (Replaces the image's own
+# 99-dhcp-en.network, which is removed so there is one file, not two.)
+[Match]
+Name=e*
+
+[Network]
+DHCP=yes
+IPv6AcceptRA=no
+MulticastDNS=yes
+
+[DHCPv4]
+SendRelease=no
+
+[Link]
+RequiredForOnline=no

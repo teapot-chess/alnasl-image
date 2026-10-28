@@ -1,0 +1,12 @@
+[Unit]
+Description=Alnasl system update asked for (menu, Arkab): install now, or upgrade to another train
+Documentation=file:///usr/local/sbin/alnasl-system-update
+RequiresMountsFor=/boot/efi /var/lib/alnasl-os-update
+After=network.target alnasl-data.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/alnasl-system-update --request
+TimeoutStartSec=120min
+Nice=10
+IOSchedulingClass=idle

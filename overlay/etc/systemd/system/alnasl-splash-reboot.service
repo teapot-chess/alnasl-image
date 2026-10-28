@@ -1,0 +1,13 @@
+[Unit]
+Description=Alnasl boot screen: the last picture before a restart
+# Pulled in by reboot.target; starts after the kiosk has stopped (a stop always goes before a start).
+DefaultDependencies=no
+After=alnasl-kiosk.service
+Before=shutdown.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/alnasl-splash --shutdown reboot
+
+[Install]
+WantedBy=reboot.target

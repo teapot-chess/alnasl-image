@@ -1,0 +1,13 @@
+[Unit]
+Description=Alnasl OS updates, nightly between 03:00 and 05:00
+
+[Timer]
+# 03:00 plus up to 110 minutes at random, so a hall full of boxes does not hit the mirror at once
+# and every run starts inside the window. A night the box was off is skipped, not caught up at noon.
+OnCalendar=*-*-* 03:00:00
+RandomizedDelaySec=110min
+AccuracySec=1min
+Persistent=false
+
+[Install]
+WantedBy=timers.target

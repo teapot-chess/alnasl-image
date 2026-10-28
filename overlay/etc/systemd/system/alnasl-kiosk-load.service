@@ -1,0 +1,15 @@
+[Unit]
+Description=Alnasl kiosk: load the container image baked into the SD image
+After=docker.service
+Requires=docker.service
+ConditionPathExists=/var/lib/alnasl-image/alnasl-kiosk.tar.gz
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/alnasl-kiosk-load
+TimeoutStartSec=1800
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

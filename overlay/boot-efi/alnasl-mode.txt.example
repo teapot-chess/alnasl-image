@@ -1,0 +1,12 @@
+# Set what this box is, without a screen.
+#
+# To use it: make a file called "alnasl-mode.txt" in this folder whose FIRST
+# line is the word master or slave, and boot the Pi.
+# This example does not count as it is: its first line is this comment.
+#
+#   master  runs the hall: Alnasl and the hall screen (the default)
+#   slave   only reads DGT boards and passes them to a master: Arkab, no screen
+#
+# The file is read at boot and deleted. Nothing is erased: both keep their
+# data, so switching back loses nothing. A slave is joined to its master on
+# its own status page (http://<this box>:4050), once it is on the network.

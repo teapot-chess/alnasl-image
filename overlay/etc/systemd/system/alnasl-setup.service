@@ -1,0 +1,23 @@
+[Unit]
+Description=Alnasl settings and first-run wizard (127.0.0.1:4041 only)
+After=local-fs.target
+# Ordered after the network daemons so a restart of them is not the first thing it sees.
+After=systemd-networkd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/lib/alnasl-setup/server.py
+Restart=always
+RestartSec=3
+# Root is needed (network, services, power); the listener is loopback only.
+StateDirectory=alnasl-setup
+StateDirectoryMode=0700
+NoNewPrivileges=no
+ProtectHome=yes
+# No PrivateTmp: wpa_cli makes its reply socket in /tmp, and wpa_supplicant (started by
+# systemd, outside this unit) answers into the real /tmp. A private one swallows every
+# answer and each scan "times out after 8 s" - which is how v3 met its first real Pi.
+PrivateTmp=no
+
+[Install]
+WantedBy=multi-user.target

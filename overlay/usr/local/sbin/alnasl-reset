@@ -1,0 +1,83 @@
+#!/bin/bash
+# alnasl-reset: erase this box back to new (v6). It then restarts into the first-time setup wizard.
+#
+#   alnasl-reset --yes              from the menu (Settings > Erase this box, held down to confirm)
+#   alnasl-reset --from-boot-file   at boot, when /boot/efi/alnasl-reset.txt says RESET on its first line
+#
+# v6 A/B: everything the box keeps is on the data partition (/data), so erasing is "that partition,
+# empty": this script leaves a flag on it and restarts; alnasl-data formats the partition early in the
+# next boot, before anything uses it. Erased that way: Alnasl's and Arkab's data, the app updater's
+# state, the setup state (wizard done, language, mode: back to master and the wizard), Wi-Fi networks, network, keyboard and screen
+# settings, the logs, the update results, the loaded kiosk image (loaded again from the slot).
+# The slot's own copies of the host name and console keyboard go back to the image's defaults here.
+# Kept: the system slots (the OS and the Alnasl version on them) and the boot partition (except the
+# trigger file, which goes first so a reset cannot loop). Diagnostics saved to the boot partition stay.
+# A card without the data partition (should not exist in v6) is erased in place, as before.
+set -u
+TRIGGER=/boot/efi/alnasl-reset.txt
+DEFAULTS=/usr/share/alnasl/defaults
+SPLASH=/usr/local/sbin/alnasl-splash
+DATA=/data
+
+say() { echo "alnasl-reset: $*"; }
+step() { $SPLASH --set "reset-$1" 2>/dev/null; say "$2"; }
+wipe() { [ -d "$1" ] && find "$1" -mindepth 1 -delete 2>/dev/null; return 0; }
+
+case "${1:-}" in
+  --from-boot-file)
+    [ -f "$TRIGGER" ] || exit 0
+    word=$(head -n 1 "$TRIGGER" | tr -d '\r[:space:]')
+    rm -f "$TRIGGER"; sync
+    if [ "$word" != RESET ]; then say "$TRIGGER did not say RESET on its first line; removed it, erased nothing"; exit 0; fi
+    say "asked for by $TRIGGER"
+    ;;
+  --yes) say "asked for from the menu" ;;
+  *) echo "usage: alnasl-reset --yes | --from-boot-file" >&2; exit 2 ;;
+esac
+
+step 1 "stopping Alnasl, Arkab, the screen and the updaters"
+systemctl stop alnasl-os-update.timer alnasl-os-update.service alnasl-update.path alnasl-update.service \
+  alnasl-system-update.service alnasl-system-update-check.service 2>/dev/null
+systemctl stop alnasl-kiosk.service alnasl.service arkab.service alnasl-setup.service 2>/dev/null
+$SPLASH --once
+
+# The slot's own settings (read before /data is mounted, so they live in the slot): back to the image's.
+for f in etc/vconsole.conf etc/hostname; do
+  [ -f "$DEFAULTS/$f" ] && cp "$DEFAULTS/$f" "/$f"
+done
+# What the services page may have switched off comes back on, as on a new box.
+systemctl enable alnasl.service alnasl-update.path alnasl-kiosk.service alnasl-setup.service alnasl-os-update.timer >/dev/null 2>&1
+
+if mountpoint -q $DATA && [ "$(cat /run/alnasl-data/state 2>/dev/null | cut -c1-3)" = "ok:" ]; then
+  step 2 "marking the data partition to be emptied at the restart"
+  touch $DATA/.alnasl-wipe
+  sync
+  [ -e $DATA/.alnasl-wipe ] || say "WARNING: the flag could not be written; nothing will be erased"
+  step 3 "the hall data, settings, Wi-Fi and logs go with it"
+else
+  say "no data partition in use ($(cat /run/alnasl-data/state 2>/dev/null)); erasing in place"
+  step 2 "erasing the hall data"
+  wipe /var/lib/alnasl
+  wipe /var/lib/arkab
+  wipe /var/lib/alnasl-update
+  if id alnasl >/dev/null 2>&1; then
+    chown alnasl:alnasl /var/lib/alnasl
+    install -d -m 0750 -o alnasl -g alnasl /var/lib/alnasl/update
+  fi
+  [ -d /var/lib/arkab ] && id arkab >/dev/null 2>&1 && chown arkab:arkab /var/lib/arkab
+  step 3 "erasing settings, Wi-Fi and logs"
+  rm -rf /var/lib/alnasl-setup /var/lib/alnasl-os-update /var/lib/alnasl-firstboot.done
+  rm -f /etc/systemd/network/10-wired.network.d/50-alnasl.conf /etc/systemd/network/20-wireless.network.d/50-alnasl.conf
+  for f in etc/alnasl/keyboard.conf etc/alnasl/kiosk.conf etc/wpa_supplicant/wpa_supplicant-wlan0.conf; do
+    [ -f "$DEFAULTS/$f" ] && cp "$DEFAULTS/$f" "$(readlink -f "/$f")"
+  done
+  chmod 0600 /etc/wpa_supplicant/wpa_supplicant-wlan0.conf 2>/dev/null
+  journalctl --rotate >/dev/null 2>&1
+  journalctl --vacuum-time=1s >/dev/null 2>&1
+  find /var/log/journal -mindepth 2 -type f -name '*.journal*' -delete 2>/dev/null
+fi
+rm -rf /run/alnasl-kiosk
+
+step 4 "restarting as new"
+sync
+systemctl reboot

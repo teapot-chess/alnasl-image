@@ -1,0 +1,12 @@
+[Unit]
+Description=Alnasl boot screen: the last picture before the power goes
+DefaultDependencies=no
+After=alnasl-kiosk.service
+Before=shutdown.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/alnasl-splash --shutdown poweroff
+
+[Install]
+WantedBy=poweroff.target halt.target

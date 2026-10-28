@@ -1,0 +1,359 @@
+{
+ "geometry": {
+  "title_y": 214,
+  "sub_y": 282,
+  "dots_y": 346,
+  "dot": 14,
+  "dot_gap": 10,
+  "bar_w": 360,
+  "bar_h": 6,
+  "bar_steps_y": 380
+ },
+ "glyphs": {
+  "1080": {
+   "advance": {
+    "0": 18,
+    "1": 18,
+    "2": 18,
+    "3": 18,
+    "4": 18,
+    "5": 18,
+    "6": 18,
+    "7": 18,
+    "8": 18,
+    "9": 18,
+    ".": 8,
+    "v": 16,
+    "%": 29
+   },
+   "names": {
+    "0": "0",
+    "1": "1",
+    "2": "2",
+    "3": "3",
+    "4": "4",
+    "5": "5",
+    "6": "6",
+    "7": "7",
+    "8": "8",
+    "9": "9",
+    ".": "dot",
+    "v": "v",
+    "%": "pct"
+   },
+   "height": 42
+  },
+  "720": {
+   "advance": {
+    "0": 12,
+    "1": 12,
+    "2": 12,
+    "3": 12,
+    "4": 12,
+    "5": 12,
+    "6": 12,
+    "7": 12,
+    "8": 12,
+    "9": 12,
+    ".": 4,
+    "v": 10,
+    "%": 19
+   },
+   "names": {
+    "0": "0",
+    "1": "1",
+    "2": "2",
+    "3": "3",
+    "4": "4",
+    "5": "5",
+    "6": "6",
+    "7": "7",
+    "8": "8",
+    "9": "9",
+    ".": "dot",
+    "v": "v",
+    "%": "pct"
+   },
+   "height": 29
+  }
+ },
+ "states": {
+  "boot": {
+   "steps": null,
+   "text": false
+  },
+  "firstboot-1": {
+   "steps": [
+    1,
+    3
+   ],
+   "text": true,
+   "value": null,
+   "bar": false,
+   "en": {
+    "title": "Setting up this box",
+    "sub": "Giving it a name"
+   },
+   "nl": {
+    "title": "Deze box wordt klaargemaakt",
+    "sub": "Een naam geven"
+   }
+  },
+  "firstboot-2": {
+   "steps": [
+    2,
+    3
+   ],
+   "text": true,
+   "value": null,
+   "bar": true,
+   "en": {
+    "title": "Setting up this box",
+    "sub": "Unpacking the screen software: a few minutes, only this once"
+   },
+   "nl": {
+    "title": "Deze box wordt klaargemaakt",
+    "sub": "De schermsoftware uitpakken: een paar minuten, alleen deze keer"
+   }
+  },
+  "firstboot-3": {
+   "steps": [
+    3,
+    3
+   ],
+   "text": true,
+   "value": null,
+   "bar": false,
+   "en": {
+    "title": "Setting up this box",
+    "sub": "Starting Alnasl"
+   },
+   "nl": {
+    "title": "Deze box wordt klaargemaakt",
+    "sub": "Alnasl starten"
+   }
+  },
+  "waiting": {
+   "steps": null,
+   "text": true,
+   "value": null,
+   "bar": false,
+   "en": {
+    "title": "Starting Alnasl",
+    "sub": ""
+   },
+   "nl": {
+    "title": "Alnasl starten",
+    "sub": ""
+   }
+  },
+  "update-os": {
+   "steps": null,
+   "text": true,
+   "value": null,
+   "bar": false,
+   "en": {
+    "title": "Updating",
+    "sub": "Back in a minute"
+   },
+   "nl": {
+    "title": "Bijwerken",
+    "sub": "Zo terug"
+   }
+  },
+  "update-reboot": {
+   "steps": null,
+   "text": true,
+   "value": null,
+   "bar": false,
+   "en": {
+    "title": "Updating",
+    "sub": "Restarting, back in a minute"
+   },
+   "nl": {
+    "title": "Bijwerken",
+    "sub": "Herstarten, zo terug"
+   }
+  },
+  "update-finish": {
+   "steps": null,
+   "text": true,
+   "value": null,
+   "bar": false,
+   "en": {
+    "title": "Updating",
+    "sub": "Almost done"
+   },
+   "nl": {
+    "title": "Bijwerken",
+    "sub": "Bijna klaar"
+   }
+  },
+  "update-app": {
+   "steps": null,
+   "text": true,
+   "value": null,
+   "bar": false,
+   "en": {
+    "title": "Updating Alnasl",
+    "sub": "Back in a minute"
+   },
+   "nl": {
+    "title": "Alnasl bijwerken",
+    "sub": "Zo terug"
+   }
+  },
+  "reboot": {
+   "steps": null,
+   "text": true,
+   "value": null,
+   "bar": false,
+   "en": {
+    "title": "Restarting",
+    "sub": "Back in a minute"
+   },
+   "nl": {
+    "title": "Herstarten",
+    "sub": "Zo terug"
+   }
+  },
+  "shutdown": {
+   "steps": null,
+   "text": true,
+   "value": null,
+   "bar": false,
+   "en": {
+    "title": "Shutting down",
+    "sub": "Unplug once the green light has stopped blinking"
+   },
+   "nl": {
+    "title": "Afsluiten",
+    "sub": "Stekker eruit zodra het groene lampje niet meer knippert"
+   }
+  },
+  "reset-1": {
+   "steps": [
+    1,
+    4
+   ],
+   "text": true,
+   "value": null,
+   "bar": false,
+   "en": {
+    "title": "Erasing this box",
+    "sub": "Stopping Alnasl"
+   },
+   "nl": {
+    "title": "Deze box wissen",
+    "sub": "Alnasl stoppen"
+   }
+  },
+  "reset-2": {
+   "steps": [
+    2,
+    4
+   ],
+   "text": true,
+   "value": null,
+   "bar": false,
+   "en": {
+    "title": "Erasing this box",
+    "sub": "Erasing the hall data"
+   },
+   "nl": {
+    "title": "Deze box wissen",
+    "sub": "De zaalgegevens wissen"
+   }
+  },
+  "reset-3": {
+   "steps": [
+    3,
+    4
+   ],
+   "text": true,
+   "value": null,
+   "bar": false,
+   "en": {
+    "title": "Erasing this box",
+    "sub": "Erasing settings, Wi-Fi and logs"
+   },
+   "nl": {
+    "title": "Deze box wissen",
+    "sub": "Instellingen, wifi en logs wissen"
+   }
+  },
+  "reset-4": {
+   "steps": [
+    4,
+    4
+   ],
+   "text": true,
+   "value": null,
+   "bar": false,
+   "en": {
+    "title": "Erasing this box",
+    "sub": "Restarting as new"
+   },
+   "nl": {
+    "title": "Deze box wissen",
+    "sub": "Opnieuw starten als nieuw"
+   }
+  },
+  "update-download": {
+   "steps": null,
+   "text": true,
+   "value": "pct",
+   "bar": true,
+   "en": {
+    "title": "Downloading an update",
+    "sub": ""
+   },
+   "nl": {
+    "title": "Een update downloaden",
+    "sub": ""
+   }
+  },
+  "update-install": {
+   "steps": null,
+   "text": true,
+   "value": null,
+   "bar": true,
+   "en": {
+    "title": "Installing the update",
+    "sub": "Keep the power on"
+   },
+   "nl": {
+    "title": "De update installeren",
+    "sub": "Laat de stroom aan"
+   }
+  },
+  "update-restart": {
+   "steps": null,
+   "text": true,
+   "value": "version",
+   "bar": false,
+   "en": {
+    "title": "Restarting into",
+    "sub": ""
+   },
+   "nl": {
+    "title": "Herstarten naar",
+    "sub": ""
+   }
+  },
+  "update-rolledback": {
+   "steps": null,
+   "text": true,
+   "value": null,
+   "bar": false,
+   "en": {
+    "title": "The update did not work",
+    "sub": "Back on the version it had before"
+   },
+   "nl": {
+    "title": "De update werkte niet",
+    "sub": "Terug op de vorige versie"
+   }
+  }
+ }
+}

@@ -1,0 +1,17 @@
+[Unit]
+Description=Alnasl boot screen (painted on the framebuffer until X has the screen)
+Documentation=file:///usr/local/sbin/alnasl-splash
+# As early as the root file system allows: before sysinit, so before nearly everything that could
+# print. It paints again when vc4 replaces the firmware framebuffer, and stops once X runs.
+DefaultDependencies=no
+Before=sysinit.target shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/alnasl-splash --hold
+Restart=no
+Nice=-5
+
+[Install]
+WantedBy=sysinit.target

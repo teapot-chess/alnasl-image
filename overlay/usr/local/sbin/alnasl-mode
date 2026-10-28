@@ -1,0 +1,83 @@
+#!/bin/bash
+# alnasl-mode: which of the two things this box is (v6, docs/v6-plan.md section 1).
+#
+#   master   Alnasl (the hall's server) and the hall screen (the kiosk).   <- the default
+#   slave    Arkab only: reads the DGT boards and passes them to a master. No Alnasl, no screen.
+#
+# That is all there is to it. /var/lib/alnasl-setup/mode holds "master" or "slave" (it lives on the data
+# partition, so it survives system updates and is gone after a factory reset: back to the wizard, back to
+# master). The wizard's first question, Settings > "Switch to slave/master" and Arkab's page write it;
+# /boot/efi/alnasl-mode.txt can too, for a box with no screen (first line "master" or "slave", read
+# at boot and deleted, like alnasl-reset.txt).
+#
+# Runs at every boot, early (alnasl-mode.service), before any of the units below:
+#   - writes /run/alnasl-mode/{mode,master,slave}. The units of the other side carry a
+#     ConditionPathExists on that flag (drop-ins in /etc/systemd/system/<unit>.d/alnasl-mode.conf), so a
+#     unit of the other mode cannot start, whoever asks: Wants= from another unit, the app's own updater
+#     that rewrites its unit file, a later "systemctl start". (Masking was the first idea; a mask replaces
+#     the unit file, and Alnasl's and Arkab's updaters write those files.)
+#   - when the mode is not the one applied last, enables the right side and disables the other, and
+#     starts the right side now (the boot's own job list was made before this ran).
+#   - keeps the data of both: /var/lib/alnasl and /var/lib/arkab are never touched here, so switching
+#     back loses nothing.
+#
+#   alnasl-mode            at boot
+#   alnasl-mode --status   prints the mode this boot runs as
+set -u
+STATE=/var/lib/alnasl-setup
+MODEFILE=$STATE/mode
+APPLIED=$STATE/mode-applied
+TXT=/boot/efi/alnasl-mode.txt
+RUN=/run/alnasl-mode
+
+MASTER_UNITS="alnasl.service alnasl-update.path alnasl-kiosk.service"
+SLAVE_UNITS="arkab.service arkab-update.path"
+
+say() { echo "alnasl-mode: $*"; }
+
+if [ "${1:-}" = "--status" ]; then
+  cat "$RUN/mode" 2>/dev/null || echo unknown
+  exit 0
+fi
+
+mkdir -p "$STATE" "$RUN"
+
+# 1. the boot-partition file, for a box with no screen to run the wizard on
+if [ -f "$TXT" ]; then
+  word=$(head -n 1 "$TXT" | tr -d '\r[:space:]' | tr '[:upper:]' '[:lower:]')
+  rm -f "$TXT"; sync
+  case "$word" in
+    master|slave)
+      echo "$word" > "$MODEFILE.new" && mv -f "$MODEFILE.new" "$MODEFILE"
+      say "set to $word by $TXT" ;;
+    *) say "$TXT did not say master or slave on its first line; removed it, changed nothing" ;;
+  esac
+fi
+
+# 2. the mode: what the file says, master when it says nothing (or nonsense)
+mode=$({ tr -d '[:space:]' < "$MODEFILE"; } 2>/dev/null)  # no file is the normal case, not news for the journal
+case "$mode" in master|slave) ;; *) mode=master ;; esac
+case "$mode" in master) want="$MASTER_UNITS"; other="$SLAVE_UNITS" ;; *) want="$SLAVE_UNITS"; other="$MASTER_UNITS" ;; esac
+
+rm -f "$RUN/master" "$RUN/slave"
+echo "$mode" > "$RUN/mode"
+touch "$RUN/$mode"
+say "this boot runs as $mode"
+
+# 3. the units. Only on a change of mode (or the first boot after a reset), so what a person switched
+# off in Settings > Services (the screen, say) stays off on a master that has not changed.
+# The other side is switched off every boot (a new system slot comes with everything enabled). Only what is
+# still enabled is touched: enable and disable make systemd reload its units, and nothing needs that on a
+# boot where nothing changed.
+for u in $other; do systemctl is-enabled -q "$u" 2>/dev/null && systemctl disable "$u" >/dev/null 2>&1; done
+if [ "$(cat "$APPLIED" 2>/dev/null)" != "$mode" ]; then
+  say "applying $mode"
+  # shellcheck disable=SC2086
+  systemctl enable $want >/dev/null 2>&1
+  echo "$mode" > "$APPLIED"
+fi
+# Whatever is running of the other side stops (a live switch; at boot there is nothing to stop). What is
+# enabled of this side starts now: the job list of this boot was made before this unit decided anything.
+for u in $other; do systemctl is-active -q "$u" 2>/dev/null && systemctl stop --no-block "$u"; done
+for u in $want; do systemctl is-enabled -q "$u" 2>/dev/null && systemctl start --no-block "$u"; done
+exit 0

@@ -1,0 +1,14 @@
+[Unit]
+Description=Alnasl system update: look for a newer image after boot (looks, installs nothing)
+
+[Timer]
+# Two looks: 2 minutes in (cable networks are up by then), and 10 minutes in for Wi-Fi that took its
+# time. Settings then says "6.x available" the same morning instead of the next. Installing stays
+# where it was: the nightly window, or someone pressing Install. A box switched on at 9:55 for a
+# 10:00 round does not get to restart itself at 9:58, however good the update.
+OnBootSec=2min
+OnBootSec=10min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,1019 @@
+#!/usr/bin/python3
+"""alnasl-system-update: whole-system updates without reflashing (v6, A/B slots).
+
+    alnasl-system-update --check            ask the release index what there is; change nothing
+    alnasl-system-update --nightly          from alnasl-os-update, inside 03:00-05:00 and only when no round
+                                            is live: install the newest image OF THIS BOX'S TRAIN, restart
+                                            into it (exit 3), or leave it staged when the window is over
+    alnasl-system-update --request          what the menu, Arkab or the boot file asked for (the request
+                                            file): "install" (this train, now) or "upgrade" to a named train
+    alnasl-system-update --from-boot-file   /boot/efi/alnasl-upgrade.txt (one word: the train, e.g. v7)
+    alnasl-system-update --boot-check       at every boot: is this a trial of a new slot, is it healthy,
+                                            was there a rollback; marks the slot good or gives up on it
+    alnasl-system-update --status           the status as JSON (the setup server's /api/system)
+
+The card: boot (FAT) | system A | system B | data. One system slot runs, the other takes the next image.
+grub picks the slot from /boot/efi/alnasl/grubenv: alnasl_slot (the good one), alnasl_try + alnasl_tries
+(a new slot on trial, 3 boots), alnasl_failed (set by grub when the trial ran out: it went back).
+
+Trains (the user's rule, never auto-update between them): a train is a major image line (v6). Inside a
+train (6.0 -> 6.1 -> 6.2) updates install by themselves at night. An image of another train is refused
+unless that exact train was asked for with "Upgrade to v7" (menu, Arkab, or alnasl-upgrade.txt).
+
+Trust: the index (index.json) and every image are signed; the signatures are checked with openssl against
+the public key baked into the image (/etc/alnasl/update-key.pub). A placeholder key switches updates off.
+"""
+import datetime
+import fcntl
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+
+RELEASE_FILE = "/etc/alnasl/image-release"
+KEY = "/etc/alnasl/update-key.pub"
+UPDATE_CONF = "/etc/alnasl/update.conf"
+SETUP_STATE = "/var/lib/alnasl-setup/state.json"
+MODE_FILE = "/var/lib/alnasl-setup/mode"
+OS_DIR = "/var/lib/alnasl-os-update"
+DIR = OS_DIR + "/system"
+STATUS = DIR + "/status.json"
+REQUEST = DIR + "/request"
+TRIAL = DIR + "/trial.json"
+DL = DIR + "/download"
+LAST = OS_DIR + "/system-last-result"
+HISTORY = OS_DIR + "/system-history"
+GRUBENV = "/boot/efi/alnasl/grubenv"
+BOOT_FILE = "/boot/efi/alnasl-upgrade.txt"
+SPLASH = "/usr/local/sbin/alnasl-splash"
+LOCK = "/run/alnasl-system-update.lock"
+PAINTED = "/run/alnasl-kiosk/painted"
+NEWSLOT = "/run/alnasl-newslot"
+DEFAULT_INDEX = "https://github.com/teapot-chess/alnasl-image/releases/download/index/index.json"
+
+DISK_ID = "416c6e73"                     # the MBR disk identifier every v6+ image carries ("Alns")
+PARTNO = {"A": 2, "B": 3}
+LABEL = {"A": "ALNASL_A", "B": "ALNASL_B"}
+TRIES = 3                                # boots a new slot gets before grub goes back
+HEALTH_MINUTES = 15                      # a first boot after an update may load a new kiosk image
+WINDOW = (3, 5)                          # [03:00, 05:00): the only hours a nightly restart may happen
+ALNASL_STATUS_URL = "http://127.0.0.1:4040/local/status"
+ENV_HEAD = b"# GRUB Environment Block\n"
+SAFE = re.compile(r"^[A-Za-z0-9._-]{0,64}$")
+TRAIN_RE = re.compile(r"^v([0-9]{1,3})$")
+VERSION_RE = re.compile(r"^([0-9]{1,3})\.([0-9]{1,4})(?:\.([0-9]{1,4}))?$")
+SHA_RE = re.compile(r"^[0-9a-f]{64}$")
+MAX_IMAGE = 4 << 30
+
+
+class Refused(Exception):
+    """Something this box will not do, with the sentence that says why."""
+
+
+def log(*a):
+    print("alnasl-system-update:", *a, flush=True)
+
+
+def now():
+    return datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %z")
+
+
+def read(path, default=""):
+    try:
+        with open(path) as f:
+            return f.read()
+    except OSError:
+        return default
+
+
+def write_atomic(path, text, mode=0o644):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".new"
+    with open(tmp, "w") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.chmod(tmp, mode)
+    os.replace(tmp, path)
+
+
+def run(cmd, timeout=60, **kw):
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, **kw)
+        return p.returncode, (p.stdout or "") + (p.stderr or "")
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return 127, str(e)
+
+
+def kv_file(path):
+    out = {}
+    for line in read(path).splitlines():
+        m = re.match(r'^\s*([A-Z_][A-Z0-9_]*)\s*=\s*"?([^"]*)"?\s*$', line)
+        if m:
+            out[m.group(1)] = m.group(2)
+    return out
+
+
+# ------------------------------------------------------------------ versions --
+
+def train_no(train):
+    m = TRAIN_RE.match(train or "")
+    if not m:
+        raise ValueError("not a train: %r" % train)
+    return int(m.group(1))
+
+
+def vkey(version):
+    m = VERSION_RE.match(version or "")
+    if not m:
+        raise ValueError("not a version: %r" % version)
+    return tuple(int(x or 0) for x in m.groups())
+
+
+def release():
+    """This slot's image: its train and version (assemble.sh writes them)."""
+    r = kv_file(RELEASE_FILE)
+    train, version = r.get("ALNASL_TRAIN", ""), r.get("ALNASL_VERSION", "")
+    train_no(train)
+    vkey(version)
+    return train, version
+
+
+# ----------------------------------------------------------------- grub env --
+
+def read_env(path=GRUBENV):
+    with open(path, "rb") as f:
+        data = f.read()
+    if len(data) != 1024 or not data.startswith(ENV_HEAD):
+        raise OSError("%s is not a 1024-byte grub environment block" % path)
+    env = {}
+    for line in data[len(ENV_HEAD):].decode("ascii", "replace").split("\n"):
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            env[k] = v
+    return env
+
+
+def write_env(env, path=GRUBENV):
+    """In place, same blocks: grub's save_env writes into this file's blocks too, so it is never replaced."""
+    body = ENV_HEAD.decode()
+    for k, v in env.items():
+        if not SAFE.match(k) or not k or not SAFE.match(str(v)):
+            raise ValueError("unsafe grub env entry %r=%r" % (k, v))
+        body += "%s=%s\n" % (k, v)
+    if len(body) > 1024:
+        raise ValueError("grub env too large")
+    data = body.encode().ljust(1024, b"#")
+    with open(path, "r+b") as f:
+        f.seek(0)
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def none(v):
+    return v in (None, "", "none")
+
+
+# ---------------------------------------------------------------- the card --
+
+def root_part():
+    """(disk, partition name, partition number) of the partition / is mounted from."""
+    st = os.stat("/")
+    sysdir = os.path.realpath("/sys/dev/block/%d:%d" % (os.major(st.st_dev), os.minor(st.st_dev)))
+    part = os.path.basename(sysdir)
+    disk = os.path.basename(os.path.dirname(sysdir))
+    return disk, part, int(read(sysdir + "/partition", "0").strip() or 0)
+
+
+def part_dev(disk, n):
+    base = "/sys/class/block/" + disk
+    for e in sorted(os.listdir(base)):
+        if os.path.isfile("%s/%s/partition" % (base, e)) and read("%s/%s/partition" % (base, e)).strip() == str(n):
+            return "/dev/" + e, int(read("%s/%s/size" % (base, e), "0").strip() or 0) * 512
+    raise Refused("partition %d of %s not found: this card does not have the v6 layout" % (n, disk))
+
+
+def current_slot():
+    _, _, n = root_part()
+    by_part = {2: "A", 3: "B"}.get(n)
+    m = re.search(r"(?:^|\s)alnasl\.slot=([AB])(?:\s|$)", read("/proc/cmdline"))
+    if by_part and m and m.group(1) != by_part:
+        log("cmdline says slot %s, / is on partition %d: trusting the partition" % (m.group(1), n))
+    if not by_part:
+        raise Refused("/ is on partition %d, not on a system slot (2 or 3)" % n)
+    return by_part
+
+
+def other(slot):
+    return "B" if slot == "A" else "A"
+
+
+def mounted_devices():
+    out = set()
+    for line in read("/proc/self/mountinfo").splitlines():
+        parts = line.split(" - ")
+        if len(parts) == 2:
+            src = parts[1].split()
+            if len(src) >= 2:
+                out.add(os.path.realpath(src[1]))
+    return out
+
+
+def target_device(slot):
+    disk, part, _ = root_part()
+    dev, size = part_dev(disk, PARTNO[slot])
+    if os.path.basename(dev) == part:
+        raise Refused("the target slot is the running one")
+    if os.path.realpath(dev) in mounted_devices():
+        raise Refused("%s is mounted" % dev)
+    rc, puuid = run(["blkid", "-p", "-s", "PART_ENTRY_UUID", "-o", "value", dev])
+    puuid = puuid.strip().lower()
+    if rc == 0 and puuid and not puuid.startswith(DISK_ID):
+        raise Refused("%s belongs to another disk layout (%s)" % (dev, puuid))
+    return dev, size
+
+
+# ------------------------------------------------------------------- status --
+
+def load_json(path, default=None):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {} if default is None else default
+
+
+def save_status(**kw):
+    s = load_json(STATUS)
+    s.update(kw)
+    s["updated_at"] = now()
+    write_atomic(STATUS, json.dumps(s, indent=1, sort_keys=True) + "\n")
+    return s
+
+
+def record(outcome, note, **extra):
+    """The result the menu and the diagnostics show: one file for the last one, a history line each."""
+    r = {"when": now(), "outcome": outcome, "note": note}
+    r.update(extra)
+    save_status(last_result=r)
+    write_atomic(LAST, "".join("%-9s %s\n" % (k + ":", v) for k, v in r.items()))
+    with open(HISTORY, "a") as f:
+        f.write("%s  %s  %s\n" % (r["when"], outcome, note))
+    lines = read(HISTORY).splitlines()[-60:]
+    write_atomic(HISTORY, "\n".join(lines) + "\n")
+    log("%s: %s" % (outcome, note))
+
+
+def splash(*args):
+    run([SPLASH] + list(args), timeout=20)
+
+
+class Progress:
+    """Status (for the menu) and the boot screen (value + bar), at most every second / 1 %."""
+
+    def __init__(self, phase, state, show_value, screen):
+        self.phase, self.state, self.show_value, self.screen = phase, state, show_value, screen
+        self.last_pct, self.last_t = -1, 0.0
+        save_status(phase=phase, progress=0)
+        if screen:
+            splash("--progress", "0")
+            splash("--value", "0%" if show_value else "clear")
+            splash("--set", state)
+
+    def __call__(self, done, total):
+        pct = int(done * 100 / total) if total else 0
+        t = time.monotonic()
+        if pct != self.last_pct and (t - self.last_t >= 1 or pct == 100):
+            self.last_pct, self.last_t = pct, t
+            save_status(phase=self.phase, progress=pct)
+            if self.screen:
+                splash("--progress", str(pct))
+                if self.show_value:
+                    splash("--value", "%d%%" % pct)
+
+
+def clear_screen():
+    splash("--value", "clear")
+    splash("--progress", "clear")
+    splash("--set", "clear")
+
+
+# --------------------------------------------------------------------- trust --
+
+def key_state():
+    """(usable, why not). The image ships a placeholder until a real public key is put in at build time."""
+    k = read(KEY)
+    if not k:
+        return False, "no update key in this image (%s)" % KEY
+    if "ALNASL-PLACEHOLDER" in k or "BEGIN PUBLIC KEY" not in k:
+        return False, "this image carries the placeholder update key: system updates are off"
+    return True, ""
+
+
+def verify_sig(path, sig):
+    rc, out = run(["openssl", "dgst", "-sha256", "-verify", KEY, "-signature", sig, path], timeout=900)
+    if rc != 0 or "Verified OK" not in out:
+        raise Refused("the signature of %s does not match this image's update key" % os.path.basename(path))
+
+
+class HttpsOnly(urllib.request.HTTPRedirectHandler):
+    """GitHub's release downloads redirect to its storage; follow that, but never to plain http."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not newurl.lower().startswith("https://"):
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+OPENER = urllib.request.build_opener(HttpsOnly)
+UA = {"User-Agent": "alnasl-system-update"}
+
+
+def fetch(url, limit):
+    req = urllib.request.Request(url, headers=UA)
+    with OPENER.open(req, timeout=30) as r:
+        data = r.read(limit + 1)
+    if len(data) > limit:
+        raise Refused("%s is larger than %d bytes" % (url, limit))
+    return data
+
+
+def https(url):
+    return isinstance(url, str) and url.startswith("https://") and len(url) < 500 and not re.search(r"[\s\x00-\x1f]", url)
+
+
+def index_url():
+    st = load_json(SETUP_STATE)
+    u = st.get("update_url") if isinstance(st, dict) else None
+    if u and https(u):
+        return u
+    u = kv_file(UPDATE_CONF).get("INDEX_URL", "")
+    return u if https(u) else DEFAULT_INDEX
+
+
+def parse_index(data):
+    j = json.loads(data.decode("utf-8"))
+    if not isinstance(j, dict) or j.get("format") != 1 or not isinstance(j.get("images"), list):
+        raise Refused("the release index has an unknown format")
+    images = []
+    for i in j["images"]:
+        try:
+            ok = (isinstance(i, dict) and train_no(i["train"]) == vkey(i["version"])[0]
+                  and https(i["url"]) and https(i["sig_url"])
+                  and isinstance(i["size"], int) and 0 < i["size"] <= MAX_IMAGE
+                  and isinstance(i["raw_size"], int) and 0 < i["raw_size"] <= MAX_IMAGE
+                  and SHA_RE.match(i["sha256"]) and SHA_RE.match(i["raw_sha256"])
+                  and re.match(r"^[A-Za-z0-9._-]+\.(zst|xz)$", i["file"]))
+            if i.get("min_from"):
+                vkey(i["min_from"])
+        except (KeyError, ValueError, TypeError):
+            ok = False
+        if ok:
+            images.append(i)
+        else:
+            log("index entry skipped (incomplete or inconsistent): %r" % (i if isinstance(i, dict) else "?"))
+    return images
+
+
+def get_index():
+    url = index_url()
+    ok, why = key_state()
+    if not ok:
+        raise Refused(why)
+    os.makedirs(DL, exist_ok=True)
+    idx, sig = DL + "/index.json", DL + "/index.json.sig"
+    data = fetch(url, 1 << 20)
+    with open(idx, "wb") as f:
+        f.write(data)
+    with open(sig, "wb") as f:
+        f.write(fetch(url + ".sig", 16384))
+    verify_sig(idx, sig)
+    return parse_index(data)
+
+
+def choose(images, train, version):
+    """What this box may do. same: the newest image of its own train it can go to by itself.
+    offer: the newest image of a LATER train it may be upgraded to - only ever on request.
+    blocked: a later train exists but needs a newer version of this train first."""
+    me = vkey(version)
+
+    def reach(i):
+        return not i.get("min_from") or vkey(i["min_from"]) <= me
+
+    same = [i for i in images if i["train"] == train and vkey(i["version"]) > me and reach(i)]
+    later = [i for i in images if train_no(i["train"]) > train_no(train)]
+    offer = [i for i in later if reach(i)]
+    best = max(same, key=lambda i: vkey(i["version"])) if same else None
+    up = max(offer, key=lambda i: (train_no(i["train"]), vkey(i["version"]))) if offer else None
+    blocked = None
+    if later and not offer:
+        need = min((i for i in later if i.get("min_from")), key=lambda i: vkey(i["min_from"]), default=None)
+        blocked = need["min_from"] if need else None
+    return best, up, blocked
+
+
+def train_guard(img, my_train, asked_train=None):
+    """The rule: never move to another train unless that train was asked for explicitly."""
+    if train_no(img["train"]) != vkey(img["version"])[0]:
+        raise Refused("image %s does not belong to train %s" % (img["version"], img["train"]))
+    if img["train"] == my_train:
+        return
+    if asked_train and img["train"] == asked_train and train_no(asked_train) > train_no(my_train):
+        return
+    raise Refused("image %s is of train %s; this box is on %s and changes trains only when asked to (Upgrade to %s)"
+                  % (img["version"], img["train"], my_train, img["train"]))
+
+
+def brief(i):
+    return {"train": i["train"], "version": i["version"], "size": i["size"], "released": i.get("released", ""),
+            "notes": str(i.get("notes", ""))[:400]} if i else None
+
+
+def check():
+    train, version = release()
+    save_status(phase="checking", progress=None)
+    try:
+        images = get_index()
+    except (Refused, urllib.error.URLError, OSError, ValueError) as e:
+        why = str(e) if isinstance(e, Refused) else "could not read the release index (%s)" % type(e).__name__
+        save_status(phase="idle", checked_at=now(), check_error=why)
+        log("check:", why)
+        return None, None, None, []
+    best, up, blocked = choose(images, train, version)
+    save_status(phase="idle", checked_at=now(), check_error=None, available=brief(best), offer=brief(up),
+                offer_blocked=blocked, index_url=index_url())
+    log("check: on %s %s; this train: %s; later train: %s%s" % (
+        train, version, best["version"] if best else "nothing newer", "%s %s" % (up["train"], up["version"]) if up else "none",
+        " (needs %s first)" % blocked if blocked else ""))
+    return best, up, blocked, images
+
+
+# ----------------------------------------------------------------- download --
+
+def download(url, dest, size, prog):
+    """Resumes a partial file (.part); the size and the hash are checked by the caller."""
+    part = dest + ".part"
+    have = os.path.getsize(part) if os.path.exists(part) else 0
+    if have > size:
+        os.remove(part)
+        have = 0
+    hdr = dict(UA)
+    if have:
+        hdr["Range"] = "bytes=%d-" % have
+    req = urllib.request.Request(url, headers=hdr)
+    with OPENER.open(req, timeout=60) as r:
+        if have and r.status != 206:
+            have = 0
+        with open(part, "ab" if have else "wb") as f:
+            done = have
+            while True:
+                chunk = r.read(1 << 20)
+                if not chunk:
+                    break
+                done += len(chunk)
+                if done > size:
+                    raise Refused("the download is larger than the index says")
+                f.write(chunk)
+                prog(done, size)
+            f.flush()
+            os.fsync(f.fileno())
+    os.replace(part, dest)
+
+
+def sha256_file(path, prog=None, total=0):
+    h = hashlib.sha256()
+    done = 0
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(4 << 20), b""):
+            h.update(chunk)
+            done += len(chunk)
+            if prog:
+                prog(done, total)
+    return h.hexdigest()
+
+
+def fetch_image(img, screen):
+    os.makedirs(DL, exist_ok=True)
+    for f in os.listdir(DL):  # an older download is of no use any more
+        if f.startswith("alnasl-system-") and not f.startswith(img["file"]):
+            os.remove(os.path.join(DL, f))
+    free = shutil.disk_usage(DL).free
+    path = os.path.join(DL, img["file"])
+    if free < img["size"] + (256 << 20) and not os.path.exists(path):
+        raise Refused("not enough room on the data partition for the download (%d MB free)" % (free >> 20))
+    if not (os.path.exists(path) and os.path.getsize(path) == img["size"]):
+        download(img["url"], path, img["size"], Progress("downloading", "update-download", True, screen))
+    with open(path + ".sig", "wb") as f:
+        f.write(fetch(img["sig_url"], 16384))
+    if os.path.getsize(path) != img["size"] or sha256_file(path) != img["sha256"]:
+        os.remove(path)
+        raise Refused("the downloaded image does not match the index (size or checksum)")
+    save_status(phase="verifying", progress=None)
+    verify_sig(path, path + ".sig")
+    return path
+
+
+# ---------------------------------------------------------------- the slot --
+
+def write_slot(img, path, slot, screen):
+    dev, size = target_device(slot)
+    raw = img["raw_size"]
+    if raw > size:
+        raise Refused("the image (%d MB) does not fit in slot %s (%d MB)" % (raw >> 20, slot, size >> 20))
+    prog = Progress("installing", "update-install", False, screen)
+    dec = ["zstd", "-dc", "--no-progress", path] if path.endswith(".zst") else ["xz", "-dc", path]
+    log("writing %s into slot %s (%s)" % (img["version"], slot, dev))
+    h = hashlib.sha256()
+    done = 0
+    p = subprocess.Popen(dec, stdout=subprocess.PIPE)
+    fd = os.open(dev, os.O_WRONLY)
+    try:
+        while True:
+            chunk = p.stdout.read(4 << 20)
+            if not chunk:
+                break
+            done += len(chunk)
+            if done > raw:
+                raise Refused("the image unpacks to more than the index says")
+            h.update(chunk)
+            view = memoryview(chunk)
+            while view:
+                view = view[os.write(fd, view):]
+            prog(done * 70 // raw, 100)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+        p.stdout.close()
+        rc = p.wait()
+    if rc != 0 or done != raw or h.hexdigest() != img["raw_sha256"]:
+        raise Refused("the image did not unpack to what the index says (%d of %d bytes)" % (done, raw))
+    # Read it back from the card, not from the page cache: what grub will boot is what is on the card.
+    run(["blockdev", "--flushbufs", dev])
+    with open("/proc/sys/vm/drop_caches", "w") as f:
+        f.write("1\n")
+    h = hashlib.sha256()
+    fd = os.open(dev, os.O_RDONLY)
+    try:
+        os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+        left = raw
+        while left:
+            chunk = os.read(fd, min(4 << 20, left))
+            if not chunk:
+                break
+            h.update(chunk)
+            left -= len(chunk)
+            prog(70 + (raw - left) * 30 // raw, 100)
+    finally:
+        os.close(fd)
+    if left or h.hexdigest() != img["raw_sha256"]:
+        raise Refused("slot %s does not read back as written: the card may be failing" % slot)
+    rc, out = run(["e2label", dev, LABEL[slot]])
+    if rc != 0:
+        raise Refused("could not label slot %s: %s" % (slot, out.strip()))
+    log("slot %s holds %s, read back and checked" % (slot, img["version"]))
+    return dev
+
+
+def vfile(path):
+    v = read(path).strip()
+    try:
+        return v, vkey(v)
+    except ValueError:
+        return v, None
+
+
+def carry_over(dev, img):
+    """What the new slot must know of this one: the identity PID 1 reads before any mount (machine id,
+    name, console keymap), the next boot's picture, and Alnasl itself when this slot has a newer one
+    (the app updater writes /opt/alnasl; going back a version would meet a database it migrated)."""
+    os.makedirs(NEWSLOT, exist_ok=True)
+    rc, out = run(["mount", "-o", "rw,noatime", dev, NEWSLOT])
+    if rc != 0:
+        raise Refused("could not mount the new slot: %s" % out.strip())
+    try:
+        r = kv_file(NEWSLOT + RELEASE_FILE)
+        if r.get("ALNASL_TRAIN") != img["train"] or r.get("ALNASL_VERSION") != img["version"]:
+            raise Refused("the new slot says it is %s %s, the index said %s %s" % (
+                r.get("ALNASL_TRAIN"), r.get("ALNASL_VERSION"), img["train"], img["version"]))
+        for f in ("/etc/machine-id", "/etc/hostname", "/etc/vconsole.conf"):
+            if os.path.isfile(f) and not os.path.islink(f):
+                shutil.copy2(f, NEWSLOT + f)
+        os.makedirs(NEWSLOT + "/var/lib/alnasl-screen", exist_ok=True)
+        write_atomic(NEWSLOT + "/var/lib/alnasl-screen/next-boot", "update-finish\n")
+        mine, mk = vfile("/opt/alnasl/current/VERSION")
+        theirs, tk = vfile(NEWSLOT + "/opt/alnasl/current/VERSION")
+        if mk and (not tk or mk > tk) and os.path.isdir("/opt/alnasl/releases/" + mine):
+            log("Alnasl %s here is newer than the image's %s: it goes along" % (mine, theirs or "?"))
+            dst = NEWSLOT + "/opt/alnasl/releases/" + mine
+            shutil.rmtree(dst, ignore_errors=True)
+            shutil.copytree("/opt/alnasl/releases/" + mine, dst, symlinks=True)
+            tmp = NEWSLOT + "/opt/alnasl/current.new"
+            if os.path.lexists(tmp):
+                os.remove(tmp)
+            os.symlink("releases/" + mine, tmp)
+            os.replace(tmp, NEWSLOT + "/opt/alnasl/current")
+            for f in ("/opt/alnasl/update.sh", "/opt/alnasl/uninstall.sh", "/etc/systemd/system/alnasl.service",
+                      "/etc/systemd/system/alnasl-update.service", "/etc/systemd/system/alnasl-update.path"):
+                if os.path.isfile(f):
+                    shutil.copy2(f, NEWSLOT + f)
+    finally:
+        os.sync()
+        run(["umount", NEWSLOT])
+
+
+def flip_and_restart(slot, img, mine):
+    env = read_env()
+    env.update(alnasl_try=slot, alnasl_tries=str(TRIES), alnasl_try_version=img["version"],
+               alnasl_try_from=mine, alnasl_failed="none")
+    write_env(env)
+    write_atomic(TRIAL, json.dumps({"slot": slot, "version": img["version"], "train": img["train"], "from": mine,
+                                    "boots": 0, "started": now()}) + "\n")
+    save_status(phase="restarting", progress=None, staged=None)
+    splash("--progress", "clear")
+    splash("--value", "v" + img["version"])
+    splash("--set", "update-restart")
+    log("restarting into slot %s (%s %s), %d tries" % (slot, img["train"], img["version"], TRIES))
+    time.sleep(3)
+    os.sync()
+    run(["systemctl", "reboot"])
+
+
+def in_window():
+    return WINDOW[0] <= datetime.datetime.now().hour < WINDOW[1]
+
+
+def install(img, asked_train, restart, by):
+    """Download, check, write to the other slot, read back, carry over; restart now or leave it staged."""
+    train, version = release()
+    train_guard(img, train, asked_train)
+    if vkey(img["version"]) <= vkey(version):
+        raise Refused("%s is not newer than %s" % (img["version"], version))
+    env = read_env()
+    if not none(env.get("alnasl_try")):
+        raise Refused("a new slot is still on trial; nothing else installs until it is settled")
+    slot = other(current_slot())
+    st = load_json(STATUS)
+    staged = st.get("staged") or {}
+    screen = restart is True or (restart == "window" and in_window())
+    if not (staged.get("version") == img["version"] and staged.get("slot") == slot and staged.get("sha256") == img["sha256"]):
+        path = fetch_image(img, screen)
+        save_status(staged=None)
+        dev = write_slot(img, path, slot, screen)
+        os.remove(path)
+        for f in (path + ".sig",):
+            if os.path.exists(f):
+                os.remove(f)
+        save_status(staged={"version": img["version"], "train": img["train"], "slot": slot, "sha256": img["sha256"],
+                            "written": now()}, phase="staged", progress=None)
+        record("staged", "%s %s written to slot %s and checked; waiting for the restart" % (img["train"], img["version"], slot),
+               version=img["version"], by=by)
+    else:
+        dev, _ = target_device(slot)
+        log("slot %s already holds %s (staged %s)" % (slot, img["version"], staged.get("written")))
+    if restart is True or (restart == "window" and in_window()):
+        carry_over(dev, img)
+        flip_and_restart(slot, img, version)
+        return True
+    if screen:
+        clear_screen()
+    save_status(phase="staged")
+    log("staged in slot %s; the restart waits for the next quiet window" % slot)
+    return False
+
+
+# -------------------------------------------------------------- round check --
+
+def round_in_progress():
+    try:
+        with urllib.request.urlopen(ALNASL_STATUS_URL, timeout=4) as r:
+            out = r.read(2000).decode("utf-8", "replace")
+    except Exception:
+        return False, "Alnasl not running or not answering: treated as no round"
+    if re.search(r'"round_in_progress"\s*:\s*true', out):
+        return True, "round in progress"
+    if re.search(r'"round_in_progress"\s*:\s*false', out):
+        return False, "no round in progress"
+    return False, "Alnasl gave no clear answer: treated as no round"
+
+
+# ------------------------------------------------------------------ commands --
+
+def locked(fn):
+    def wrap(*a):
+        os.makedirs(os.path.dirname(LOCK), exist_ok=True)
+        fd = os.open(LOCK, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            log("another run is busy; this one stops")
+            return 4
+        try:
+            return fn(*a)
+        finally:
+            os.close(fd)
+    return wrap
+
+
+def guarded(by, fn):
+    try:
+        return fn()
+    except Refused as e:
+        clear_screen()
+        save_status(phase="idle", progress=None)
+        record("refused", str(e), by=by)
+        return 1
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        clear_screen()
+        save_status(phase="idle", progress=None)
+        record("failed", "%s: %s" % (type(e).__name__, e), by=by)
+        return 1
+
+
+@locked
+def cmd_check():
+    check()
+    return 0
+
+
+@locked
+def cmd_nightly():
+    """Exit 3: restarting into a new slot (the caller stops). 4: busy or a trial is on (skip tonight's
+    package update too). 0: nothing to restart for (the caller goes on with the package update)."""
+    try:
+        env = read_env()
+    except OSError as e:
+        log("no A/B boot environment (%s); system updates skipped" % e)
+        return 0
+    if not none(env.get("alnasl_try")):
+        log("a new slot is on trial; nothing tonight")
+        return 4
+    best, _, _, _ = check()
+    if not best:
+        return 0
+
+    def go():
+        return 3 if install(best, None, "window", "nightly") else 4
+    return guarded("nightly", go)
+
+
+def take_request():
+    try:
+        with open(REQUEST) as f:
+            raw = f.read(400)
+    except OSError:
+        return None
+    os.remove(REQUEST)
+    try:
+        r = json.loads(raw)
+        assert isinstance(r, dict) and r.get("action") in ("install", "upgrade")
+        if r["action"] == "upgrade":
+            train_no(r.get("train", ""))
+        return r
+    except (ValueError, AssertionError, TypeError):
+        log("the request was not understood; removed")
+        return None
+
+
+def do_request(r):
+    by = str(r.get("by", "menu"))[:20]
+    busy, why = round_in_progress()
+    if busy:
+        save_status(phase="idle", request_error="round_in_progress")
+        record("skipped", "asked for by %s, but a round is in progress; nothing changed" % by, by=by)
+        return 1
+    save_status(request_error=None)
+    best, up, blocked, images = check()
+    train, version = release()
+    if r["action"] == "install":
+        if not best:
+            record("nothing", "asked for by %s: there is nothing newer in train %s" % (by, train), by=by)
+            return 0
+        return guarded(by, lambda: 0 if install(best, None, True, by) else 1)
+    want = r["train"]
+    if want == train:
+        return do_request({"action": "install", "by": by})
+    cands = [i for i in images if i["train"] == want]
+    if not cands:
+        record("refused", "asked for by %s: there is no image of train %s" % (by, want), by=by)
+        return 1
+    reach = [i for i in cands if not i.get("min_from") or vkey(i["min_from"]) <= vkey(version)]
+    if not reach:
+        record("refused", "%s needs at least %s first; this box has %s" % (
+            want, min(vkey(i["min_from"]) for i in cands), version), by=by)
+        return 1
+    img = max(reach, key=lambda i: vkey(i["version"]))
+    log("upgrade to %s asked for by %s: %s" % (want, by, img["version"]))
+    return guarded(by, lambda: 0 if install(img, want, True, by) else 1)
+
+
+@locked
+def cmd_request():
+    r = take_request()
+    if not r:
+        return 0
+    return do_request(r)
+
+
+@locked
+def cmd_boot_file():
+    """alnasl-upgrade.txt: one word, the train (v7). Consumed before anything else, like alnasl-reset.txt."""
+    if not os.path.isfile(BOOT_FILE):
+        return 0
+    word = (read(BOOT_FILE).splitlines() or [""])[0].strip().lstrip("﻿")
+    os.remove(BOOT_FILE)
+    os.sync()
+    try:
+        train_no(word)
+    except ValueError:
+        record("refused", "%s did not name a train (like v7) on its first line; removed it" % BOOT_FILE, by="boot-file")
+        return 1
+    log("asked for by %s: %s" % (BOOT_FILE, word))
+    r = {"action": "upgrade", "train": word, "by": "boot-file"}
+    for attempt in range(20):  # the network may need a while after boot (Wi-Fi from alnasl-wifi.txt ...)
+        try:
+            fetch(index_url(), 1 << 20)
+            break
+        except Exception:
+            save_status(phase="waiting")
+            time.sleep(30)
+    return do_request(r)
+
+
+# --------------------------------------------------------------- boot check --
+
+def answers(url):
+    try:
+        with urllib.request.urlopen(url, timeout=3):
+            return True
+    except urllib.error.HTTPError:
+        return True          # it answered, with whatever status
+    except Exception:
+        return False
+
+
+def enabled(unit):
+    _, out = run(["systemctl", "is-enabled", unit], timeout=10)
+    return out.strip().splitlines()[-1:] == ["enabled"]
+
+
+def display_connected():
+    base = "/sys/class/drm"
+    try:
+        names = os.listdir(base)
+    except OSError:
+        return False
+    return any(read("%s/%s/status" % (base, n)).strip() == "connected" for n in names if "-HDMI-" in n)
+
+
+def health():
+    """(ok, what is missing). Master: Alnasl answers and, with a screen, the kiosk painted. Slave: Arkab."""
+    missing = []
+    if not answers("http://127.0.0.1:4041/healthz"):
+        missing.append("the setup server")
+    mode = read(MODE_FILE).strip() or "master"
+    if mode == "slave":
+        port = kv_file("/etc/arkab/arkab.env").get("ARKAB_PORT", "4050")
+        if not answers("http://127.0.0.1:%s/unlock" % port):
+            missing.append("Arkab")
+    else:
+        if enabled("alnasl.service") and not answers("http://127.0.0.1:4040/"):
+            missing.append("Alnasl")
+        if enabled("alnasl-kiosk.service") and display_connected() and not os.path.exists(PAINTED):
+            missing.append("the screen")
+    return not missing, ", ".join(missing)
+
+
+def cmd_boot_check():
+    try:
+        env = read_env()
+    except OSError as e:
+        log("no A/B boot environment: %s" % e)
+        return 0
+    cur = current_slot()
+    train, version = release()
+    save_status(phase="idle", progress=None, slot=cur, train=train, version=version)
+    if not none(env.get("alnasl_failed")):
+        failed_v = env.get("alnasl_try_version") or "?"
+        record("rolled_back", "the update to %s did not start properly %d times; back on %s (slot %s)" % (
+            failed_v, TRIES, version, cur), version=failed_v)
+        env.update(alnasl_failed="none", alnasl_try="none", alnasl_tries="0", alnasl_try_version="", alnasl_slot=cur)
+        write_env(env)
+        save_status(staged=None)
+        if os.path.exists(TRIAL):
+            os.remove(TRIAL)
+        splash("--set", "update-rolledback")
+        time.sleep(20)
+        splash("--set", "clear")
+        return 0
+    tr = env.get("alnasl_try")
+    if not none(tr) and tr != cur:
+        # The new slot was asked for and this is the old one: grub could not even find it.
+        record("rolled_back", "slot %s (%s) could not be started; back on %s" % (tr, env.get("alnasl_try_version") or "?", version),
+               version=env.get("alnasl_try_version") or "?")
+        env.update(alnasl_try="none", alnasl_tries="0", alnasl_try_version="", alnasl_slot=cur)
+        write_env(env)
+        return 0
+    if none(tr):
+        if env.get("alnasl_slot") != cur:
+            log("grub's good slot was %s but %s runs; corrected" % (env.get("alnasl_slot"), cur))
+            env["alnasl_slot"] = cur
+            write_env(env)
+        return 0
+    # A trial boot of this slot.
+    t = load_json(TRIAL)
+    t["boots"] = int(t.get("boots", 0)) + 1
+    write_atomic(TRIAL, json.dumps(t) + "\n")
+    left = env.get("alnasl_tries", "?")
+    if left == str(TRIES):
+        log("grub did not count this boot down (save_env failed?); counting here instead")
+    log("trial boot %d of %s %s (grub tries left: %s); waiting up to %d min for it to be healthy" % (
+        t["boots"], train, version, left, HEALTH_MINUTES))
+    deadline = time.monotonic() + HEALTH_MINUTES * 60
+    ok, missing = health()
+    while not ok and time.monotonic() < deadline:
+        time.sleep(10)
+        ok, missing = health()
+    env = read_env()
+    if ok:
+        env.update(alnasl_slot=cur, alnasl_try="none", alnasl_tries="0", alnasl_try_version="", alnasl_failed="none")
+        write_env(env)
+        if os.path.exists(TRIAL):
+            os.remove(TRIAL)
+        save_status(staged=None)
+        record("ok", "updated to %s %s (slot %s); it started properly" % (train, version, cur), version=version)
+        return 0
+    if env.get("alnasl_tries") == "0" or t["boots"] >= TRIES:
+        # Last try used up: go back now, without waiting for grub to notice.
+        env.update(alnasl_try="none", alnasl_tries="0", alnasl_failed=cur, alnasl_slot=other(cur))
+        write_env(env)
+        log("%s did not become healthy (%s) in %d boots; going back to slot %s" % (version, missing, t["boots"], other(cur)))
+    else:
+        log("%s not healthy after %d min (%s); restarting for another try" % (version, HEALTH_MINUTES, missing))
+    save_status(last_trial_note="boot %d: missing %s" % (t["boots"], missing))
+    splash("--set", "reboot")
+    os.sync()
+    run(["systemctl", "reboot"])
+    return 1
+
+
+# ------------------------------------------------------------------- status --
+
+def cmd_status():
+    s = load_json(STATUS)
+    try:
+        s["train"], s["version"] = release()
+    except ValueError:
+        s["train"], s["version"] = "?", "?"
+    try:
+        s["slot"] = current_slot()
+    except (Refused, OSError):
+        s["slot"] = "?"
+    try:
+        env = read_env()
+        s["ab"] = True
+        s["trial"] = None if none(env.get("alnasl_try")) else {"slot": env.get("alnasl_try"),
+                                                               "version": env.get("alnasl_try_version", "")}
+    except OSError:
+        s["ab"] = False
+        s["trial"] = None
+    ok, why = key_state()
+    s["updates_on"], s["off_reason"] = ok, why
+    s["index_url"] = index_url()
+    s["default_index_url"] = DEFAULT_INDEX
+    s["busy"] = s.get("phase") not in (None, "idle", "staged")
+    if s["busy"]:  # a run that died leaves its phase behind; the lock says whether one runs now
+        try:
+            fd = os.open(LOCK, os.O_CREAT | os.O_RDWR, 0o600)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                s["busy"] = s.get("phase") == "restarting"
+            except OSError:
+                pass
+            finally:
+                os.close(fd)
+        except OSError:
+            pass
+    print(json.dumps(s, sort_keys=True))
+    return 0
+
+
+def main(argv):
+    os.makedirs(DIR, exist_ok=True)
+    cmds = {"--check": cmd_check, "--nightly": cmd_nightly, "--request": cmd_request,
+            "--from-boot-file": cmd_boot_file, "--boot-check": cmd_boot_check, "--status": cmd_status}
+    if len(argv) != 2 or argv[1] not in cmds:
+        sys.stderr.write(__doc__)
+        return 2
+    return cmds[argv[1]]()
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

@@ -1,0 +1,67 @@
+#!/bin/bash
+# Reads /boot/efi/alnasl-wifi.txt (the FAT partition, writable from any PC),
+# turns it into a wpa_supplicant configuration for wlan0, starts Wi-Fi, and
+# deletes the file so the passphrase does not stay on the card in the clear.
+#
+# File format, one KEY=VALUE per line (# starts a comment):
+#   SSID=name of the network
+#   PASSPHRASE=the passphrase (8-63 characters; leave out for an open network)
+#   COUNTRY=BE        (two letters; optional, strongly advised: it opens the
+#                      channels the country allows, 5 GHz included)
+#   HIDDEN=1          (optional: the network does not announce its name)
+FILE=/boot/efi/alnasl-wifi.txt
+CONF=/etc/wpa_supplicant/wpa_supplicant-wlan0.conf
+
+[ -f "$FILE" ] || exit 0
+
+ssid=""; pass=""; country=""; hidden=0
+while IFS= read -r line || [ -n "$line" ]; do
+  line=${line%$'\r'}
+  case "$line" in
+    ''|'#'*) continue ;;
+    SSID=*) ssid=${line#SSID=} ;;
+    PASSPHRASE=*) pass=${line#PASSPHRASE=} ;;
+    COUNTRY=*) country=${line#COUNTRY=} ;;
+    HIDDEN=*) hidden=${line#HIDDEN=} ;;
+  esac
+done < "$FILE"
+
+if [ -z "$ssid" ]; then
+  echo "alnasl-wifi-setup: $FILE has no SSID= line; left as it is"
+  exit 0
+fi
+if [ -n "$pass" ] && { [ "${#pass}" -lt 8 ] || [ "${#pass}" -gt 63 ]; }; then
+  echo "alnasl-wifi-setup: the passphrase must be 8-63 characters; $FILE left as it is"
+  exit 0
+fi
+
+mkdir -p /etc/wpa_supplicant
+umask 077
+{
+  echo "ctrl_interface=/run/wpa_supplicant"
+  echo "ctrl_interface_group=0"
+  echo "update_config=0"
+  [ -n "$country" ] && echo "country=$country"
+  echo "network={"
+  if [ -n "$pass" ]; then
+    # The hashed form: the clear passphrase is not written anywhere.
+    wpa_passphrase "$ssid" "$pass" | grep -E '^\s(ssid|psk)=' | grep -v '#psk'
+  else
+    printf '\tssid="%s"\n\tkey_mgmt=NONE\n' "$ssid"
+  fi
+  [ "$hidden" = 1 ] && echo "	scan_ssid=1"
+  echo "}"
+} > "$CONF.new" && mv -f "$CONF.new" "$CONF"
+chmod 600 "$CONF"
+
+# Delete, then sync: the FAT file system is flushed before we go on.
+rm -f "$FILE"
+sync
+
+if [ -n "$country" ]; then
+  iw reg set "$country" 2>/dev/null || true
+fi
+# Not blocking the boot: Wi-Fi comes up when it comes up.
+systemctl restart --no-block wpa_supplicant@wlan0.service 2>/dev/null || true
+echo "alnasl-wifi-setup: Wi-Fi \"$ssid\" configured; $FILE deleted"
+exit 0

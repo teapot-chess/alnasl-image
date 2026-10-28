@@ -1,0 +1,18 @@
+# Wi-Fi for the Alnasl hall box.
+#
+# To use it: copy this file to "alnasl-wifi.txt" (same folder, no .example),
+# fill in the lines below, and boot the Pi. At boot the box reads the file,
+# sets Wi-Fi up, and DELETES the file so the passphrase does not stay on the
+# card. (Ethernet needs nothing: plug in the cable.)
+#
+# Lines starting with # are ignored. No quotes around the values.
+
+# The name of the Wi-Fi network:
+SSID=
+# Its passphrase, 8 to 63 characters. Leave empty for an open network:
+PASSPHRASE=
+# Two-letter country code of the hall (BE, NL, DE, GB ...). Strongly advised:
+# without it 5 GHz networks and some channels are not usable.
+COUNTRY=
+# Set to 1 only if the network does not announce its name:
+#HIDDEN=1

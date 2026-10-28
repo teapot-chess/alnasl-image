@@ -1,0 +1,120 @@
+#!/bin/bash
+# alnasl-data: the data partition (v6, A/B). Runs at every boot, before local-fs.target, from
+# alnasl-data.service. Everything the box keeps lives here, so a system slot can be replaced whole.
+#
+#   card: 1 boot (FAT) | 2 system A | 3 system B | 4 data (ext4, label ALNASL_DATA)
+#
+# 1. first boot: grows partition 4 to the end of the card, then its file system (16 GB card or larger)
+# 2. a factory reset left /data/.alnasl-wipe: the partition is formatted (alnasl-reset only sets the flag)
+# 3. checks and mounts it on /data; a partition with no file system at all is formatted
+# 4. creates what is missing (with the right owners) and bind-mounts it over the system slot's paths
+#
+# Never fatal: if the data partition cannot be used, the box runs on the slot's own (empty) directories,
+# the partition is left untouched for someone to look at, and /run/alnasl-data/state says why.
+set -u
+DATA=/data
+STATE=/run/alnasl-data/state
+DEFAULTS=/usr/share/alnasl/defaults
+LABEL=ALNASL_DATA
+mkdir -p /run/alnasl-data
+
+say() { echo "alnasl-data: $*"; }
+state() { echo "$*" > "$STATE"; say "$*"; }
+
+# The partition / is on tells us the card; the data partition is number 4 of the same disk.
+rootdev=$(findmnt -n -o SOURCE / 2>/dev/null)
+rootname=$(basename "$(readlink -f "$rootdev")")
+disk=$(basename "$(readlink -f "/sys/class/block/$rootname/..")")
+part=""
+for p in /sys/class/block/"$disk"/"$disk"*; do
+  [ "$(cat "$p/partition" 2>/dev/null)" = 4 ] && part=/dev/$(basename "$p")
+done
+if [ -z "$part" ] || [ ! -b "$part" ]; then
+  state "failed: no partition 4 on $disk (not the v6 card layout); running without the data partition"
+  exit 0
+fi
+
+# 1. grow to the end of the card (first boot; idempotent, cheap to ask every boot)
+sys=/sys/class/block/$(basename "$part")
+start=$(cat "$sys/start"); size=$(cat "$sys/size"); total=$(cat "/sys/class/block/$disk/size")
+if [ $((total - start - size)) -gt $((64 * 2048)) ]; then
+  say "growing $part to the end of the card ($((size / 2048)) MiB -> $(((total - start) / 2048)) MiB)"
+  if echo ', +' | sfdisk -N 4 --no-reread --no-tell-kernel -q "/dev/$disk" && partx -u -n 4 "/dev/$disk"; then
+    e2fsck -f -y "$part" >/dev/null 2>&1
+    resize2fs "$part" 2>&1 | tail -n 1
+  else
+    say "could not grow $part; it stays at its size"
+  fi
+fi
+
+fstype=$(blkid -p -s TYPE -o value "$part" 2>/dev/null)
+format() {
+  say "formatting $part ($1)"
+  mkfs.ext4 -q -F -L "$LABEL" -E lazy_itable_init=1,lazy_journal_init=1 "$part"
+}
+if [ -z "$fstype" ]; then
+  format "no file system on it"
+elif [ "$fstype" != ext4 ]; then
+  state "failed: $part holds $fstype, not ext4; left untouched, running without the data partition"
+  exit 0
+fi
+
+# 3. check and mount (2 happens here too: the wipe flag is on the partition itself)
+e2fsck -p "$part" >/dev/null 2>&1; rc=$?
+if [ $rc -ge 4 ]; then
+  say "e2fsck -p could not repair $part (exit $rc); trying e2fsck -y"
+  e2fsck -y "$part" >/dev/null 2>&1; rc=$?
+fi
+mkdir -p $DATA
+if ! mount -o noatime "$part" $DATA; then
+  state "failed: $part does not mount (e2fsck exit $rc); left untouched, running without the data partition"
+  exit 0
+fi
+if [ -e $DATA/.alnasl-wipe ]; then
+  umount $DATA && format "factory reset" && mount -o noatime "$part" $DATA || {
+    state "failed: the factory reset could not format $part"; exit 0; }
+fi
+
+# 4. the tree, and the bind mounts. dir PATH OWNER MODE
+dir() {
+  install -d -m "$3" "$DATA$1"
+  local o; o=$(stat -c %U:%G "$DATA$1")
+  if [ "$o" != "$2" ] && getent passwd "${2%%:*}" >/dev/null 2>&1; then
+    # a new slot may give a system user another number: the files follow the name
+    chown -R "$2" "$DATA$1"
+  fi
+}
+bind() { # path: the slot's directory is the mount point; it must exist (the image has it)
+  mkdir -p "$1"
+  mountpoint -q "$1" && return 0
+  mount --bind "$DATA$1" "$1" || say "could not bind $1"
+}
+owner() { getent passwd "$1" >/dev/null 2>&1 && echo "$1:$1" || echo root:root; }
+
+dir /var/lib/alnasl "$(owner alnasl)" 0750
+dir /var/lib/alnasl/update "$(owner alnasl)" 0750
+dir /var/lib/arkab "$(owner arkab)" 0750
+dir /var/lib/alnasl-setup root:root 0700
+dir /var/lib/alnasl-update root:root 0755
+dir /var/lib/alnasl-os-update root:root 0755
+dir /var/lib/docker root:root 0710
+dir /var/lib/containerd root:root 0711
+dir /var/log/journal root:systemd-journal 2755
+dir /etc/wpa_supplicant root:root 0755
+dir /etc/systemd/network/10-wired.network.d root:root 0755
+dir /etc/systemd/network/20-wireless.network.d root:root 0755
+dir /etc/alnasl root:root 0755
+# Settings that start from the image's defaults (the slot's /etc/alnasl/*.conf are symlinks to these).
+for f in etc/alnasl/keyboard.conf etc/alnasl/kiosk.conf; do
+  [ -f "$DATA/$f" ] || install -m 0644 "$DEFAULTS/$f" "$DATA/$f"
+done
+[ -f $DATA/etc/wpa_supplicant/wpa_supplicant-wlan0.conf ] ||
+  install -m 0600 $DEFAULTS/etc/wpa_supplicant/wpa_supplicant-wlan0.conf $DATA/etc/wpa_supplicant/wpa_supplicant-wlan0.conf
+
+for d in /var/lib/alnasl /var/lib/arkab /var/lib/alnasl-setup /var/lib/alnasl-update /var/lib/alnasl-os-update \
+         /var/lib/docker /var/lib/containerd /var/log/journal /etc/wpa_supplicant \
+         /etc/systemd/network/10-wired.network.d /etc/systemd/network/20-wireless.network.d; do
+  bind "$d"
+done
+state "ok: $part on $DATA ($(df -h --output=size $DATA | tail -n 1 | tr -d ' '))"
+exit 0

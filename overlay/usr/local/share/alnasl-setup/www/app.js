@@ -1,0 +1,923 @@
+"use strict";
+// Alnasl hall box: menu, settings and first-run wizard. Plain JS, no libraries.
+// Everything dynamic goes in through textContent (an SSID is untrusted text).
+
+/* ------------------------------------------------------------ i18n ------ */
+const TX = {
+  en: {
+    welcome: "Welcome to your Alnasl box", welcome_d: "A few quick steps and the box is ready for the hall. You can change everything later from the menu.",
+    language: "Language", next: "Next", back: "Back", skip: "Skip", finish: "Finish", save: "Save", cancel: "Cancel", close: "Close",
+    keyboard: "Keyboard layout", keyboard_d: "Used by the screen and by a keyboard plugged into the box.", kbd_test: "Try it here",
+    kbd_saved: "Saved. The display restarts to apply it.", kbd_saved_w: "Saved.",
+    network: "Network", status: "Status", wifi: "Wi-Fi", ip_settings: "IP settings", ethernet: "Ethernet",
+    link_up: "connected", link_down: "no cable", not_present: "not present", no_ip: "no address yet",
+    address: "Address", gateway: "Gateway", dns: "DNS servers", hostname: "Name of this box",
+    hostname_note: "Letters, digits and hyphens. Applies fully after a restart.",
+    scan: "Scan for networks", scanning: "Scanning...", hidden_net: "Hidden network",
+    network_name: "Network name", passphrase: "Passphrase", country: "Country code", show: "Show", hide: "Hide",
+    connect: "Connect", connecting: "Connecting...", connected_to: "Connected to", saved_nets: "Saved networks", forget: "Forget",
+    secured: "secured", open_net: "open", saved: "saved", no_wifi: "This box has no Wi-Fi adapter.", no_nets: "No networks found. Scan again.",
+    err_wrong: "The passphrase was refused. Check it and try again.", err_rejected: "The network did not accept the connection.",
+    err_nf: "The network was not found. Move closer, check the name, or tick Hidden network.",
+    dhcp: "Automatic (DHCP)", static_ip: "Fixed address", apply: "Apply", wifi_ok_noip: "Connected; waiting for an address.",
+    keep_q: "Keep these network settings?", keep_d: "If you do not confirm, the previous settings come back by themselves in",
+    keep: "Keep", revert: "Undo", seconds: "s", eth_fine: "Ethernet is connected, so Wi-Fi is optional.",
+    services: "Services on this Pi", services_d: "Choose what runs on this box.",
+    s_alnasl: "Alnasl", s_alnasl_d: "Board relay and web page for the hall (port 4040).",
+    s_kiosk: "Display", s_kiosk_d: "Shows Alnasl full screen on the HDMI screen.",
+    kiosk_warn: "Without the display this screen disappears. Run 'alnasl-setup' on the box, or use the web page, to get back.",
+    done_title: "All set", done_d: "Alnasl opens next. The menu button in the corner brings you back here.", open_alnasl: "Open Alnasl",
+    menu: "Menu", m_alnasl: "Alnasl", m_alnasl_d: "The boards and pairings", m_settings: "Settings", m_settings_d: "Network, keyboard, services, display",
+    m_info: "System info", m_info_d: "Addresses, versions, uptime", m_power: "Restart / Shut down", m_power_d: "Switch the box off safely",
+    alnasl_down: "Alnasl is not running on this box. Turn it on in Settings > Services.",
+    settings: "Settings", display: "Display", scale: "Size of everything on screen", scale_note: "Raise it for a large TV seen from far away. The display restarts.",
+    restart: "Restart", shutdown: "Shut down", power: "Restart or shut down", sure: "Are you sure?", power_wait: "Done. The screen goes dark in a moment.",
+    info: "System info", model: "Model", serial: "Serial (last 6)", kernel: "Kernel", os: "System", image: "Image", alnasl_v: "Alnasl",
+    uptime: "Uptime", memory: "Memory", disk: "Disk free", temp: "Temperature", disp_path: "Screen", free: "free",
+    error: "Something went wrong", retry: "Try again", rerun: "Run the first-time setup again", first_run: "First-time setup",
+    reset: "Erase this box", reset_d: "Everything this box has kept goes: Alnasl's data and recordings, the settings, the Wi-Fi networks, the logs and the update results. It then restarts as new, into the first-time setup.",
+    reset_keep: "The system and Alnasl itself stay. Diagnostics files saved to the SD card stay too.", reset_hold: "Hold to erase",
+    mode_title: "Master or slave?", mode_master: "Master", mode_master_d: "Master runs the hall: Alnasl and the hall screen.",
+    mode_slave: "Slave", mode_slave_d: "Slave only reads DGT boards and passes them to a master.",
+    mode_switch_slave: "Switch to slave", mode_switch_master: "Switch to master", mode_yes: "Switch and restart",
+    mode_q_slave: "Switch this box to slave?", mode_q_master: "Switch this box to master?",
+    mode_d_slave: "Alnasl and the hall screen stop and Arkab starts, after a restart. Nothing is erased: switching back loses nothing.",
+    mode_d_master: "Arkab stops and Alnasl and the hall screen start, after a restart. Nothing is erased: switching back loses nothing.",
+    done_slave_d: "The box restarts as a slave. Arkab takes over; open its page at port 4050 of this box to join it to a master.", restart_now: "Restart",
+    m_diag: "Diagnostics", m_diag_d: "Is the Wi-Fi working? Network, services, logs", m_console: "Console", m_console_d: "Text console, or stop the screen",
+    diag: "Diagnostics", d_wifi_q: "Does the Wi-Fi work at all?", d_loading: "Collecting...", d_refresh: "Refresh", d_test_scan: "Test Wi-Fi scan",
+    d_save: "Save diagnostics to the SD card", d_saved: "Saved as %s on the boot partition of the SD card. Put the card in a PC and open the file there.",
+    d_wifi: "Wi-Fi hardware and driver", d_network: "Network", d_services: "Services", d_kiosk: "Screen and kiosk", d_updates: "OS and system updates",
+    d_logs: "Logs (last 60 lines per service; scroll inside a box)", d_scan_out: "Raw output of the scan test", d_scan_found: "networks found",
+    d_back: "Diagnostics",
+    m_help: "Get help", m_help_d: "Send this box's report, get a code to read out",
+    help_d: "Sends this box's report (passwords and keys are left out) to the people helping you, and gives you a code to read out to them.",
+    help_send: "Send the report", help_again: "Send again", help_sending: "Sending the report...", help_code_label: "Help code", help_last: "Your last code",
+    help_read: "Read this code to the people helping you. Valid until %s.",
+    help_err_no_internet: "The box could not reach the internet. Check the network in Settings > Network and try again.",
+    help_err_rate_limited: "Too many requests from this network. Try again in an hour.",
+    help_err_support_off: "Support is switched off on that server. Check the address in Settings > Get help.",
+    help_err_too_large: "The report is too large to send.", help_err_rejected: "The server did not accept the report.",
+    help_err_server_error: "The server gave an unexpected answer. Try again later.",
+    help_url: "Where reports are sent", help_url_d: "An https:// address. The default is the one the Alnasl team runs.", help_url_bad: "Only https:// addresses are accepted.",
+    help_url_saved: "Saved.", help_default: "Use the default",
+    v_ok: "Yes. The Wi-Fi chip, its driver and its firmware work.", v_no_driver: "No. The Wi-Fi driver (brcmfmac) is not loaded.",
+    v_no_hardware: "No. The Wi-Fi chip is not found on the SDIO bus.", v_firmware: "No. The firmware of the Wi-Fi chip did not load.",
+    v_no_interface: "No. There is no wlan0 interface.", v_link_down: "The interface exists but is switched off. A scan switches it on.",
+    v_supplicant: "The hardware works, but the Wi-Fi program (wpa_supplicant) is not answering. A scan restarts it.",
+    c_driver: "Driver loaded", c_hardware: "Wi-Fi chip found", c_firmware: "Firmware loaded", c_interface: "Interface wlan0",
+    c_link: "Interface switched on", c_supplicant: "wpa_supplicant answers",
+    scan_none: "No networks were found.", scan_details: "Details (raw output)", open_diag: "Open Diagnostics", try_again: "Scan again",
+    scan_why_no_results: "The Wi-Fi radio is working but saw no networks. Check the country code, the antenna side of the box and the distance, then scan again.",
+    scan_why_supplicant: "The Wi-Fi program (wpa_supplicant) would not start. The log below says why.",
+    scan_why_rejected: "The Wi-Fi program refused to scan. See the details below.",
+    scan_why_nointerface: "There is no Wi-Fi interface (wlan0). The details below show what the kernel says.",
+    err_supp: "The Wi-Fi program could not be started. Open Diagnostics for the reason.",
+    console_title: "Console", console_d: "With a keyboard on the box: Ctrl+Alt+F2 or F3 opens a text console (log in as root), Ctrl+Alt+F1 returns to the screen.",
+    console_show: "Show the console now", console_back: "Press Ctrl+Alt+F1 on the keyboard to return to this screen.",
+    console_stop: "Stop the screen", console_stop_q: "Stop the screen until the next boot?",
+    console_stop_note: "The box then shows the text console. To bring the screen back, log in there and type: alnasl-screen start (or restart the box). A touch screen alone cannot bring it back.",
+    console_stopped: "Done. The text console appears in a moment.", yes_stop: "Yes, stop the screen",
+    res: "Screen resolution", res_auto: "Automatic (the screen's preferred mode)", res_pref: "preferred", res_current: "Now",
+    res_note: "Only modes your screen reports are listed. After a change you have a few seconds to confirm; otherwise the previous resolution comes back by itself, even if the screen goes black.",
+    res_none: "No screen is connected, so no resolutions are known.", res_apply: "Apply resolution", res_applying: "Switching...",
+    res_keep_q: "Keep this resolution?", res_keep_d: "If you do not confirm, the previous resolution comes back by itself in", res_later: "Saved. It is used the next time the screen starts.",
+    upd: "System updates", upd_tile: "Version, updates, upgrade",
+    upd_this: "This box", upd_slot: "system slot", upd_rule: "New versions of %s install by themselves at night (03:00-05:00), never during a round. Hall data and settings stay.",
+    upd_last: "Last update", upd_none_yet: "None yet.", upd_checked: "Last checked", upd_never: "never",
+    upd_check: "Check now", upd_checking: "Checking...", upd_uptodate: "This box is up to date.",
+    upd_newer: "Version %s is available.", upd_install: "Install now", upd_install_q: "Install version %s now?",
+    upd_install_d: "The box downloads it, writes it next to the running system and restarts into it, on its own (a few minutes). If the new version does not start properly, the box goes back to this one by itself.",
+    upd_yes_install: "Yes, install now",
+    upd_offer: "%s is available", upd_offer_d: "A new release line. It never installs by itself: only Upgrade starts it.",
+    upd_upgrade: "Upgrade to %s", upd_upgrade_q: "Upgrade this box to %s?",
+    upd_upgrade_d: "The box downloads %s, writes it next to the running system and restarts into it. Hall data and settings stay. If it does not start properly, the box goes back to this version by itself. Afterwards, new versions of %s install by themselves at night.",
+    upd_yes_upgrade: "Yes, upgrade to %s", upd_blocked: "%s needs version %s of this line first; that one comes by itself at night.",
+    upd_off: "System updates are off on this box.", upd_not_ab: "This card does not have the update layout yet. Flash a v6 image once; after that, no more flashing.",
+    upd_trial: "Version %s is being tried out. The box decides within a few minutes whether to keep it.",
+    upd_ph_checking: "Checking...", upd_ph_downloading: "Downloading", upd_ph_verifying: "Checking the download",
+    upd_ph_installing: "Installing", upd_ph_restarting: "Restarting into the new version", upd_ph_waiting: "Waiting for the network",
+    upd_ph_staged: "Ready; it is put in use at night.",
+    upd_r_ok: "Updated", upd_r_rolled_back: "Did not work; went back", upd_r_failed: "Failed", upd_r_refused: "Refused",
+    upd_r_staged: "Ready for the night", upd_r_nothing: "Nothing newer", upd_r_skipped: "Skipped",
+    upd_err_round_in_progress: "A round is in progress, so nothing was changed. Try again after the round.",
+    upd_err_busy: "An update is already running.", upd_err_updates_off: "System updates are off on this box.",
+    upd_err_not_ab: "This card does not have the update layout.", upd_err_bad_train: "That is not a newer release line.",
+    upd_url: "Where updates come from", upd_url_d: "An https:// address of a release index. Keep the default unless the Alnasl team tells you otherwise.",
+  },
+  nl: {
+    welcome: "Welkom bij je Alnasl-box", welcome_d: "Nog een paar korte stappen en de box is klaar voor de zaal. Je kunt alles later wijzigen via het menu.",
+    language: "Taal", next: "Volgende", back: "Terug", skip: "Overslaan", finish: "Klaar", save: "Opslaan", cancel: "Annuleren", close: "Sluiten",
+    keyboard: "Toetsenbordindeling", keyboard_d: "Geldt voor het scherm en voor een toetsenbord dat je op de box aansluit.", kbd_test: "Probeer het hier",
+    kbd_saved: "Opgeslagen. Het scherm herstart om het toe te passen.", kbd_saved_w: "Opgeslagen.",
+    network: "Netwerk", status: "Status", wifi: "Wifi", ip_settings: "IP-instellingen", ethernet: "Ethernet",
+    link_up: "verbonden", link_down: "geen kabel", not_present: "niet aanwezig", no_ip: "nog geen adres",
+    address: "Adres", gateway: "Gateway", dns: "DNS-servers", hostname: "Naam van deze box",
+    hostname_note: "Letters, cijfers en koppeltekens. Volledig actief na een herstart.",
+    scan: "Netwerken zoeken", scanning: "Zoeken...", hidden_net: "Verborgen netwerk",
+    network_name: "Netwerknaam", passphrase: "Wachtwoord", country: "Landcode", show: "Tonen", hide: "Verbergen",
+    connect: "Verbinden", connecting: "Verbinden...", connected_to: "Verbonden met", saved_nets: "Opgeslagen netwerken", forget: "Vergeten",
+    secured: "beveiligd", open_net: "open", saved: "opgeslagen", no_wifi: "Deze box heeft geen wifi-adapter.", no_nets: "Geen netwerken gevonden. Zoek opnieuw.",
+    err_wrong: "Het wachtwoord werd geweigerd. Controleer het en probeer opnieuw.", err_rejected: "Het netwerk accepteerde de verbinding niet.",
+    err_nf: "Het netwerk is niet gevonden. Ga dichterbij staan, controleer de naam of kies Verborgen netwerk.",
+    dhcp: "Automatisch (DHCP)", static_ip: "Vast adres", apply: "Toepassen", wifi_ok_noip: "Verbonden; wacht op een adres.",
+    keep_q: "Deze netwerkinstellingen houden?", keep_d: "Als je niet bevestigt, komen de vorige instellingen vanzelf terug over",
+    keep: "Houden", revert: "Ongedaan maken", seconds: "s", eth_fine: "Ethernet is verbonden, dus wifi is optioneel.",
+    services: "Diensten op deze Pi", services_d: "Kies wat er op deze box draait.",
+    s_alnasl: "Alnasl", s_alnasl_d: "Bordenrelay en webpagina voor de zaal (poort 4040).",
+    s_kiosk: "Scherm", s_kiosk_d: "Toont Alnasl schermvullend op het HDMI-scherm.",
+    kiosk_warn: "Zonder scherm verdwijnt dit scherm. Voer 'alnasl-setup' op de box uit, of gebruik de webpagina, om terug te komen.",
+    done_title: "Alles klaar", done_d: "Alnasl opent nu. Met de menuknop in de hoek kom je hier terug.", open_alnasl: "Alnasl openen",
+    menu: "Menu", m_alnasl: "Alnasl", m_alnasl_d: "De borden en de indelingen", m_settings: "Instellingen", m_settings_d: "Netwerk, toetsenbord, diensten, scherm",
+    m_info: "Systeeminfo", m_info_d: "Adressen, versies, looptijd", m_power: "Herstarten / Afsluiten", m_power_d: "Zet de box veilig uit",
+    alnasl_down: "Alnasl draait niet op deze box. Zet het aan via Instellingen > Diensten.",
+    settings: "Instellingen", display: "Scherm", scale: "Grootte van alles op het scherm", scale_note: "Verhoog dit voor een grote tv die je van ver bekijkt. Het scherm herstart.",
+    restart: "Herstarten", shutdown: "Afsluiten", power: "Herstarten of afsluiten", sure: "Weet je het zeker?", power_wait: "Klaar. Het scherm gaat zo uit.",
+    info: "Systeeminfo", model: "Model", serial: "Serienummer (laatste 6)", kernel: "Kernel", os: "Systeem", image: "Image", alnasl_v: "Alnasl",
+    uptime: "Looptijd", memory: "Geheugen", disk: "Schijf vrij", temp: "Temperatuur", disp_path: "Scherm", free: "vrij",
+    error: "Er ging iets mis", retry: "Opnieuw proberen", rerun: "De eerste installatie opnieuw doen", first_run: "Eerste installatie",
+    reset: "Deze box wissen", reset_d: "Alles wat deze box bewaard heeft verdwijnt: de gegevens en opnames van Alnasl, de instellingen, de wifi-netwerken, de logs en de updateresultaten. Daarna start hij opnieuw als nieuw, in de eerste installatie.",
+    reset_keep: "Het systeem en Alnasl zelf blijven. Diagnosebestanden op de SD-kaart blijven ook.", reset_hold: "Ingedrukt houden om te wissen",
+    mode_title: "Master of slave?", mode_master: "Master", mode_master_d: "Master beheert de zaal: Alnasl en het zaalscherm.",
+    mode_slave: "Slave", mode_slave_d: "Slave leest alleen DGT-borden en geeft ze door aan een master.",
+    mode_switch_slave: "Omschakelen naar slave", mode_switch_master: "Omschakelen naar master", mode_yes: "Omschakelen en herstarten",
+    mode_q_slave: "Deze box omschakelen naar slave?", mode_q_master: "Deze box omschakelen naar master?",
+    mode_d_slave: "Alnasl en het zaalscherm stoppen en Arkab start, na een herstart. Er wordt niets gewist: terugschakelen verliest niets.",
+    mode_d_master: "Arkab stopt en Alnasl en het zaalscherm starten, na een herstart. Er wordt niets gewist: terugschakelen verliest niets.",
+    done_slave_d: "De box herstart als slave. Arkab neemt het over; open de pagina op poort 4050 van deze box om hem aan een master te koppelen.", restart_now: "Herstarten",
+    m_diag: "Diagnose", m_diag_d: "Werkt de wifi? Netwerk, diensten, logs", m_console: "Console", m_console_d: "Tekstconsole, of het scherm stoppen",
+    diag: "Diagnose", d_wifi_q: "Werkt de wifi wel?", d_loading: "Gegevens verzamelen...", d_refresh: "Vernieuwen", d_test_scan: "Wifi-scan testen",
+    d_save: "Diagnose opslaan op de SD-kaart", d_saved: "Opgeslagen als %s op de opstartpartitie van de SD-kaart. Steek de kaart in een pc en open het bestand daar.",
+    d_wifi: "Wifi-hardware en driver", d_network: "Netwerk", d_services: "Diensten", d_kiosk: "Scherm en kiosk", d_updates: "OS- en systeemupdates",
+    d_logs: "Logs (laatste 60 regels per dienst; scrol binnen een vak)", d_scan_out: "Ruwe uitvoer van de scantest", d_scan_found: "netwerken gevonden",
+    d_back: "Diagnose",
+    m_help: "Hulp vragen", m_help_d: "Verstuur het rapport van deze box en krijg een code om door te geven",
+    help_d: "Stuurt het rapport van deze box (zonder wachtwoorden en sleutels) naar de mensen die je helpen, en geeft je een code om aan hen door te geven.",
+    help_send: "Rapport versturen", help_again: "Opnieuw versturen", help_sending: "Rapport wordt verstuurd...", help_code_label: "Hulpcode", help_last: "Je laatste code",
+    help_read: "Geef deze code door aan de mensen die je helpen. Geldig tot %s.",
+    help_err_no_internet: "De box kreeg geen verbinding met internet. Controleer het netwerk bij Instellingen > Netwerk en probeer opnieuw.",
+    help_err_rate_limited: "Te veel aanvragen vanaf dit netwerk. Probeer het over een uur opnieuw.",
+    help_err_support_off: "Hulp staat uit op die server. Controleer het adres bij Instellingen > Hulp vragen.",
+    help_err_too_large: "Het rapport is te groot om te versturen.", help_err_rejected: "De server heeft het rapport niet aanvaard.",
+    help_err_server_error: "De server gaf een onverwacht antwoord. Probeer het later opnieuw.",
+    help_url: "Waarheen rapporten gaan", help_url_d: "Een https://-adres. Standaard is dat van het Alnasl-team.", help_url_bad: "Enkel https://-adressen worden aanvaard.",
+    help_url_saved: "Opgeslagen.", help_default: "Standaard gebruiken",
+    v_ok: "Ja. De wifi-chip, de driver en de firmware werken.", v_no_driver: "Nee. De wifi-driver (brcmfmac) is niet geladen.",
+    v_no_hardware: "Nee. De wifi-chip is niet gevonden op de SDIO-bus.", v_firmware: "Nee. De firmware van de wifi-chip is niet geladen.",
+    v_no_interface: "Nee. Er is geen wlan0-interface.", v_link_down: "De interface bestaat maar staat uit. Een scan zet hem aan.",
+    v_supplicant: "De hardware werkt, maar het wifi-programma (wpa_supplicant) antwoordt niet. Een scan start het opnieuw.",
+    c_driver: "Driver geladen", c_hardware: "Wifi-chip gevonden", c_firmware: "Firmware geladen", c_interface: "Interface wlan0",
+    c_link: "Interface aan", c_supplicant: "wpa_supplicant antwoordt",
+    scan_none: "Er zijn geen netwerken gevonden.", scan_details: "Details (ruwe uitvoer)", open_diag: "Diagnose openen", try_again: "Opnieuw zoeken",
+    scan_why_no_results: "De wifi-radio werkt maar zag geen netwerken. Controleer de landcode, de antennekant van de box en de afstand, en zoek opnieuw.",
+    scan_why_supplicant: "Het wifi-programma (wpa_supplicant) wilde niet starten. Het log hieronder zegt waarom.",
+    scan_why_rejected: "Het wifi-programma weigerde te scannen. Zie de details hieronder.",
+    scan_why_nointerface: "Er is geen wifi-interface (wlan0). De details hieronder tonen wat de kernel zegt.",
+    err_supp: "Het wifi-programma kon niet gestart worden. Open Diagnose voor de reden.",
+    console_title: "Console", console_d: "Met een toetsenbord op de box: Ctrl+Alt+F2 of F3 opent een tekstconsole (log in als root), Ctrl+Alt+F1 brengt je terug naar het scherm.",
+    console_show: "Console nu tonen", console_back: "Druk op het toetsenbord op Ctrl+Alt+F1 om terug te keren naar dit scherm.",
+    console_stop: "Scherm stoppen", console_stop_q: "Het scherm stoppen tot de volgende start?",
+    console_stop_note: "De box toont daarna de tekstconsole. Om het scherm terug te krijgen log je daar in en typ je: alnasl-screen start (of herstart de box). Alleen met een aanraakscherm lukt dat niet.",
+    console_stopped: "Klaar. De tekstconsole verschijnt zo.", yes_stop: "Ja, stop het scherm",
+    res: "Schermresolutie", res_auto: "Automatisch (de voorkeursmodus van het scherm)", res_pref: "voorkeur", res_current: "Nu",
+    res_note: "Alleen modi die je scherm opgeeft staan in de lijst. Na een wijziging heb je enkele seconden om te bevestigen; anders komt de vorige resolutie vanzelf terug, ook als het scherm zwart wordt.",
+    res_none: "Er is geen scherm aangesloten, dus er zijn geen resoluties bekend.", res_apply: "Resolutie toepassen", res_applying: "Omschakelen...",
+    res_keep_q: "Deze resolutie houden?", res_keep_d: "Als je niet bevestigt, komt de vorige resolutie vanzelf terug over", res_later: "Opgeslagen. Wordt gebruikt de volgende keer dat het scherm start.",
+    upd: "Systeemupdates", upd_tile: "Versie, updates, upgrade",
+    upd_this: "Deze box", upd_slot: "systeemslot", upd_rule: "Nieuwe versies van %s installeren zich 's nachts vanzelf (03:00-05:00), nooit tijdens een ronde. Zaalgegevens en instellingen blijven.",
+    upd_last: "Laatste update", upd_none_yet: "Nog geen.", upd_checked: "Laatst gecontroleerd", upd_never: "nooit",
+    upd_check: "Nu controleren", upd_checking: "Controleren...", upd_uptodate: "Deze box is up-to-date.",
+    upd_newer: "Versie %s is beschikbaar.", upd_install: "Nu installeren", upd_install_q: "Versie %s nu installeren?",
+    upd_install_d: "De box downloadt ze, schrijft ze naast het draaiende systeem en herstart erin, helemaal vanzelf (enkele minuten). Start de nieuwe versie niet goed, dan gaat de box vanzelf terug naar deze.",
+    upd_yes_install: "Ja, nu installeren",
+    upd_offer: "%s is beschikbaar", upd_offer_d: "Een nieuwe releaselijn. Die installeert zich nooit vanzelf: alleen Upgraden start ze.",
+    upd_upgrade: "Upgraden naar %s", upd_upgrade_q: "Deze box upgraden naar %s?",
+    upd_upgrade_d: "De box downloadt %s, schrijft ze naast het draaiende systeem en herstart erin. Zaalgegevens en instellingen blijven. Start ze niet goed, dan gaat de box vanzelf terug naar deze versie. Daarna installeren nieuwe versies van %s zich 's nachts vanzelf.",
+    upd_yes_upgrade: "Ja, upgraden naar %s", upd_blocked: "%s vraagt eerst versie %s van deze lijn; die komt 's nachts vanzelf.",
+    upd_off: "Systeemupdates staan uit op deze box.", upd_not_ab: "Deze kaart heeft nog niet de indeling voor updates. Flash eenmalig een v6-image; daarna hoeft dat nooit meer.",
+    upd_trial: "Versie %s wordt uitgeprobeerd. De box beslist binnen enkele minuten of hij ze houdt.",
+    upd_ph_checking: "Controleren...", upd_ph_downloading: "Downloaden", upd_ph_verifying: "De download controleren",
+    upd_ph_installing: "Installeren", upd_ph_restarting: "Herstarten in de nieuwe versie", upd_ph_waiting: "Wachten op het netwerk",
+    upd_ph_staged: "Klaar; ze wordt 's nachts in gebruik genomen.",
+    upd_r_ok: "Bijgewerkt", upd_r_rolled_back: "Werkte niet; teruggezet", upd_r_failed: "Mislukt", upd_r_refused: "Geweigerd",
+    upd_r_staged: "Klaar voor de nacht", upd_r_nothing: "Niets nieuwers", upd_r_skipped: "Overgeslagen",
+    upd_err_round_in_progress: "Er loopt een ronde, dus er is niets veranderd. Probeer het na de ronde opnieuw.",
+    upd_err_busy: "Er loopt al een update.", upd_err_updates_off: "Systeemupdates staan uit op deze box.",
+    upd_err_not_ab: "Deze kaart heeft niet de indeling voor updates.", upd_err_bad_train: "Dat is geen nieuwere releaselijn.",
+    upd_url: "Waar updates vandaan komen", upd_url_d: "Een https://-adres van een release-index. Laat de standaard staan tenzij het Alnasl-team iets anders zegt.",
+  },
+};
+let LANG = "en";
+const t = (k) => (TX[LANG] && TX[LANG][k]) || TX.en[k] || k;
+const tf = (k, ...a) => { let i = 0; return t(k).replace(/%s/g, () => String(a[i++] ?? "")); };
+
+/* --------------------------------------------------------- helpers ------ */
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === false || v == null) continue;
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (k === "value") el.value = v;
+    else if (k === "checked") el.checked = !!v;
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of kids.flat(Infinity)) if (c != null && c !== false) el.append(c.nodeType ? c : document.createTextNode(String(c)));
+  return el;
+}
+const $ = (s, r = document) => r.querySelector(s);
+async function api(path, body) {
+  const opt = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json", "X-Alnasl-Setup": "1" }, body: JSON.stringify(body) };
+  const r = await fetch(path, opt);
+  let j = {};
+  try { j = await r.json(); } catch (e) { /* empty */ }
+  if (!r.ok) throw new Error(j.error || t("error"));
+  return j;
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function bars(dbm) {
+  const n = dbm >= -55 ? 4 : dbm >= -65 ? 3 : dbm >= -75 ? 2 : 1;
+  return h("span", { class: "bars" }, [1, 2, 3, 4].map((i) => h("i", { class: i <= n ? "on" : "", style: "height:" + (6 + i * 4) + "px" })));
+}
+const fmtBytes = (b) => (b >= 1e9 ? (b / 1e9).toFixed(1) + " GB" : Math.round(b / 1e6) + " MB");
+function fmtUp(s) { const d = Math.floor(s / 86400), hh = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60); return (d ? d + "d " : "") + hh + "h " + m + "m"; }
+
+let S = { layouts: [], keyboard: {}, services: {}, scale: "100", done: false };
+let WIZ = false;          // true while the first-run sequence is on screen
+const app = $("#app");
+
+function modal(content) { const m = $("#modal"); m.replaceChildren(h("div", { class: "box" }, content)); m.hidden = false; return () => { m.hidden = true; m.replaceChildren(); }; }
+function msg(kind, text) { return h("div", { class: "msg " + kind }, text); }
+function busy(text) { return h("p", {}, h("span", { class: "spin" }), text); }
+
+function shell(title, body, opts = {}) {
+  const top = h("div", { class: "top" },
+    h("div", { class: "brand" }, "Alnasl"),
+    h("div", { class: "dim" }, title),
+    h("div", { class: "sp" }),
+    opts.langToggle === false ? null : langToggle(),
+    opts.home ? h("button", { class: "btn sm", onclick: () => go("/menu") }, t("menu")) : null);
+  app.replaceChildren(top, h("div", { class: "page" }, body));
+  closeOsk();
+}
+function langToggle() {
+  return h("div", { class: "row" }, ["en", "nl"].map((l) =>
+    h("button", { class: "btn sm" + (LANG === l ? " primary" : ""), onclick: async () => { LANG = l; await api("/api/lang", { lang: l }).catch(() => 0); route(); } }, l.toUpperCase())));
+}
+
+/* ------------------------------------------ on-screen keyboard (touch) -- */
+const OSK_ROWS = {
+  azerty: ["azertyuiop", "qsdfghjklm", "wxcvbn"],
+  qwertz: ["qwertzuiop", "asdfghjkl", "yxcvbnm"],
+  qwerty: ["qwertyuiop", "asdfghjkl", "zxcvbnm"],
+};
+const OSK_SYM = ["1234567890", "-/:;()&@\"", ".,?!'_#%+="];
+let oskTarget = null, oskShift = false, oskSym = false;
+function oskKind() {
+  const id = (S.keyboard && S.keyboard.KBD_ID) || "be";
+  return id === "be" || id === "fr" ? "azerty" : id === "de" ? "qwertz" : "qwerty";
+}
+function oskDraw() {
+  const o = $("#osk");
+  const rows = oskSym ? OSK_SYM : OSK_ROWS[oskKind()];
+  const key = (c) => h("button", { type: "button", onpointerdown: (e) => { e.preventDefault(); oskType(oskShift && !oskSym ? c.toUpperCase() : c); } }, oskShift && !oskSym ? c.toUpperCase() : c);
+  const num = oskSym ? null : h("div", { class: "kr" }, [..."1234567890"].map(key));
+  o.replaceChildren(
+    num,
+    ...rows.map((r, i) => h("div", { class: "kr" },
+      i === 2 && !oskSym ? h("button", { type: "button", class: "w" + (oskShift ? " on" : ""), onpointerdown: (e) => { e.preventDefault(); oskShift = !oskShift; oskDraw(); } }, "Shift") : null,
+      [...r].map(key),
+      i === 2 ? h("button", { type: "button", class: "w", onpointerdown: (e) => { e.preventDefault(); oskType("\b"); } }, "⌫") : null)),
+    h("div", { class: "kr" },
+      h("button", { type: "button", class: "w", onpointerdown: (e) => { e.preventDefault(); oskSym = !oskSym; oskDraw(); } }, oskSym ? "ABC" : "123/#"),
+      key("@"), key("."), key("-"), key("_"),
+      h("button", { type: "button", class: "spc", onpointerdown: (e) => { e.preventDefault(); oskType(" "); } }, "space"),
+      h("button", { type: "button", class: "w", onpointerdown: (e) => { e.preventDefault(); closeOsk(); } }, "▾")));
+}
+function oskType(c) {
+  const el = oskTarget; if (!el) return;
+  const s = el.selectionStart ?? el.value.length, e = el.selectionEnd ?? s;
+  if (c === "\b") { if (s === e && s > 0) { el.setRangeText("", s - 1, e, "end"); } else { el.setRangeText("", s, e, "end"); } }
+  else el.setRangeText(c, s, e, "end");
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  if (oskShift) { oskShift = false; oskDraw(); }
+}
+function closeOsk() { $("#osk").hidden = true; document.body.classList.remove("osk-open"); oskTarget = null; }
+function openOsk(el) { oskTarget = el; oskDraw(); $("#osk").hidden = false; document.body.classList.add("osk-open"); setTimeout(() => el.scrollIntoView({ block: "center", behavior: "smooth" }), 50); }
+function field(label, attrs) {
+  const input = h("input", Object.assign({ type: "text", autocomplete: "off", autocapitalize: "off", spellcheck: "false", inputmode: "none" }, attrs));
+  input.addEventListener("focus", () => openOsk(input));
+  input.addEventListener("click", () => openOsk(input));
+  return { el: h("label", { class: "f" }, h("span", {}, label), input), input };
+}
+
+/* ---------------------------------------------------------- routing ----- */
+function go(path) { history.pushState({}, "", path); route(); }
+window.addEventListener("popstate", route);
+
+// Heartbeat: tells the box which page is open. The kiosk watchdog never restarts
+// the browser while this is fresh, and a browser that is restarted anyway
+// returns to this page (the server remembers it, including the tab and step).
+let FIRST_PING = true, LEAVING = false;
+function ping() {
+  if (LEAVING) return Promise.resolve();
+  const q = "?p=" + encodeURIComponent(location.pathname + location.search) + (FIRST_PING ? "&first=1" : "");
+  FIRST_PING = false;
+  return api("/api/ping" + q).catch(() => 0);
+}
+async function leaveToAlnasl() { LEAVING = true; await api("/api/ping?p=").catch(() => 0); }
+setInterval(() => { if (location.pathname !== "/") ping(); }, 8000);
+// The tab / step live in the address (and sessionStorage), so a reload comes back to the same place.
+function qget(k) { return new URLSearchParams(location.search).get(k); }
+function qset(obj) {
+  const q = new URLSearchParams(location.search);
+  for (const [k, v] of Object.entries(obj)) { if (v == null) q.delete(k); else q.set(k, v); }
+  const s = q.toString();
+  history.replaceState({}, "", location.pathname + (s ? "?" + s : ""));
+  ping();
+}
+
+async function route() {
+  const p = location.pathname;
+  try {
+    S = Object.assign(S, await api("/api/state"));
+    LANG = S.lang || LANG;
+  } catch (e) { shell("", [msg("bad", t("error")), h("button", { class: "btn", onclick: route }, t("retry"))], { langToggle: false }); return; }
+  ping();
+  if (p === "/setup") {
+    WIZ = true;
+    const st = Number(qget("step") ?? sessionStorage.getItem("wizstep") ?? 0);
+    return wizard(st >= 0 && st < STEPS.length ? st : 0);
+  }
+  WIZ = false;
+  if (p === "/settings" || p.startsWith("/settings/")) return settings(p.split("/")[2] || "");
+  if (p === "/info") return infoPage();
+  if (p === "/diag") return diagPage();
+  if (p === "/help") return helpPage();
+  return menu();
+}
+
+/* -------------------------------------------------------------- menu ---- */
+function tile(title, desc, fn) {
+  return h("button", { class: "tile", onclick: fn }, h("div", { class: "t" }, title), h("div", { class: "d" }, desc));
+}
+async function openAlnasl() {
+  if (S.services.alnasl && S.services.alnasl.active) { await leaveToAlnasl(); location.href = "http://localhost:4040/"; return; }
+  const m = modal([h("p", {}, t("alnasl_down")), h("button", { class: "btn", onclick: () => m() }, t("close"))]);
+}
+function menu() {
+  shell(t("menu"), h("div", { class: "grid" },
+    tile(t("m_alnasl"), t("m_alnasl_d"), openAlnasl),
+    tile(t("m_settings"), t("m_settings_d"), () => go("/settings")),
+    tile(t("m_info"), t("m_info_d"), () => go("/info")),
+    tile(t("m_help"), t("m_help_d"), () => go("/help")),
+    tile(t("m_diag"), t("m_diag_d"), () => go("/diag")),
+    tile(t("m_console"), t("m_console_d"), consoleDialog),
+    tile(t("m_power"), t("m_power_d"), powerDialog)));
+}
+function consoleDialog() {
+  const out = h("div", {});
+  const close = modal([h("h2", {}, t("console_title")), h("p", { class: "dim" }, t("console_d")),
+    h("div", { class: "row" },
+      h("button", { class: "btn primary", onclick: async () => { try { await api("/api/console/show", {}); out.replaceChildren(msg("ok", t("console_back"))); } catch (e) { out.replaceChildren(msg("bad", e.message)); } } }, t("console_show")),
+      h("button", { class: "btn danger", onclick: stopScreenDialog }, t("console_stop")),
+      h("button", { class: "btn", onclick: () => close() }, t("close"))), h("div", { style: "margin-top:14px" }, out)]);
+  function stopScreenDialog() {
+    out.replaceChildren(h("div", { class: "msg warn" }, h("p", {}, h("b", {}, t("console_stop_q"))), h("p", { class: "small" }, t("console_stop_note")),
+      h("div", { class: "row" },
+        h("button", { class: "btn danger", onclick: async () => { try { await api("/api/screen/stop", {}); out.replaceChildren(msg("ok", t("console_stopped"))); } catch (e) { out.replaceChildren(msg("bad", e.message)); } } }, t("yes_stop")),
+        h("button", { class: "btn", onclick: () => out.replaceChildren() }, t("cancel")))));
+  }
+}
+function powerDialog() {
+  const close = modal([h("h2", {}, t("power")), h("p", { class: "dim" }, t("sure")),
+    h("div", { class: "row" },
+      h("button", { class: "btn primary", onclick: () => doPower("reboot") }, t("restart")),
+      h("button", { class: "btn danger", onclick: () => doPower("poweroff") }, t("shutdown")),
+      h("button", { class: "btn", onclick: () => close() }, t("cancel")))]);
+  // v6: the boot screen says "Restarting" / "Shutting down" from here to the dark (or back).
+  async function doPower(a) { await api("/api/power", { action: a }).catch(() => 0); location.href = "/screen"; }
+}
+
+/* -------------------------------------------------------- info page ----- */
+async function infoPage() {
+  shell(t("info"), busy("..."), { home: true });
+  const i = await api("/api/sysinfo");
+  const rows = [
+    [t("hostname"), i.hostname], [t("model"), i.model], [t("serial"), i.serial], [t("os"), i.os], [t("kernel"), i.kernel],
+    [t("image"), i.image_release && i.image_release.version ? "v" + i.image_release.version + (i.image_release.slot ? "  (" + t("upd_slot") + " " + i.image_release.slot + ")" : "") : i.image],
+    [t("alnasl_v"), i.alnasl], [t("uptime"), fmtUp(i.uptime)],
+    [t("memory"), fmtBytes(i.mem_avail) + " " + t("free") + " / " + fmtBytes(i.mem_total)],
+    [t("disk"), fmtBytes(i.disk_free) + " / " + fmtBytes(i.disk_total)], [t("temp"), i.temp_c == null ? "-" : i.temp_c + " °C"],
+    [t("ethernet"), (i.net.eth0 || []).join(", ") || "-"], [t("wifi"), (i.net.wlan0 || []).join(", ") || "-"], [t("disp_path"), i.display],
+  ];
+  shell(t("info"), h("div", { class: "card" }, h("dl", { class: "kv" }, rows.map(([k, v]) => [h("dt", {}, k), h("dd", {}, v)]))), { home: true });
+}
+
+/* ------------------------------------------------------ settings -------- */
+/* ------------------------------------------------------ diagnostics ------- */
+async function diagPage() {
+  shell(t("diag"), busy(t("d_loading")), { home: true });
+  let d;
+  try { d = await api("/api/diag"); } catch (e) { shell(t("diag"), msg("bad", e.message), { home: true }); return; }
+  const scanOut = h("div", {}), saveOut = h("div", {}), logs = h("div", {}, busy(t("d_loading")));
+  const mark = (ok) => h("span", { class: "pill " + (ok === true ? "ok" : ok === false ? "bad" : "") }, ok === true ? "OK" : ok === false ? "FAIL" : "?");
+  const verdict = h("div", { class: "card" }, h("h2", {}, t("d_wifi_q")),
+    msg(d.verdict === "ok" ? "ok" : "bad", t("v_" + d.verdict)),
+    d.checks.map((c) => h("div", { class: "chk" }, mark(c.ok), h("b", {}, t("c_" + c.id)), h("span", { class: "dim small" }, c.detail))));
+  const bScan = h("button", { class: "btn primary", onclick: async () => {
+    bScan.disabled = true; scanOut.replaceChildren(busy(t("scanning")));
+    try {
+      const r = await api("/api/diag/scan");
+      scanOut.replaceChildren(h("div", { class: "card" }, h("h2", {}, t("d_scan_out")),
+        h("p", {}, (r.networks || []).length + " " + t("d_scan_found") + (r.elapsed != null ? " (" + r.elapsed + " s)" : "")),
+        h("pre", { class: "raw" }, r.raw || r.detail || "")));
+    } catch (e) { scanOut.replaceChildren(msg("bad", e.message)); }
+    bScan.disabled = false;
+  } }, t("d_test_scan"));
+  const bSave = h("button", { class: "btn", onclick: async () => {
+    bSave.disabled = true; saveOut.replaceChildren(busy(t("d_loading")));
+    try { const r = await api("/api/diag/save", {}); saveOut.replaceChildren(msg("ok", t("d_saved").replace("%s", r.file))); }
+    catch (e) { saveOut.replaceChildren(msg("bad", e.message)); }
+    bSave.disabled = false;
+  } }, t("d_save"));
+  const sections = d.sections.map((s) => h("details", { class: "card" }, h("summary", {}, t("d_" + s.id)), h("pre", { class: "raw" }, s.text)));
+  shell(t("diag"), [h("div", { class: "row", style: "margin-bottom:16px" }, bScan, bSave, h("button", { class: "btn", onclick: diagPage }, t("d_refresh"))),
+    scanOut, saveOut, verdict, sections, h("h2", { style: "margin-top:22px" }, t("d_logs")), logs], { home: true });
+  try {
+    const j = await api("/api/diag/journals");
+    logs.replaceChildren(...j.journals.map((u) => {
+      const pre = h("pre", { class: "raw" }, u.text || "(empty)");
+      const det = h("details", { class: "card" }, h("summary", {}, u.unit), pre);
+      det.addEventListener("toggle", () => { if (det.open) pre.scrollTop = pre.scrollHeight; });
+      return det;
+    }));
+  } catch (e) { logs.replaceChildren(msg("bad", e.message)); }
+}
+
+/* ------------------------------------------------------------ get help ---- */
+// The report goes out over HTTPS and a six-digit code comes back. Outbound only.
+const fmtCode = (c) => String(c).replace(/^(\d{3})(\d{3})$/, "$1 $2");
+const fmtWhen = (iso) => { const d = new Date(iso); return isNaN(d) ? iso : d.toLocaleString(LANG === "nl" ? "nl-BE" : "en-GB", { dateStyle: "medium", timeStyle: "short" }); };
+function helpCode(r) {
+  return h("div", { class: "card center", id: "help-code" },
+    h("div", { class: "dim" }, t("help_code_label")),
+    h("div", { class: "helpcode", id: "help-code-value" }, fmtCode(r.code)),
+    h("p", {}, t("help_read").replace("%s", fmtWhen(r.expires_at))));
+}
+async function helpPage() {
+  shell(t("m_help"), busy("..."), { home: true });
+  let st; try { st = await api("/api/help"); } catch (e) { shell(t("m_help"), msg("bad", e.message), { home: true }); return; }
+  const out = h("div", {}), last = h("div", {});
+  const btn = h("button", { class: "btn primary", id: "help-send", onclick: send }, t("help_send"));
+  if (st.last) last.replaceChildren(h("p", { class: "dim" }, t("help_last")), helpCode(st.last));
+  async function send() {
+    btn.disabled = true; last.replaceChildren(); out.replaceChildren(busy(t("help_sending")));
+    try {
+      const r = await api("/api/help/send", {});
+      if (r.ok) { out.replaceChildren(helpCode(r)); }
+      else out.replaceChildren(msg("bad", t("help_err_" + r.error) || t("help_err_server_error")));
+    } catch (e) { out.replaceChildren(msg("bad", t("help_err_server_error"))); }
+    btn.disabled = false; btn.textContent = t("help_again");
+  }
+  shell(t("m_help"), [h("div", { class: "card" }, h("p", {}, t("help_d")), h("div", { class: "row" }, btn)), out, last], { home: true });
+}
+function helpSettings() {
+  const f = field(t("help_url"), { value: "", id: "help-url" });
+  const out = h("div", {});
+  api("/api/help").then((st) => { f.input.value = st.url; }).catch(() => 0);
+  async function save(url) {
+    try { const st = await api("/api/help/url", { url }); f.input.value = st.url; out.replaceChildren(msg("ok", t("help_url_saved"))); }
+    catch (e) { out.replaceChildren(msg("bad", e.message === "bad_url" ? t("help_url_bad") : e.message)); }
+  }
+  sub(t("m_help"), [h("p", { class: "dim" }, t("help_url_d")), f.el, out,
+    h("div", { class: "row" }, h("button", { class: "btn primary", id: "help-url-save", onclick: () => save(f.input.value) }, t("save")),
+      h("button", { class: "btn", onclick: () => save("") }, t("help_default")))]);
+}
+
+/* ---------------------------------------------------- system updates ---- */
+// v6 A/B. The box's own train (v6) updates by itself at night; another train (v7) only through
+// "Upgrade to v7" and its confirmation here, or Arkab's page, or alnasl-upgrade.txt on the SD card.
+let UPD_TIMER = null;
+function updPage() {
+  const holder = h("div", { id: "upd" }, busy("..."));
+  const urlF = field(t("upd_url"), { value: "", id: "upd-url" });
+  const urlOut = h("div", {});
+  async function saveUrl(url) {
+    try { const st = await api("/api/system/url", { url }); urlF.input.value = st.index_url || ""; urlOut.replaceChildren(msg("ok", t("help_url_saved"))); }
+    catch (e) { urlOut.replaceChildren(msg("bad", e.message === "bad_url" ? t("help_url_bad") : e.message)); }
+  }
+  const urlCard = h("details", { class: "card", id: "upd-url-card" }, h("summary", {}, t("upd_url")), h("p", { class: "dim small" }, t("upd_url_d")), urlF.el, urlOut,
+    h("div", { class: "row" }, h("button", { class: "btn primary", id: "upd-url-save", onclick: () => saveUrl(urlF.input.value) }, t("save")),
+      h("button", { class: "btn", onclick: () => saveUrl("") }, t("help_default"))));
+  sub(t("upd"), [holder, urlCard]);
+  let first = true;
+  const errText = (e) => t("upd_err_" + e.message) !== "upd_err_" + e.message ? t("upd_err_" + e.message) : e.message;
+  async function draw() {
+    if (!document.body.contains(holder)) { clearInterval(UPD_TIMER); UPD_TIMER = null; return; }
+    let s;
+    try { s = await api("/api/system"); } catch (e) { holder.replaceChildren(msg("bad", e.message)); return; }
+    if (first) { urlF.input.value = s.index_url || ""; first = false; }
+    const cards = [];
+    const ver = s.version ? "v" + s.version : "?";
+    cards.push(h("div", { class: "card" }, h("dl", { class: "kv" },
+      h("dt", {}, t("upd_this")), h("dd", { id: "upd-version" }, ver + "  ", h("span", { class: "pill" }, s.train || "?"), s.slot ? h("span", { class: "dim small" }, "  " + t("upd_slot") + " " + s.slot) : null),
+      h("dt", {}, t("upd_checked")), h("dd", {}, s.checked_at || t("upd_never")),
+      h("dt", {}, t("upd_last")), h("dd", { id: "upd-last" }, s.last_result
+        ? [h("span", { class: "pill " + (s.last_result.outcome === "ok" ? "ok" : s.last_result.outcome === "rolled_back" || s.last_result.outcome === "failed" ? "bad" : "") },
+            t("upd_r_" + s.last_result.outcome)), " " + s.last_result.when, h("div", { class: "dim small" }, s.last_result.note)]
+        : t("upd_none_yet"))),
+      s.ab && s.updates_on ? h("p", { class: "note" }, tf("upd_rule", s.train)) : null));
+    if (!s.ab) { cards.push(msg("warn", t("upd_not_ab"))); holder.replaceChildren(...cards); return; }
+    if (!s.updates_on) cards.push(msg("warn", t("upd_off") + (s.off_reason ? " (" + s.off_reason + ")" : "")));
+    const out = h("div", { id: "upd-out" });
+    if (s.request_error) out.replaceChildren(msg("warn", t("upd_err_" + s.request_error)));
+    if (s.trial) {
+      cards.push(msg("warn", tf("upd_trial", s.trial.version || "?")));
+    } else if (s.busy) {
+      const ph = t("upd_ph_" + s.phase) !== "upd_ph_" + s.phase ? t("upd_ph_" + s.phase) : s.phase;
+      const pct = s.progress != null ? s.progress : null;
+      cards.push(h("div", { class: "card", id: "upd-busy" }, h("p", {}, h("span", { class: "spin" }), ph + (pct != null ? " " + pct + "%" : "")),
+        pct != null ? h("div", { class: "pbar" }, h("i", { style: "width:" + pct + "%" })) : null));
+    } else if (s.updates_on) {
+      const chk = h("button", { class: "btn", id: "upd-check", onclick: async () => {
+        chk.disabled = true; out.replaceChildren(busy(t("upd_checking")));
+        try { await api("/api/system/check", {}); await sleep(2500); } catch (e) { out.replaceChildren(msg("bad", errText(e))); }
+        draw();
+      } }, t("upd_check"));
+      const same = s.available;
+      const own = h("div", { class: "card" });
+      if (s.phase === "staged") own.append(msg("ok", t("upd_ph_staged")));
+      if (same) {
+        own.append(h("p", {}, h("b", {}, tf("upd_newer", same.version))), same.notes ? h("p", { class: "dim small" }, same.notes) : "",
+          h("div", { class: "row" }, h("button", { class: "btn primary", id: "upd-install", onclick: () => confirmDlg(tf("upd_install_q", same.version), t("upd_install_d"),
+            t("upd_yes_install"), () => api("/api/system/install", { confirm: "INSTALL" })) }, t("upd_install")), chk));
+      } else own.append(h("p", {}, t("upd_uptodate")), h("div", { class: "row" }, chk));
+      cards.push(own);
+      if (s.offer) {
+        const o = s.offer;
+        cards.push(h("div", { class: "card offer", id: "upd-offer" }, h("h2", {}, tf("upd_offer", o.train)), h("p", { class: "dim" }, t("upd_offer_d")),
+          o.notes ? h("p", { class: "small" }, o.notes) : null,
+          h("button", { class: "btn primary", id: "upd-upgrade", onclick: () => confirmDlg(tf("upd_upgrade_q", o.train), tf("upd_upgrade_d", "v" + o.version, o.train),
+            tf("upd_yes_upgrade", o.train), () => api("/api/system/upgrade", { train: o.train, confirm: "UPGRADE" })) }, tf("upd_upgrade", o.train))));
+      } else if (s.offer_blocked) {
+        cards.push(msg("warn", tf("upd_blocked", "v" + (Number(String(s.train).slice(1)) + 1), s.offer_blocked)));
+      }
+    }
+    cards.push(out);
+    holder.replaceChildren(...cards);
+    function confirmDlg(q, d, yes, call) {
+      const o2 = h("div", {});
+      const b = h("button", { class: "btn primary", id: "upd-confirm", onclick: async () => {
+        b.disabled = true;
+        try { await call(); close(); await sleep(1500); draw(); } catch (e) { o2.replaceChildren(msg("bad", errText(e))); b.disabled = false; }
+      } }, yes);
+      const close = modal([h("h2", {}, q), h("p", { class: "dim" }, d), h("div", { class: "row" }, b, h("button", { class: "btn", onclick: () => close() }, t("cancel"))), o2]);
+    }
+  }
+  clearInterval(UPD_TIMER);
+  UPD_TIMER = setInterval(draw, 3000);
+  draw();
+}
+
+function settings(sub) {
+  const subs = { network: netPage, keyboard: kbdPage, services: svcPage, display: dispPage, help: helpSettings, updates: updPage };
+  if (!sub || !subs[sub]) {
+    return shell(t("settings"), [
+      h("div", { class: "grid" },
+        tile(t("network"), "", () => go("/settings/network")),
+        tile(t("keyboard"), "", () => go("/settings/keyboard")),
+        tile(t("services"), "", () => go("/settings/services")),
+        tile(t("display"), "", () => go("/settings/display")),
+        tile(t("m_help"), "", () => go("/settings/help")),
+        tile(t("upd"), t("upd_tile"), () => go("/settings/updates"))),
+      h("div", { class: "row", style: "margin-top:22px" }, h("button", { class: "btn sm", onclick: rerun }, t("rerun")),
+        h("button", { class: "btn sm", id: "mode-open", onclick: modeDialog }, t(modeNow() === "slave" ? "mode_switch_master" : "mode_switch_slave")),
+        h("button", { class: "btn sm danger", id: "reset-open", onclick: resetDialog }, t("reset")))], { home: true });
+  }
+  subs[sub](false);
+}
+// Erase the box back to new (alnasl-reset). No typing on a touch screen: the button is held for 3 s,
+// a bar fills while it is; letting go before the end cancels. Then the boot screen shows the steps.
+function resetDialog() {
+  const HOLD = 3000;
+  const out = h("div", {});
+  const bar = h("i", {});
+  const btn = h("button", { class: "btn danger hold", id: "reset-hold" }, bar, h("span", {}, t("reset_hold")));
+  let timer = null;
+  const start = (e) => {
+    e.preventDefault();
+    if (timer || btn.disabled) return;
+    bar.style.transition = "width " + HOLD + "ms linear"; bar.style.width = "100%";
+    timer = setTimeout(fire, HOLD);
+  };
+  const stop = () => {
+    if (!timer) return;
+    clearTimeout(timer); timer = null;
+    bar.style.transition = "width .2s ease"; bar.style.width = "0";
+  };
+  async function fire() {
+    timer = null; btn.disabled = true;
+    try { await api("/api/reset", { confirm: "RESET" }); location.href = "/screen"; }
+    catch (e) { out.replaceChildren(msg("bad", e.message)); btn.disabled = false; bar.style.width = "0"; }
+  }
+  btn.addEventListener("pointerdown", start);
+  ["pointerup", "pointerleave", "pointercancel"].forEach((ev) => btn.addEventListener(ev, stop));
+  btn.addEventListener("contextmenu", (e) => e.preventDefault());  // a long touch is not a right click here
+  const close = modal([h("h2", {}, t("reset")), h("p", {}, t("reset_d")), h("p", { class: "dim small" }, t("reset_keep")),
+    h("div", { class: "row" }, btn, h("button", { class: "btn", onclick: () => close() }, t("cancel"))), out]);
+}
+// Master / slave. The mode is a file; the switch is that file and a restart (the boot screen shows it).
+function modeNow() { return (S.mode && S.mode.mode) || "master"; }
+function modeDialog() {
+  const to = modeNow() === "slave" ? "master" : "slave";
+  const out = h("div", {});
+  const yes = h("button", { class: "btn primary", id: "mode-yes", onclick: async () => {
+    yes.disabled = true;
+    try { await api("/api/mode", { mode: to, confirm: "SWITCH", by: "menu" }); location.href = "/screen"; }
+    catch (e) { out.replaceChildren(msg("bad", e.message)); yes.disabled = false; }
+  } }, t("mode_yes"));
+  const close = modal([h("h2", {}, t("mode_q_" + to)), h("p", {}, t("mode_d_" + to)),
+    h("div", { class: "row" }, yes, h("button", { class: "btn", onclick: () => close() }, t("cancel"))), out]);
+}
+async function rerun() { await api("/api/reopen", {}); sessionStorage.setItem("wizstep", "0"); sessionStorage.removeItem("wizmode"); WMODE = null; go("/setup"); }
+function sub(title, body, back) {
+  shell(title, [h("p", {}, h("button", { class: "btn sm", onclick: () => go("/settings") }, "← " + t("settings"))), h("h1", {}, title), body], { home: true });
+}
+
+/* ---------------------------------------------------------- keyboard ----- */
+function kbdPage(wiz, nav) {
+  const cur = (S.keyboard && S.keyboard.KBD_ID) || "be";
+  const status = h("div", {});
+  const test = field(t("kbd_test"), { value: "" });
+  const list = h("div", { class: "list" }, S.layouts.map((l) => {
+    const it = h("button", { class: "item" + (l.id === cur ? " sel" : ""), onclick: async () => {
+      try {
+        await api("/api/keyboard", { layout: l.id, restart_kiosk: !wiz });
+        S.keyboard.KBD_ID = l.id;
+        [...list.children].forEach((c) => c.classList.remove("sel")); it.classList.add("sel");
+        status.replaceChildren(msg("ok", wiz ? t("kbd_saved_w") : t("kbd_saved")));
+      } catch (e) { status.replaceChildren(msg("bad", e.message)); }
+    } }, h("span", { class: "grow" }, l.label), l.id === "be" ? h("span", { class: "pill" }, LANG === "nl" ? "standaard" : "default") : null);
+    return it;
+  }));
+  const body = [h("p", { class: "dim" }, t("keyboard_d")), list, status, wiz ? null : test.el];
+  if (wiz) return body;
+  sub(t("keyboard"), body);
+}
+
+/* ---------------------------------------------------------- services ----- */
+function svcPage(wiz) {
+  const sv = S.services;
+  const defs = [["alnasl", "s_alnasl", "s_alnasl_d"], ["kiosk", "s_kiosk", "s_kiosk_d"]];
+  const boxes = {};
+  const warn = h("div", {});
+  const status = h("div", {});
+  const rows = defs.map(([id, a, b]) => {
+    boxes[id] = h("input", { type: "checkbox", checked: sv[id] && sv[id].enabled, onchange: showWarn });
+    return h("label", { class: "sw" }, h("div", { class: "grow" }, h("div", {}, t(a)), h("div", { class: "dim small" }, t(b))), boxes[id]);
+  });
+  function showWarn() {
+    const w = [];
+    if (!boxes.kiosk.checked) w.push(msg("warn", t("kiosk_warn")));
+    warn.replaceChildren(...w);
+  }
+  const saveBtn = h("button", { class: "btn primary", onclick: save }, wiz ? t("next") : t("save"));
+  async function save() {
+    try {
+      const body = { alnasl: boxes.alnasl.checked, kiosk: boxes.kiosk.checked };
+      S.services = await api("/api/services", body);
+      status.replaceChildren(msg("ok", t("kbd_saved_w")));
+      return true;
+    } catch (e) { status.replaceChildren(msg("bad", e.message)); return false; }
+  }
+  const body = [h("p", { class: "dim" }, t("services_d")), h("div", { class: "card" }, rows), warn, status, wiz ? null : saveBtn];
+  showWarn();
+  if (wiz) { body.save = save; return body; }
+  sub(t("services"), body);
+}
+
+/* ----------------------------------------------------------- display ----- */
+function dispPage() {
+  const sel = h("select", {}, [75, 100, 125, 150, 200, 250].map((v) => h("option", { value: v, selected: String(v) === String(S.scale) }, v + " %")));
+  const st = h("div", {});
+  const resCard = h("div", { class: "card", id: "res-card" }, busy("..."));
+  sub(t("display"), [h("div", { class: "card" }, h("label", { class: "f" }, h("span", {}, t("scale")), sel), h("p", { class: "note" }, t("scale_note")),
+    h("button", { class: "btn primary", onclick: async () => { try { await api("/api/scale", { scale: Number(sel.value) }); S.scale = sel.value; st.replaceChildren(msg("ok", t("kbd_saved"))); } catch (e) { st.replaceChildren(msg("bad", e.message)); } } }, t("save"))), st, resCard]);
+  resolutionCard(resCard);
+}
+// Resolution: the list is what the connected screen reports; a change is live, then confirmed within a
+// few seconds or undone by the box itself (the server owns the timer, so a black screen still comes back).
+async function resolutionCard(card) {
+  let r;
+  try { r = await api("/api/resolution"); } catch (e) { card.replaceChildren(msg("bad", e.message)); return; }
+  if (r.pending) resKeepDialog(r.seconds_left || r.confirm_seconds, () => resolutionCard(card));
+  if (!r.modes.length) { card.replaceChildren(h("h2", {}, t("res")), h("p", { class: "dim" }, t("res_none"))); return; }
+  const sel = h("select", { id: "res-select" }, [h("option", { value: "auto", selected: r.setting === "auto" }, t("res_auto") + (r.preferred ? " - " + r.preferred : "")),
+    ...r.modes.map((m, i) => h("option", { value: m, selected: r.setting === m }, m + (i === 0 ? " (" + t("res_pref") + ")" : "")))]);
+  const out = h("div", {});
+  const go1 = h("button", { class: "btn primary", id: "res-apply", onclick: async () => {
+    go1.disabled = true; out.replaceChildren(busy(t("res_applying")));
+    try {
+      const j = await api("/api/resolution", { mode: sel.value });
+      out.replaceChildren();
+      if (j.pending) resKeepDialog(j.confirm_seconds, () => resolutionCard(card)); else out.replaceChildren(msg("ok", t("res_later")));
+    } catch (e) { out.replaceChildren(msg("bad", e.message)); }
+    go1.disabled = false;
+  } }, t("res_apply"));
+  card.replaceChildren(h("h2", {}, t("res")), h("label", { class: "f" }, h("span", {}, t("res_current") + ": " + (r.setting === "auto" ? t("res_auto") : r.setting) + (r.connector ? "  (" + r.connector + ")" : "")), sel),
+    h("p", { class: "note" }, t("res_note")), go1, out);
+}
+function resKeepDialog(secs, redraw) {
+  let left = secs; const cd = h("b", { id: "res-countdown" }, left + t("seconds"));
+  let done = false;
+  const finish = (fn) => { if (done) return; done = true; clearInterval(timer); close(); fn && fn(); };
+  const timer = setInterval(() => { left -= 1; cd.textContent = Math.max(left, 0) + t("seconds"); if (left <= -3) finish(redraw); }, 1000);
+  const close = modal([h("h2", {}, t("res_keep_q")), h("p", { class: "dim" }, t("res_keep_d") + " ", cd),
+    h("div", { class: "row" },
+      h("button", { class: "btn primary", id: "res-keep", onclick: async () => { await api("/api/resolution/confirm", {}).catch(() => 0); finish(redraw); } }, t("keep")),
+      h("button", { class: "btn", id: "res-undo", onclick: async () => { await api("/api/resolution/undo", {}).catch(() => 0); finish(redraw); } }, t("revert")))]);
+}
+
+/* ----------------------------------------------------------- network ----- */
+let NETTAB = null;
+function netPage(wiz) {
+  const holder = h("div", {});
+  const tabs = h("div", { class: "tabs" });
+  const defs = [["status", t("status")], ["wifi", t("wifi")], ["ip", t("ip_settings")]];
+  if (NETTAB === null) {  // first draw after a (re)load: the address, then sessionStorage, say which tab was open
+    let want = qget("tab");
+    try { want = want || sessionStorage.getItem("nettab"); } catch (e) { /* storage may be unavailable */ }
+    NETTAB = defs.some(([id]) => id === want) ? want : "status";
+  }
+  async function draw() {
+    try { sessionStorage.setItem("nettab", NETTAB); } catch (e) { /* ignore */ }
+    qset({ tab: NETTAB });
+    tabs.replaceChildren(...defs.map(([id, label]) => h("button", { class: "tab" + (NETTAB === id ? " on" : ""), onclick: () => { NETTAB = id; draw(); } }, label)));
+    holder.replaceChildren(busy("..."));
+    try {
+      holder.replaceChildren(await ({ status: tabStatus, wifi: tabWifi, ip: tabIp })[NETTAB](draw));
+    } catch (e) { holder.replaceChildren(msg("bad", e.message)); }
+  }
+  draw();
+  const body = [tabs, holder];
+  if (wiz) return body;
+  sub(t("network"), body);
+}
+function ifaceLine(name, d) {
+  if (!d.present) return [name, t("not_present")];
+  const parts = [];
+  parts.push(h("span", { class: "pill " + (d.link ? "ok" : "bad") }, d.link ? t("link_up") : t("link_down")));
+  parts.push(" " + (d.addresses.join(", ") || t("no_ip")));
+  if (d.ssid) parts.push("  " + d.ssid + " (" + d.rssi + " dBm)");
+  return [name, parts];
+}
+async function tabStatus(redraw) {
+  const n = await api("/api/net");
+  const rows = [ifaceLine(t("ethernet"), n.eth0), ifaceLine(t("wifi"), n.wlan0), [t("gateway"), n.eth0.gateway || n.wlan0.gateway || "-"],
+    [t("dns"), n.dns.join(", ") || "-"]];
+  const hn = field(t("hostname"), { value: n.hostname });
+  const hst = h("div", {});
+  return h("div", {}, h("div", { class: "card" }, h("dl", { class: "kv" }, rows.map(([k, v]) => [h("dt", {}, k), h("dd", {}, v)]))),
+    h("div", { class: "card" }, hn.el, h("p", { class: "note" }, t("hostname_note")),
+      h("button", { class: "btn sm primary", onclick: async () => { try { await api("/api/hostname", { hostname: hn.input.value }); hst.replaceChildren(msg("ok", t("kbd_saved_w"))); } catch (e) { hst.replaceChildren(msg("bad", e.message)); } } }, t("save")), hst),
+    n.eth0.link && n.eth0.addresses.length && WIZ ? msg("ok", t("eth_fine")) : null);
+}
+async function tabWifi(redraw) {
+  const wrap = h("div", {});
+  const saved = await api("/api/wifi/saved");
+  const results = h("div", {});
+  const form = h("div", {});
+  const country = field(t("country"), { value: saved.country, maxlength: "2" });
+  function scanProblem(r) {
+    const why = { no_interface: "scan_why_nointerface", supplicant_failed: "scan_why_supplicant", scan_rejected: "scan_why_rejected", no_results: "scan_why_no_results" }[r.reason] || "no_nets";
+    return h("div", { class: "msg warn" }, h("p", {}, h("b", {}, t("scan_none"))), h("p", { class: "small" }, t(why)),
+      r.detail ? h("details", { open: true }, h("summary", {}, t("scan_details")), h("pre", { class: "raw" }, r.detail)) : null,
+      h("div", { class: "row" }, h("button", { class: "btn sm primary", onclick: scan }, t("try_again")),
+        h("button", { class: "btn sm", onclick: async () => { await leaveToDiag(); } }, t("open_diag"))));
+  }
+  async function leaveToDiag() { go("/diag"); }
+  async function scan() {
+    results.replaceChildren(busy(t("scanning")));
+    try {
+      const r = await api("/api/wifi/scan");
+      if (!r.available && !r.reason) { results.replaceChildren(msg("warn", t("no_wifi"))); return; }
+      if (!r.networks.length) { results.replaceChildren(scanProblem(r)); return; }
+      results.replaceChildren(h("div", { class: "list" }, r.networks.map((n) =>
+        h("button", { class: "item", onclick: () => connectForm(n.ssid, n.secured, false) }, bars(n.signal),
+          h("span", { class: "grow" }, n.ssid), h("span", { class: "pill" }, n.band + " GHz"),
+          n.saved ? h("span", { class: "pill ok" }, t("saved")) : null, h("span", { class: "pill" }, n.secured ? t("secured") : t("open_net"))))));
+    } catch (e) { results.replaceChildren(msg("bad", e.message)); }
+  }
+  function connectForm(ssid, secured, hidden) {
+    const name = field(t("network_name"), { value: ssid || "" });
+    const pw = field(t("passphrase"), { type: "password" });
+    const hid = h("input", { type: "checkbox", checked: hidden });
+    const out = h("div", {});
+    const go1 = h("button", { class: "btn primary", onclick: async () => {
+      go1.disabled = true; out.replaceChildren(busy(t("connecting")));
+      try {
+        const r = await api("/api/wifi/connect", { ssid: name.input.value, passphrase: secured || hidden ? pw.input.value : "", hidden: hid.checked, country: country.input.value || "BE" });
+        if (r.ok) { out.replaceChildren(msg("ok", r.ip ? t("connected_to") + " " + name.input.value + " (" + r.ip + ")" : t("wifi_ok_noip"))); closeOsk(); setTimeout(redraw, 2500); }
+        else { out.replaceChildren(msg("bad", { wrong_passphrase: t("err_wrong"), rejected: t("err_rejected"), not_found: t("err_nf"), supplicant_failed: t("err_supp") }[r.reason] || t("error"))); go1.disabled = false; }
+      } catch (e) { out.replaceChildren(msg("bad", e.message)); go1.disabled = false; }
+    } }, t("connect"));
+    form.replaceChildren(h("div", { class: "card" }, h("h2", {}, hidden ? t("hidden_net") : ssid), hidden ? name.el : null,
+      secured || hidden ? pw.el : null, hidden ? h("label", { class: "sw" }, h("div", { class: "grow" }, t("hidden_net")), hid) : null,
+      h("div", { class: "row" }, go1, h("button", { class: "btn", onclick: () => { form.replaceChildren(); closeOsk(); } }, t("cancel"))), out));
+    if (hidden) hid.checked = true;
+    (hidden ? name.input : secured ? pw.input : go1).focus();
+    form.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  const savedList = saved.saved.length ? [h("h2", { style: "margin-top:20px" }, t("saved_nets")), h("div", { class: "list" }, saved.saved.map((n) =>
+    h("div", { class: "item", style: "cursor:default" }, h("span", { class: "grow" }, n.ssid), h("span", { class: "pill" }, n.secured ? t("secured") : t("open_net")),
+      h("button", { class: "btn sm", onclick: async () => { await api("/api/wifi/forget", { ssid: n.ssid }).catch(() => 0); redraw(); } }, t("forget")))))] : [];
+  wrap.append(h("div", { class: "row", style: "margin-bottom:14px" },
+    h("button", { class: "btn primary", onclick: scan }, t("scan")), h("button", { class: "btn", onclick: () => connectForm("", true, true) }, t("hidden_net")),
+    h("div", { style: "width:120px" }, country.el), h("button", { class: "btn sm", onclick: async () => { await api("/api/wifi/country", { country: country.input.value }).catch(() => 0); } }, t("save"))),
+    form, results, ...savedList);
+  return wrap;
+}
+async function tabIp(redraw) {
+  const n = await api("/api/net");
+  const cards = ["eth0", "wlan0"].filter((i) => n[i].present).map((iface) => {
+    const c = n[iface].config;
+    const mode = h("select", {}, h("option", { value: "dhcp", selected: c.mode === "dhcp" }, t("dhcp")), h("option", { value: "static", selected: c.mode === "static" }, t("static_ip")));
+    const a = field(t("address") + " (192.168.1.50/24)", { value: c.address || (n[iface].addresses[0] || "") });
+    const g = field(t("gateway"), { value: c.gateway || n[iface].gateway || "" });
+    const d = field(t("dns"), { value: (c.dns || []).join(" ") || n.dns.join(" ") });
+    const box = h("div", {}, a.el, g.el, d.el);
+    const out = h("div", {});
+    const sync = () => { box.style.display = mode.value === "static" ? "" : "none"; };
+    mode.addEventListener("change", sync); sync();
+    return h("div", { class: "card" }, h("h2", {}, iface === "eth0" ? t("ethernet") : t("wifi")), h("label", { class: "f" }, mode), box,
+      h("button", { class: "btn primary", onclick: async () => {
+        try { const r = await api("/api/net/set", { iface, mode: mode.value, address: a.input.value, gateway: g.input.value, dns: d.input.value }); closeOsk(); confirmNet(iface, r.confirm_seconds, redraw); }
+        catch (e) { out.replaceChildren(msg("bad", e.message)); }
+      } }, t("apply")), out);
+  });
+  return h("div", {}, cards);
+}
+function confirmNet(iface, secs, redraw) {
+  let left = secs; const cd = h("b", {}, left + t("seconds"));
+  const timer = setInterval(() => { left -= 1; cd.textContent = left + t("seconds"); if (left <= 0) { clearInterval(timer); close(); setTimeout(redraw, 4000); } }, 1000);
+  const close = modal([h("h2", {}, t("keep_q")), h("p", { class: "dim" }, t("keep_d") + " ", cd),
+    h("div", { class: "row" },
+      h("button", { class: "btn primary", onclick: async () => { clearInterval(timer); await api("/api/net/confirm", { iface }).catch(() => 0); close(); redraw(); } }, t("keep")),
+      h("button", { class: "btn", onclick: () => { clearInterval(timer); close(); /* unconfirmed: the server reverts by itself */ setTimeout(redraw, 63000); } }, t("revert")))]);
+}
+
+/* ------------------------------------------------------------ wizard ---- */
+const STEPS = ["welcome", "mode", "keyboard", "network", "services", "finish"];
+let WMODE = null;  // the choice of the mode step; only sent (and applied) at the end of the wizard
+// The step after `step`; a slave has no Alnasl and no screen to switch on or off, so it skips "services".
+function stepAfter(step) { let n = step + 1; if (WMODE === "slave" && STEPS[n] === "services") n++; return n; }
+function stepBefore(step) { let n = step - 1; if (WMODE === "slave" && STEPS[n] === "services") n--; return n; }
+function wizard(step) {
+  if (WMODE === null) WMODE = sessionStorage.getItem("wizmode") || modeNow();
+  sessionStorage.setItem("wizstep", String(step));
+  if (location.pathname === "/setup") qset({ step: String(step) });
+  const name = STEPS[step];
+  const dots = h("div", { class: "steps" }, STEPS.map((_, i) => h("i", { class: i <= step ? "on" : "" })));
+  const nav = (next, nextLabel, onNext) => h("div", { class: "foot" },
+    step > 0 ? h("button", { class: "btn", onclick: () => wizard(stepBefore(step)) }, t("back")) : h("span"),
+    h("button", { class: "btn primary", onclick: async () => { if (onNext && !(await onNext())) return; next(); } }, nextLabel));
+  let body;
+  if (name === "welcome") {
+    body = [h("h1", {}, t("welcome")), h("p", { class: "dim" }, t("welcome_d")), h("h2", { style: "margin-top:24px" }, t("language")),
+      h("div", { class: "row" }, ["en", "nl"].map((l) => h("button", { class: "btn" + (LANG === l ? " primary" : ""), onclick: async () => { LANG = l; await api("/api/lang", { lang: l }).catch(() => 0); wizard(step); } }, l === "en" ? "English" : "Nederlands"))),
+      nav(() => wizard(stepAfter(step)), t("next"))];
+  } else if (name === "mode") {
+    const choice = (id) => {
+      const it = h("button", { class: "item" + (WMODE === id ? " sel" : ""), id: "mode-" + id, onclick: () => {
+        WMODE = id; sessionStorage.setItem("wizmode", id);
+        [...list.children].forEach((c) => c.classList.remove("sel")); it.classList.add("sel");
+      } }, h("span", { class: "grow", style: "white-space:normal" }, h("strong", {}, t("mode_" + id)), h("br"), h("span", { class: "dim" }, t("mode_" + id + "_d"))));
+      return it;
+    };
+    const list = h("div", { class: "list" }, [choice("master"), choice("slave")]);
+    body = [h("h1", {}, t("mode_title")), list, nav(() => wizard(stepAfter(step)), t("next"))];
+  } else if (name === "keyboard") {
+    body = [h("h1", {}, t("keyboard")), kbdPage(true), nav(() => wizard(stepAfter(step)), t("next"))];
+  } else if (name === "network") {
+    body = [h("h1", {}, t("network")), netPage(true), nav(() => wizard(stepAfter(step)), t("next"))];
+  } else if (name === "services") {
+    const sb = svcPage(true);
+    body = [h("h1", {}, t("services")), sb, nav(() => wizard(stepAfter(step)), t("next"), sb.save)];
+  } else {
+    const slave = WMODE === "slave";
+    body = [h("div", { class: "center", style: "padding:50px 0" }, h("h1", {}, t("done_title")), h("p", { class: "dim" }, t(slave ? "done_slave_d" : "done_d")),
+      h("button", { class: "btn primary", id: "wiz-finish", onclick: async () => {
+        LEAVING = true;
+        // The mode goes with the last request: a box that lost power half way must not come back as a slave. A change
+        // of mode restarts the box (the other app takes over at boot); the same mode just opens Alnasl.
+        const r = await api("/api/finish", { mode: WMODE }).catch(() => ({}));
+        sessionStorage.removeItem("wizstep"); sessionStorage.removeItem("wizmode");
+        if (r.reboot) { modal([busy(t("restart_now"))]); location.href = "/screen"; return; }
+        modal([busy(t("open_alnasl"))]); await sleep(4500); location.href = "/";
+      } }, t(slave ? "restart_now" : "open_alnasl")))];
+  }
+  shell(t("first_run"), [dots, ...body], {});
+}
+
+route();

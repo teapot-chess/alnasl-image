@@ -1,0 +1,29 @@
+#!/bin/bash
+# alnasl-setup: run the first-time setup wizard again, or reach the settings.
+#
+#   alnasl-setup           show the wizard on the box's own screen again
+#   alnasl-setup status    is setup done, is the settings server up
+#
+# The settings pages only listen on 127.0.0.1:4041 of the box: they are for
+# its own screen. v6 has no ssh, so there is no tunnel to them either.
+case "${1:-run}" in
+  status)
+    if [ -f /var/lib/alnasl-setup/done ]; then echo "setup: done"; else echo "setup: not done"; fi
+    systemctl is-active alnasl-setup.service
+    curl -fsS --max-time 3 http://127.0.0.1:4041/healthz && echo
+    ;;
+  run | "")
+    systemctl enable --now alnasl-setup.service
+    # Wait for the server, then mark setup as not done and bring the kiosk up.
+    for _ in $(seq 1 20); do curl -fsS -o /dev/null --max-time 2 http://127.0.0.1:4041/healthz && break; sleep 1; done
+    curl -fsS -X POST -H 'X-Alnasl-Setup: 1' -H 'Content-Type: application/json' -d '{}' \
+      http://127.0.0.1:4041/api/reopen >/dev/null || { echo "alnasl-setup: the settings server does not answer" >&2; exit 1; }
+    systemctl enable alnasl-kiosk.service
+    systemctl restart --no-block alnasl-kiosk.service
+    echo "The setup wizard is on the box's screen now (the display restarts; plug in a screen if none is attached)."
+    ;;
+  *)
+    echo "usage: alnasl-setup [run|status]" >&2
+    exit 2
+    ;;
+esac

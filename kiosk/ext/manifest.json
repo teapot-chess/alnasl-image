@@ -1,0 +1,53 @@
+{
+  "manifest_version": 3,
+  "name": "Alnasl kiosk helpers",
+  "version": "6.0",
+  "description": "Menu button, on-screen keyboard for every text field, touch tuning for Alnasl on the hall box, a Back bar on every other web page, and the boot screen's fade-in and hand-over.",
+  "permissions": ["webNavigation", "tabs"],
+  "host_permissions": ["http://localhost:4041/*"],
+  "background": { "service_worker": "bg.js" },
+  "content_scripts": [
+    {
+      "matches": ["http://localhost:4040/*", "http://*/*", "https://*/*"],
+      "exclude_matches": ["http://localhost:4041/*", "http://127.0.0.1:4041/*"],
+      "css": ["touch.css"],
+      "js": ["touch.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": ["http://localhost:4040/*"],
+      "js": ["menu-button.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "exclude_matches": ["http://localhost:4040/*", "http://localhost:4041/*", "http://127.0.0.1:4040/*", "http://127.0.0.1:4041/*"],
+      "js": ["external-bar.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    },
+    {
+      "matches": ["http://localhost:4040/*", "http://*/*", "https://*/*"],
+      "exclude_matches": ["http://localhost:4041/*", "http://127.0.0.1:4041/*"],
+      "js": ["osk.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    },
+    {
+      "matches": ["http://localhost:4040/*", "http://localhost:4041/*"],
+      "exclude_matches": ["http://localhost:4041/boot*", "http://localhost:4041/screen*"],
+      "js": ["boot-fade.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    },
+    {
+      "matches": ["http://localhost:4040/*", "http://localhost:4041/*"],
+      "exclude_matches": ["http://localhost:4041/boot*", "http://localhost:4041/screen*"],
+      "js": ["screen-watch.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}

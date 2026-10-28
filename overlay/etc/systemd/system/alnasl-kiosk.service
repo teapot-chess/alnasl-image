@@ -1,0 +1,16 @@
+[Unit]
+Description=Alnasl kiosk: Chromium full screen on the HDMI output
+After=docker.service alnasl-kiosk-load.service alnasl.service alnasl-setup.service
+Wants=docker.service alnasl-kiosk-load.service alnasl.service alnasl-setup.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/alnasl-kiosk
+ExecStopPost=-/usr/bin/docker rm -f alnasl-kiosk
+# The boot screen again the moment X is gone (a stop, a restart, the way to a shutdown).
+ExecStopPost=-/usr/local/sbin/alnasl-splash --once
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

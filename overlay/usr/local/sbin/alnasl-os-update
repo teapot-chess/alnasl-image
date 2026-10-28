@@ -1,0 +1,148 @@
+#!/bin/bash
+# alnasl-os-update: the nightly OS update (v6). Run by alnasl-os-update.timer, between 03:00 and 05:00.
+#
+#   alnasl-os-update            update, reboot if something running needs it (only inside the window)
+#   alnasl-os-update --dry-run  say what would be updated, change nothing
+#
+# - Security updates (tdnf --security); a full update only when tdnf has no security data to go on.
+# - The exclude list in /etc/tdnf/tdnf.conf stays as it is: kernel, device trees, GPU drivers,
+#   firmware, u-boot and grub only move together, with a new image. No exclude list, no update.
+# - Never during a round: asks Alnasl (http://127.0.0.1:4040/local/status) before touching anything.
+# - Reboots only when a running program still uses a library the update replaced, and only before
+#   05:00; otherwise the reboot waits for the next night's window.
+# - What happened goes to /var/lib/alnasl-os-update (the diagnostics file shows it).
+set -u
+DIR=/var/lib/alnasl-os-update
+RESULT=$DIR/last-result
+CHANGES=$DIR/last-changes
+HISTORY=$DIR/history
+PENDING=$DIR/reboot-pending
+SPLASH=/usr/local/sbin/alnasl-splash
+WINDOW_START=3 WINDOW_END=5   # hours, local time: [03:00, 05:00)
+DRY=0; [ "${1:-}" = --dry-run ] && DRY=1
+mkdir -p "$DIR"
+
+started=$(date '+%Y-%m-%d %H:%M:%S %z')
+mode=security outcome="" note="" reboot=no changed=0 errtail=""
+round_check="not asked"
+
+say() { echo "alnasl-os-update: $*"; }
+in_window() { local h; h=$(date +%H); h=${h#0}; [ "$h" -ge $WINDOW_START ] && [ "$h" -lt $WINDOW_END ]; }
+
+finish() { # outcome [note]
+  outcome=$1; note=${2:-}
+  [ "$DRY" = 1 ] && { say "dry run: $outcome${note:+ ($note)}"; exit 0; }
+  {
+    echo "started:      $started"
+    echo "finished:     $(date '+%Y-%m-%d %H:%M:%S %z')"
+    echo "outcome:      $outcome${note:+ ($note)}"
+    echo "mode:         $mode"
+    echo "changed:      $changed package(s)"
+    echo "reboot:       $reboot"
+    echo "round check:  $round_check"
+    [ -n "$errtail" ] && { echo "last lines of tdnf:"; echo "$errtail" | sed 's/^/  /'; }
+  } > "$RESULT.tmp" && mv "$RESULT.tmp" "$RESULT"
+  echo "$started  $outcome  mode=$mode changed=$changed reboot=$reboot${note:+  $note}" >> "$HISTORY"
+  tail -n 60 "$HISTORY" > "$HISTORY.tmp" && mv "$HISTORY.tmp" "$HISTORY"
+  say "$outcome${note:+ ($note)}; $changed package(s) changed, reboot: $reboot"
+}
+
+# Ask Alnasl on this box (loopback only, GET /local/status) whether a game of the current round is
+# still live. True ({"round_in_progress": true}) -> return 0, the run is skipped and the timer tries
+# again the next night. Alnasl not running (slave mode, stopped, still starting), no answer within a
+# few seconds or an answer that is not plain JSON -> no round, and the result file says so.
+ALNASL_STATUS_URL=http://127.0.0.1:4040/local/status
+round_in_progress() {
+  local out
+  if command -v curl >/dev/null 2>&1; then
+    out=$(curl -s -m 4 --connect-timeout 2 "$ALNASL_STATUS_URL" 2>/dev/null)
+  else
+    out=$(python3 -c 'import sys,urllib.request as u; sys.stdout.write(u.urlopen(sys.argv[1], timeout=4).read(2000).decode())' "$ALNASL_STATUS_URL" 2>/dev/null)
+  fi || {
+    round_check="Alnasl not running or not answering: treated as no round"; return 1; }
+  case $out in
+    *'"round_in_progress":true'*|*'"round_in_progress": true'*) round_check="round in progress"; return 0 ;;
+    *'"round_in_progress":false'*|*'"round_in_progress": false'*) round_check="no round in progress"; return 1 ;;
+  esac
+  round_check="Alnasl gave no clear answer: treated as no round"; return 1
+}
+
+# Something still running maps a shared library or program file that the update deleted.
+needs_reboot() {
+  local m
+  for m in /proc/[0-9]*/maps; do
+    grep -q -E '(/usr)?/lib(64)?/[^ ]*\.so[^ ]* \(deleted\)$|/usr/s?bin/[^ ]* \(deleted\)$' "$m" 2>/dev/null && return 0
+  done
+  return 1
+}
+
+if [ "$DRY" = 0 ] && ! in_window; then finish skipped "outside the 03:00-05:00 window"; exit 0; fi
+if round_in_progress; then finish skipped "round in progress"; exit 0; fi
+
+ex=$(grep -E '^excludepkgs=' /etc/tdnf/tdnf.conf 2>/dev/null)
+case " ${ex#excludepkgs=} " in
+  *" linux "*"linux-*"*"dtb-*"*"raspberrypi-firmware*"*"u-boot*"*"grub2*"*) ;;
+  *) finish failed "the exclude list in /etc/tdnf/tdnf.conf is missing or incomplete; nothing updated"; exit 1 ;;
+esac
+
+# v6 A/B: a newer system image of THIS box's train comes before any package. alnasl-system-update never
+# crosses to another train by itself (that takes "Upgrade to vN"). Exit 3: it is restarting into the new
+# slot; 4: busy, or a new slot is still on trial (no package changes under a trial); 0: carry on here.
+SYSUPD=/usr/local/sbin/alnasl-system-update
+if [ "$DRY" = 0 ] && [ -x $SYSUPD ]; then
+  $SYSUPD --nightly; src=$?
+  case $src in
+    3) finish ok "a new system image was installed; restarting into it"; exit 0 ;;
+    4) finish skipped "a system update is busy or a new slot is on trial"; exit 0 ;;
+  esac
+fi
+
+# A reboot the last run could not do in time: do it now, at the start of the window.
+if [ "$DRY" = 0 ] && [ -f "$PENDING" ] && needs_reboot; then
+  reboot=yes
+  finish ok "the reboot left over from the last run"
+  rm -f "$PENDING"
+  $SPLASH --set update-reboot; $SPLASH --next update-finish
+  systemctl reboot
+  exit 0
+fi
+rm -f "$PENDING"
+
+list=$(tdnf -q --refresh --security check-update 2>&1); rc=$?
+if [ $rc -ne 0 ]; then
+  say "no security data to go on (tdnf said: $(echo "$list" | tail -n 1)); a full update instead"
+  mode=full
+  list=$(tdnf -q check-update 2>&1); rc=$?
+  [ $rc -ne 0 ] && { errtail=$(echo "$list" | tail -n 8); finish failed "tdnf check-update failed (exit $rc)"; exit 1; }
+fi
+todo=$(echo "$list" | grep -c -E '\.(aarch64|noarch)\b|[[:space:]](aarch64|noarch)[[:space:]]')
+if [ "$todo" -eq 0 ]; then finish ok "nothing to update"; exit 0; fi
+if [ "$DRY" = 1 ]; then echo "$list"; finish ok "$todo package(s) would be updated ($mode)"; exit 0; fi
+
+before=$(rpm -qa --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort)
+$SPLASH --set update-os
+if [ "$mode" = security ]; then out=$(tdnf -y --security update 2>&1); rc=$?; else out=$(tdnf -y update 2>&1); rc=$?; fi
+after=$(rpm -qa --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort)
+comm -13 <(echo "$before") <(echo "$after") > "$CHANGES"
+changed=$(grep -c . "$CHANGES")
+if [ $rc -ne 0 ]; then
+  errtail=$(echo "$out" | tail -n 8)
+  $SPLASH --set clear
+  finish failed "tdnf update failed (exit $rc)"
+  exit 1
+fi
+
+if needs_reboot; then
+  if in_window; then
+    reboot=yes
+    finish ok
+    $SPLASH --set update-reboot; $SPLASH --next update-finish
+    systemctl reboot
+    exit 0
+  fi
+  reboot="needed; waiting for the next night's window"
+  touch "$PENDING"
+fi
+$SPLASH --set clear
+finish ok
+exit 0

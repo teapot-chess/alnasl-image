@@ -1,0 +1,10 @@
+[Unit]
+Description=Alnasl system update: ask the release index what there is (changes nothing)
+Documentation=file:///usr/local/sbin/alnasl-system-update
+RequiresMountsFor=/boot/efi /var/lib/alnasl-os-update
+After=network.target alnasl-data.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/alnasl-system-update --check
+TimeoutStartSec=5min

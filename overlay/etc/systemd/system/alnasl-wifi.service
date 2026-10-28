@@ -1,0 +1,12 @@
+[Unit]
+Description=Alnasl Wi-Fi from /boot/efi/alnasl-wifi.txt
+RequiresMountsFor=/boot/efi
+ConditionPathExists=/boot/efi/alnasl-wifi.txt
+Before=systemd-networkd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/alnasl-wifi-setup
+
+[Install]
+WantedBy=multi-user.target

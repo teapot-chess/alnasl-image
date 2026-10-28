@@ -1,0 +1,17 @@
+#!/bin/bash
+# Runs on every boot, does its work once (marker file).
+# - gives the box a name that tells the Pi apart: alnasl-<last 6 of the serial>
+# v6 A/B: the marker is on the data partition (a new slot is not a new box; a reset is). The name
+# itself is in the slot (read before /data is mounted); the system updater carries it to a new slot.
+MARK=/var/lib/alnasl-setup/firstboot.done
+mkdir -p /var/lib/alnasl-setup
+[ -f "$MARK" ] && exit 0
+/usr/local/sbin/alnasl-splash --set firstboot-1
+serial=$(tr -d '\0' < /proc/device-tree/serial-number 2>/dev/null | tail -c 7)
+if [ -n "$serial" ]; then
+  echo "alnasl-$serial" > /etc/hostname
+  hostname "alnasl-$serial" 2>/dev/null || true
+fi
+touch "$MARK"
+echo "alnasl-firstboot: done (host name: $(hostname))"
+exit 0

@@ -1,0 +1,8 @@
+# build output, logs and the hand-made backups from before this was a repository
+out/
+logs/
+backup-*/
+scripts/__pycache__/
+# never: a private signing key has no business anywhere near an image source tree
+*.key
+*.pem

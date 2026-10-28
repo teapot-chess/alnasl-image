@@ -1,0 +1,13 @@
+[Match]
+Name=wl*
+
+[Network]
+DHCP=yes
+IPv6AcceptRA=no
+MulticastDNS=yes
+
+[DHCPv4]
+SendRelease=no
+
+[Link]
+RequiredForOnline=no

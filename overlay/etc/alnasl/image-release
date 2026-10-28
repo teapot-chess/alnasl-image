@@ -1,0 +1,5 @@
+# Which image this system slot is (v6 A/B updates). A train is a major image line; versions inside a
+# train install by themselves at night, another train only when asked ("Upgrade to v7").
+# assemble.sh writes the real version (build.ps1 -Version); the updater reads this file.
+ALNASL_TRAIN=v6
+ALNASL_VERSION=6.0

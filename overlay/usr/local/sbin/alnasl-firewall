@@ -1,0 +1,126 @@
+#!/bin/bash
+# Alnasl hall box firewall. Fail-open-safe by construction:
+#
+#  1. The built-in INPUT policy is NEVER changed from ACCEPT. The "default
+#     deny" is the last rule of our own chain (ALNASL-IN), reached only after
+#     the rule that lets Alnasl (4040) in. So a ruleset that fails to load,
+#     loads halfway, or is flushed leaves the box OPEN, never closed with the
+#     hall locked out. (v6: open costs little; there is no ssh to reach.)
+#  2. The chain is loaded in one atomic iptables-restore, after a --test
+#     dry run. Our chain is only hooked into INPUT once it is complete.
+#  3. Afterwards the script checks that the Alnasl rule is really in place;
+#     if not, it unhooks the chain again.
+#  4. Only our own chain is touched. Anyone else's chains (docker's) are
+#     left alone, and the stock iptables.service (INPUT policy DROP, loaded
+#     from /etc/systemd/scripts/ip4save) is disabled in this image.
+#
+# v6: inbound is Alnasl (4040), Arkab's status page (4050, a slave's; nothing listens there on a master), mDNS, DHCP replies and ICMP. Nothing else:
+# no ssh (22), no Tailscale (41641, tailscale0). verify.sh fails the build if
+# either comes back.
+#
+# Usage: alnasl-firewall [start|stop|status]   (start is the default)
+
+CHAIN=ALNASL-IN
+log() { echo "alnasl-firewall: $*"; }
+
+unhook() { # tool
+  local t=$1
+  while "$t" -D INPUT -j "$CHAIN" 2>/dev/null; do :; done
+  "$t" -F "$CHAIN" 2>/dev/null
+  "$t" -X "$CHAIN" 2>/dev/null
+  return 0
+}
+
+open_everything() { # tool: last resort
+  local t=$1
+  unhook "$t"
+  "$t" -P INPUT ACCEPT 2>/dev/null
+  return 0
+}
+
+rules_v4() {
+  cat <<EOF
+*filter
+:$CHAIN - [0:0]
+-A $CHAIN -i lo -j ACCEPT
+-A $CHAIN -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A $CHAIN -p tcp --dport 4040 -j ACCEPT
+-A $CHAIN -p tcp --dport 4050 -j ACCEPT
+-A $CHAIN -p icmp -j ACCEPT
+-A $CHAIN -p udp --sport 67 --dport 68 -j ACCEPT
+-A $CHAIN -p udp --dport 5353 -j ACCEPT
+-A $CHAIN -j DROP
+COMMIT
+EOF
+}
+
+rules_v6() {
+  cat <<EOF
+*filter
+:$CHAIN - [0:0]
+-A $CHAIN -i lo -j ACCEPT
+-A $CHAIN -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A $CHAIN -p tcp --dport 4040 -j ACCEPT
+-A $CHAIN -p tcp --dport 4050 -j ACCEPT
+-A $CHAIN -p ipv6-icmp -j ACCEPT
+-A $CHAIN -p udp --dport 546 -j ACCEPT
+-A $CHAIN -p udp --dport 5353 -j ACCEPT
+-A $CHAIN -j DROP
+COMMIT
+EOF
+}
+
+apply() { # tool rules-function
+  local t=$1 fn=$2 rc=0
+  command -v "$t" >/dev/null 2>&1 || { log "$t not installed; skipping"; return 0; }
+  # A clean slate for our chain only, and the policy back to ACCEPT in case an
+  # older ruleset (the stock one) set it to DROP.
+  unhook "$t"
+  "$t" -P INPUT ACCEPT 2>/dev/null
+
+  if ! "$fn" | "${t}-restore" --noflush --test 2>/dev/null; then
+    log "$t: the ruleset did not pass the dry run; leaving the box open"
+    return 1
+  fi
+  if ! "$fn" | "${t}-restore" --noflush 2>/dev/null; then
+    log "$t: loading the ruleset failed; leaving the box open"
+    open_everything "$t"
+    return 1
+  fi
+  if ! "$t" -C "$CHAIN" -p tcp --dport 4040 -j ACCEPT 2>/dev/null; then
+    log "$t: the Alnasl rule is not in the chain; leaving the box open"
+    open_everything "$t"
+    return 1
+  fi
+  # Only now is the chain made to count.
+  if ! "$t" -I INPUT 1 -j "$CHAIN" 2>/dev/null; then
+    log "$t: could not hook the chain; leaving the box open"
+    open_everything "$t"
+    return 1
+  fi
+  log "$t: ruleset active (4040, 4050, DHCP, mDNS, ICMP; everything else dropped)"
+  return 0
+}
+
+case "${1:-start}" in
+  start | reload)
+    apply iptables rules_v4
+    apply ip6tables rules_v6
+    # Whatever happened, this service itself never fails the boot.
+    exit 0
+    ;;
+  stop)
+    open_everything iptables
+    open_everything ip6tables
+    log "stopped; box is open"
+    exit 0
+    ;;
+  status)
+    iptables -S "$CHAIN" 2>&1
+    iptables -S INPUT 2>&1 | head -3
+    ;;
+  *)
+    echo "usage: $0 [start|stop|status]" >&2
+    exit 2
+    ;;
+esac

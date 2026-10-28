@@ -1,0 +1,14 @@
+/* Touch tuning for Alnasl on the hall box. Everything here has zero or low specificity so a page
+   that sets its own value for any of it still wins. */
+html { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
+* { touch-action: manipulation; }
+/* Scrollable areas: say outright that a drag pans them (both axes), so no ancestor's setting blocks it. */
+:where(.nav, .menu-panel, .moves, .table-wrap, .manual-sidebar, .manual-outline, pre, textarea, [style*="overflow"]) { touch-action: pan-x pan-y; }
+/* A finger resting on text must not start a selection (and the selection handles) instead of a scroll. */
+body :not(input):not(textarea):not([contenteditable]):not([contenteditable] *) { -webkit-user-select: none; user-select: none; }
+img, svg { -webkit-user-drag: none; }
+/* Scrollbars: thin and see-through, so they do not eat the screen or draw the eye; a finger scrolls anyway. */
+::-webkit-scrollbar { width: 6px; height: 6px; background: transparent; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(128, 128, 128, .35); border-radius: 3px; }
+::-webkit-scrollbar-corner { background: transparent; }

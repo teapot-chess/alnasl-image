@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Alnasl</title>
+<!-- The boot screen, in the browser (v6). /boot is the kiosk's first page, /screen is where it waits
+     while Alnasl is away (an update, a reset, a restart). The pictures are the framebuffer painter's own
+     (alnasl-splash), so the hand-over from the console to Chromium is the same picture over itself.
+     When there is nothing left to wait for, it goes to / and the next page fades in from this picture
+     (boot-fade.js in the kiosk extension). -->
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #16171a; cursor: none; }
+  .l { position: fixed; inset: 0; background: #16171a center / auto 100vh no-repeat; transition: opacity .6s ease; }
+  /* System updates: a value ("37%", "v6.2") in the line's place and a progress bar in the step squares'
+     place, drawn over the state's picture. The picture is 1080 lines tall at 100vh, so 1 of its pixels
+     is 100/1080 vh; the glyphs are the painter's own, as PNGs. */
+  .ov { position: fixed; left: 50vw; top: 50vh; height: 0; width: 0; opacity: 0; transition: opacity .4s ease; pointer-events: none; }
+  .ov.on { opacity: 1; }
+  .ov img { position: absolute; top: 0; display: block; }
+  #bar i { position: absolute; left: 0; top: 0; bottom: 0; background: #e2a08c; transition: width .5s ease; }
+</style>
+</head>
+<body>
+<div class="l" id="a" style="background-image: url(/splash/alnasl-splash.png)"></div>
+<div class="l" id="b" style="opacity: 0"></div>
+<div class="ov" id="val"></div>
+<div class="ov" id="bar" style="background: #55565a"><i></i></div>
+<script>
+(function () {
+  var BOOT = location.pathname === "/boot";
+  var PLAIN = "/splash/alnasl-splash.png";
+  var front = document.getElementById("a"), back = document.getElementById("b");
+  var shown = PLAIN, wanted = PLAIN, t0 = Date.now(), leaving = false;
+
+  // Cross-fade to another picture, once it has loaded (never a half-drawn frame).
+  function show(url) {
+    if (url === wanted) return;
+    wanted = url;
+    var img = new Image();
+    img.onload = function () {
+      if (url !== wanted) return;
+      back.style.backgroundImage = "url(" + url + ")";
+      back.style.opacity = "1";
+      front.style.opacity = "0";
+      var t = front; front = back; back = t;
+      shown = url;
+    };
+    img.src = url;
+  }
+  function leave() {
+    if (leaving) return;
+    leaving = true;
+    window.name = "alnasl-fade:" + shown;  // the next page starts on this picture and fades in
+    location.replace("/");
+  }
+  // The value line and the bar of the update states (see the style above).
+  var valEl = document.getElementById("val"), barEl = document.getElementById("bar"), valShown = null;
+  function vh(px) { return (px * 100 / 1080) + "vh"; }
+  function overlay(s) {
+    var g = s.geom;
+    var v = (g && s.value) || "";
+    if (v !== valShown) {
+      valShown = v;
+      valEl.replaceChildren();
+      var x = 0, i, ch, total = 0;
+      for (i = 0; i < v.length; i++) total += g.adv[v[i]] || 0;
+      for (i = 0; i < v.length; i++) {
+        ch = v[i];
+        if (!g.names[ch]) continue;
+        var img = new Image();
+        img.src = "/splash/screens/glyphs/" + g.names[ch] + ".png";
+        img.style.left = vh(x - total / 2);
+        img.style.height = vh(g.height);
+        valEl.append(img);
+        x += g.adv[ch] || 0;
+      }
+      if (g) valEl.style.top = "calc(50vh + " + vh(g.sub_y) + ")";
+    }
+    valEl.classList.toggle("on", !!v);
+    var p = g && s.progress != null ? Math.max(0, Math.min(100, s.progress)) : null;
+    if (p != null) {
+      var under = (g.with_steps || []).indexOf(s.state) >= 0;  // a state with step squares too: the bar goes under them
+      barEl.style.top = "calc(50vh + " + vh(under ? g.bar_steps_y : g.dots_y) + ")";
+      barEl.style.left = "calc(50vw - " + vh(g.bar_w / 2) + ")";
+      barEl.style.width = vh(g.bar_w);
+      barEl.style.height = vh(Math.max(2, g.bar_h));
+      barEl.firstChild.style.width = p + "%";
+    }
+    barEl.classList.toggle("on", p != null);
+  }
+  function tick() {
+    fetch("/api/bootscreen", { cache: "no-store" })
+      .then(function (r) { return r.json(); })
+      .then(function (s) {
+        var lang = s.lang === "nl" ? "nl" : "en";
+        overlay(s.state ? s : {});
+        if (s.state) {
+          show(s.state === "boot" ? PLAIN : "/splash/screens/" + lang + "/" + s.state + ".png");
+        } else {
+          var waited = Date.now() - t0;
+          // Alnasl is meant to run but does not answer yet: wait for it (a while at boot, longer after an
+          // update). Then / decides: the wizard, Alnasl or the menu.
+          if (!(s.alnasl_wanted && !s.alnasl_up && waited < (BOOT ? 120000 : 600000))) return leave();
+          show(waited > 2500 ? "/splash/screens/" + lang + "/waiting.png" : PLAIN);
+        }
+        setTimeout(tick, 1000);
+      })
+      .catch(function () { setTimeout(tick, 1000); });  // the menu server restarting, or the box going down
+  }
+  tick();
+})();
+</script>
+</body>
+</html>

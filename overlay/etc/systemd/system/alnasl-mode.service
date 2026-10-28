@@ -1,0 +1,21 @@
+[Unit]
+Description=Alnasl mode: master (Alnasl and the hall screen) or slave (Arkab only)
+Documentation=file:///usr/local/sbin/alnasl-mode
+# Early, and before sysinit.target: the path units (alnasl-update.path, arkab-update.path) are started
+# before paths.target, which is before basic.target, and they carry a condition on the flag this unit writes.
+# So no default dependencies (those put it after basic.target, behind the very units that wait for it: the
+# first qemu boot of the modes build found that ordering cycle). It needs only the file systems: the mode file
+# is on the data partition (alnasl-data) and alnasl-mode.txt on the boot partition.
+DefaultDependencies=no
+After=alnasl-data.service local-fs.target
+Wants=local-fs.target
+Before=sysinit.target shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/alnasl-mode
+
+[Install]
+WantedBy=sysinit.target

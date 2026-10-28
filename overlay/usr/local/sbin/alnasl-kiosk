@@ -1,0 +1,67 @@
+#!/bin/bash
+# The kiosk supervisor: Chromium full screen on HDMI, in a container.
+#  - v5: the display path is X (KMS modesetting driver when the kernel has one, else fbdev) ALWAYS, unless
+#    /etc/alnasl/kiosk.conf says KIOSK_PATH="cage". cage as root hangs instead of exiting once vc4 is up (seen on
+#    the first real Pi: 45 s of black screen), so it is opt-in and kiosk.sh runs it behind a 10 s watchdog.
+#  - no screen connected: sleeps (one log line, no spinning), starts the
+#    moment one is plugged in
+#  - the container exits or crashes: starts again, with a growing pause if it
+#    keeps dying within 30 seconds (no log spam)
+#  - v6: between two runs the boot screen is painted again (alnasl-splash), so
+#    a restart shows the Alnasl picture, not the empty console X leaves behind
+IMG=alnasl-kiosk:latest
+NAME=alnasl-kiosk
+
+screen_connected() {
+  local s
+  for s in /sys/class/drm/card*-*/status; do
+    [ -r "$s" ] && [ "$(cat "$s")" = connected ] && return 0
+  done
+  return 1
+}
+have_fb() { [ -e /dev/fb0 ]; }
+
+announced=""
+fast=0
+while true; do
+  if ! docker image inspect "$IMG" >/dev/null 2>&1; then
+    [ "$announced" != noimg ] && echo "kiosk: image $IMG not loaded yet; waiting" && announced=noimg
+    sleep 3; continue
+  fi
+  if screen_connected || have_fb; then   # no KMS output (vc4 did not load?) but a firmware framebuffer is enough for X
+    :
+  else
+    [ "$announced" != noscreen ] && echo "kiosk: no screen connected; waiting for one" && announced=noscreen
+    sleep 2; continue
+  fi
+  announced=""
+
+  docker rm -f "$NAME" >/dev/null 2>&1
+  # First boot is over once the screen starts: the browser's /boot page takes it from here.
+  case "$(cat /run/alnasl-screen/state 2>/dev/null)" in firstboot-*) /usr/local/sbin/alnasl-splash --set clear ;; esac
+  start=$(date +%s)
+  # Keyboard layout and scale come from the settings pages (re-read at every start).
+  KBD_LAYOUT=be KBD_VARIANT="" KIOSK_SCALE=100 KIOSK_RES=auto KIOSK_PATH=x
+  [ -r /etc/alnasl/keyboard.conf ] && . /etc/alnasl/keyboard.conf
+  [ -r /etc/alnasl/kiosk.conf ] && . /etc/alnasl/kiosk.conf
+  mkdir -p /run/alnasl-kiosk
+  case "$KIOSK_PATH" in cage) mode=cage ;; *) mode=x ;; esac
+  echo "kiosk: starting container (mode $mode, keyboard $KBD_LAYOUT/$KBD_VARIANT, scale $KIOSK_SCALE, resolution $KIOSK_RES)"
+  docker run --rm --name "$NAME" --privileged --network host --ipc host \
+    -v /dev:/dev -v /run/udev:/run/udev:ro -v /run/alnasl-kiosk:/run/alnasl-kiosk \
+    --tmpfs /tmp:exec,size=256m --shm-size=256m \
+    -e KIOSK_MODE="$mode" -e KIOSK_URL=http://localhost:4041/boot \
+    -e KBD_LAYOUT="$KBD_LAYOUT" -e KBD_VARIANT="$KBD_VARIANT" -e KIOSK_SCALE="$KIOSK_SCALE" -e KIOSK_RES="$KIOSK_RES" \
+    "$IMG"
+  rc=$?
+  /usr/local/sbin/alnasl-splash --once
+  took=$(( $(date +%s) - start ))
+  if [ "$took" -lt 30 ]; then
+    fast=$((fast + 1))
+    pause=$(( fast * 10 )); [ "$pause" -gt 120 ] && pause=120
+  else
+    fast=0; pause=3
+  fi
+  echo "kiosk: container ended (exit $rc after ${took}s); next start in ${pause}s"
+  sleep "$pause"
+done

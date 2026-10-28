@@ -1,0 +1,11 @@
+[Unit]
+Description=Alnasl OS update (security updates; kernel, firmware and boot loaders stay put)
+Documentation=file:///usr/local/sbin/alnasl-os-update
+After=network.target time-sync.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/alnasl-os-update
+TimeoutStartSec=100min
+Nice=10
+IOSchedulingClass=idle

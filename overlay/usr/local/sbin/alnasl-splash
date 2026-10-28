@@ -1,0 +1,388 @@
+#!/usr/bin/python3
+"""alnasl-splash: the boot screen, painted straight into the framebuffer (v6).
+
+    alnasl-splash --hold              at boot: paint, and paint again whenever the framebuffer is
+                                      replaced or cleared (vc4 taking over from the firmware's) or
+                                      the state changes; stop once X (or cage) owns the screen
+    alnasl-splash --once              paint once (after the kiosk stops, between its restarts)
+    alnasl-splash --set STATE|clear   say what the box is doing (screens in messages.json), paint once
+    alnasl-splash --next STATE|clear  the state to show at the next boot, until the kiosk is up
+    alnasl-splash --value TEXT|clear  the value a state shows in its line's place ("37%", "v6.2"; system updates)
+    alnasl-splash --progress N|clear  0-100, the bar a state shows in its step squares' place
+    alnasl-splash --shutdown reboot|poweroff   the last picture before the power goes
+
+The pictures are made on the PC by scripts/render-splash.py: the same mark, colours and text
+the browser shows (/boot, /screen), so the hand-over from framebuffer to X to Chromium is a
+picture replaced by itself. No Plymouth (not in Photon's aarch64 repos), no decoder: the mark is
+seven rectangles and the text is pre-rendered coverage.
+
+It never paints while X or cage runs, and never over a text console someone is using (only
+when tty1 is the active VT). Painting puts tty1 in graphics mode so the console stops drawing
+over the picture; X takes the VT over from there and gives it back in text mode when it ends.
+"""
+import fcntl
+import json
+import os
+import struct
+import sys
+import time
+
+SHARE = "/usr/share/alnasl/splash"
+RUN_DIR = "/run/alnasl-screen"
+RUN_STATE = RUN_DIR + "/state"
+RUN_VALUE = RUN_DIR + "/value"
+RUN_PROGRESS = RUN_DIR + "/progress"
+VALUE_CHARS = "0123456789.v%"
+NEXT_BOOT = "/var/lib/alnasl-screen/next-boot"
+LANG_FILE = "/var/lib/alnasl-setup/state.json"
+FB = "/dev/fb0"
+FB_SYS = "/sys/class/graphics/fb0"
+TTY1 = "/dev/tty1"
+
+BG = (0x16, 0x17, 0x1A)
+INK = (0xE9, 0xE9, 0xE6)
+ACCENT = (0xE2, 0xA0, 0x8C)
+DIM = (0xA3, 0xA3, 0x9F)
+OUTLINE = (0x55, 0x56, 0x5A)
+MARK = [(0, 0, INK), (1, 0, INK), (2, 0, ACCENT), (1, 1, INK), (2, 1, INK), (0, 2, INK), (2, 2, INK)]
+
+FBIOGET_VSCREENINFO = 0x4600
+KDSETMODE, KD_GRAPHICS = 0x4B3A, 0x01
+
+
+def log(*a):
+    print("alnasl-splash:", *a, flush=True)
+
+
+def read(p, default=""):
+    try:
+        with open(p) as f:
+            return f.read().strip()
+    except OSError:
+        return default
+
+
+def load_messages():
+    try:
+        with open(SHARE + "/messages.json", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {"geometry": {}, "states": {}}
+
+
+MSG = load_messages()
+
+
+def lang():
+    try:
+        with open(LANG_FILE) as f:
+            return "nl" if json.load(f).get("lang") == "nl" else "en"
+    except (OSError, ValueError, AttributeError):
+        return "en"
+
+
+def state():
+    s = read(RUN_STATE) or read(NEXT_BOOT)
+    return s if s in MSG["states"] else "boot"
+
+
+def value():
+    v = read(RUN_VALUE)
+    return v if v and len(v) <= 12 and all(c in VALUE_CHARS for c in v) else ""
+
+
+def progress():
+    p = read(RUN_PROGRESS)
+    return max(0, min(100, int(p))) if p.isdigit() else None
+
+
+def x_running():
+    for pid in os.listdir("/proc"):
+        if pid.isdigit() and read("/proc/%s/comm" % pid) in ("Xorg", "cage"):
+            return True
+    return False
+
+
+def tty1_active():
+    return read("/sys/class/tty/tty0/active", "tty1") == "tty1"
+
+
+def fb_identity():
+    try:
+        st = os.stat(FB)
+    except OSError:
+        return None
+    return (st.st_ino, st.st_rdev, read(FB_SYS + "/name"), read(FB_SYS + "/virtual_size"), read(FB_SYS + "/stride"))
+
+
+class Fb:
+    """What /dev/fb0 is right now: size, stride, and how a pixel is packed."""
+
+    def __init__(self):
+        self.fd = os.open(FB, os.O_RDWR)
+        buf = fcntl.ioctl(self.fd, FBIOGET_VSCREENINFO, bytes(160))
+        v = struct.unpack_from("<8I12I", buf)
+        self.w, self.h, _, _, _, self.yoff, self.bpp = v[0], v[1], v[2], v[3], v[4], v[5], v[6]
+        self.chan = [(v[8], v[9]), (v[11], v[12]), (v[14], v[15])]  # (offset, length) of red, green, blue
+        self.B = self.bpp // 8
+        if self.B not in (2, 3, 4) or not self.w or not self.h:
+            raise OSError("unsupported framebuffer: %dx%d, %d bpp" % (self.w, self.h, self.bpp))
+        if not any(n for _, n in self.chan):  # a driver that leaves the layout empty: the usual ones
+            self.chan = [(11, 5), (5, 6), (0, 5)] if self.B == 2 else [(16, 8), (8, 8), (0, 8)]
+        st = read(FB_SYS + "/stride")
+        self.stride = int(st) if st.isdigit() and int(st) >= self.w * self.B else self.w * self.B
+
+    def px(self, rgb):
+        v = 0
+        for c, (off, n) in zip(rgb, self.chan):
+            v |= (c >> (8 - n)) << off
+        return v.to_bytes(self.B, "little")
+
+    def close(self):
+        os.close(self.fd)
+
+
+def pgm(path):
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError:
+        return None
+    parts = data.split(b"\n", 3)  # "P5", "w h", "255", pixels
+    if len(parts) != 4 or parts[0] != b"P5":
+        return None
+    w, h = (int(x) for x in parts[1].split())
+    return w, h, parts[3][:w * h]
+
+
+def blend(a, b, t):
+    return tuple(round(x + (y - x) * t / 255) for x, y in zip(a, b))
+
+
+def glyph_run(text, size):
+    """[(coverage, advance)] for a value line, from the pre-rendered glyphs; None if one is missing."""
+    meta = (MSG.get("glyphs") or {}).get(str(size)) or {}
+    adv, names = meta.get("advance") or {}, meta.get("names") or {}
+    out = []
+    for ch in text:
+        img = pgm("%s/text/glyphs/%d/%s.pgm" % (SHARE, size, names.get(ch, "?")))
+        if not img or ch not in adv:
+            return None
+        out.append((img, adv[ch]))
+    return out
+
+
+def compose(fb, key, lng, val=None, prog=None):
+    """The whole picture as one bytes object, rows of fb.stride bytes. val/prog: the value line and the
+    progress bar of the states that have them (None: read what the update scripts left in /run)."""
+    W, H, B, S = fb.w, fb.h, fb.B, fb.stride
+    bgp = fb.px(BG)
+    frame = bytearray((bgp * W + b"\0" * (S - W * B)) * H)
+    s = H / 1080
+    cx, cy = W // 2, H // 2
+
+    def rect(x0, y0, w, h, colour):
+        x0, y0 = max(0, x0), max(0, y0)
+        w, h = min(w, W - x0), min(h, H - y0)
+        if w <= 0 or h <= 0:
+            return
+        line = fb.px(colour) * w
+        for y in range(y0, y0 + h):
+            o = y * S + x0 * B
+            frame[o:o + w * B] = line
+
+    sq = round(90 * s)
+    for col, row, colour in MARK:
+        rect(cx + round((col * 105 - 150) * s), cy + round((row * 105 - 150) * s), sq, sq, colour)
+
+    st = MSG["states"].get(key) or {}
+    if st.get("text"):
+        g = MSG.get("geometry", {})
+        size = 720 if H < 900 else 1080  # text made for 1080 or 720 lines; offsets follow the real height
+        base = "%s/text/%s/%s.%d" % (SHARE, lng, key, size)
+        def blit(img, x0, y0, colour):
+            w, h, cov = img
+            lut = [fb.px(blend(BG, colour, c)) for c in range(256)]
+            if x0 < 0 or y0 < 0 or x0 + w > W or y0 + h > H:
+                return
+            for r in range(h):
+                o = (y0 + r) * S + x0 * B
+                frame[o:o + w * B] = b"".join(lut[c] for c in cov[r * w:(r + 1) * w])
+
+        for line, top, colour in (("title", g.get("title_y", 214), INK), ("sub", g.get("sub_y", 282), DIM)):
+            img = pgm(base + "." + line + ".pgm")
+            if img:
+                blit(img, cx - img[0] // 2, cy + round(top * s), colour)
+        if st.get("value"):
+            run = glyph_run(value() if val is None else val, size)
+            if run:
+                gs = s * 1080 / size  # the glyphs are made for `size` lines; offsets follow the real height
+                width = round(sum(a for _, a in run) * gs)
+                x = cx - width // 2
+                for img, a in run:
+                    blit(img, x, cy + round(g.get("sub_y", 282) * s), INK)
+                    x += round(a * gs)
+        if st.get("bar"):
+            p = progress() if prog is None else prog
+            bw, bh = round(g.get("bar_w", 360) * s), max(2, round(g.get("bar_h", 6) * s))
+            under = g.get("bar_steps_y", 380) if st.get("steps") else g.get("dots_y", 346)  # squares too: under them
+            bx, by = cx - bw // 2, cy + round(under * s)
+            rect(bx, by, bw, bh, OUTLINE)
+            if p:
+                rect(bx, by, round(bw * p / 100), bh, ACCENT)
+        steps = st.get("steps")
+        if steps:
+            done, total = steps
+            dot, gap = round(g.get("dot", 14) * s), round(g.get("dot_gap", 10) * s)
+            x = cx - (total * dot + (total - 1) * gap) // 2
+            y = cy + round(g.get("dots_y", 346) * s)
+            lw = max(1, round(2 * s))
+            for i in range(1, total + 1):
+                if i <= done:
+                    rect(x, y, dot, dot, ACCENT if i == done else INK)
+                else:
+                    rect(x, y, dot, lw, OUTLINE)
+                    rect(x, y + dot - lw, dot, lw, OUTLINE)
+                    rect(x, y, lw, dot, OUTLINE)
+                    rect(x + dot - lw, y, lw, dot, OUTLINE)
+                x += dot + gap
+    return bytes(frame), (cy - round(105 * s)) * S + (cx + round(105 * s)) * B  # the middle of the accent square
+
+
+def graphics_mode():
+    """tty1 in graphics mode: the console stops drawing (and clearing) on top of the picture."""
+    try:
+        fd = os.open(TTY1, os.O_RDWR | os.O_NOCTTY)
+        try:
+            fcntl.ioctl(fd, KDSETMODE, KD_GRAPHICS)
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
+
+
+def paint(key=None):
+    """Returns (offset, bytes) of a probe pixel to check later, or None when nothing was painted."""
+    if x_running() or not tty1_active():
+        return None
+    key = key or state()
+    try:
+        fb = Fb()
+    except OSError as e:
+        log("no framebuffer to paint on (%s)" % e)
+        return None
+    try:
+        frame, probe = compose(fb, key, lang())
+        graphics_mode()
+        os.pwrite(fb.fd, frame, fb.yoff * fb.stride)
+        return probe + fb.yoff * fb.stride, fb.px(ACCENT)
+    except OSError as e:
+        log("painting failed: %s" % e)
+        return None
+    finally:
+        fb.close()
+
+
+def intact(probe):
+    try:
+        fd = os.open(FB, os.O_RDONLY)
+        try:
+            return os.pread(fd, len(probe[1]), probe[0]) == probe[1]
+        finally:
+            os.close(fd)
+    except OSError:
+        return False
+
+
+def hold():
+    t0 = time.monotonic()
+    last, probe = None, None
+    while True:
+        if x_running():
+            # X has the screen; the "after the update" picture of the next boot has done its job.
+            try:
+                os.remove(NEXT_BOOT)
+            except OSError:
+                pass
+            log("X is up after %.1f s; the screen is its from here" % (time.monotonic() - t0))
+            return 0
+        sig = (state(), lang(), fb_identity(), tty1_active(), value(), progress())
+        if sig != last or (probe and not intact(probe)):
+            probe = paint(sig[0])
+            last = sig
+        time.sleep(0.1 if time.monotonic() - t0 < 90 else 0.5)
+
+
+def set_plain(path, text):
+    """--value / --progress: a small file in /run the painter and the browser page read."""
+    if text == "clear":
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return True
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path + ".tmp", "w") as f:
+        f.write(text + "\n")
+    os.replace(path + ".tmp", path)
+    return True
+
+
+def set_state(path, key):
+    if key == "clear":
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return True
+    if key not in MSG["states"]:
+        log("unknown state %r" % key)
+        return False
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(key + "\n")
+    os.replace(tmp, path)
+    return True
+
+
+def main(argv):
+    if len(argv) >= 2 and argv[1] == "--hold":
+        return hold()
+    if len(argv) >= 2 and argv[1] == "--once":
+        paint()
+        return 0
+    if len(argv) == 3 and argv[1] == "--set":
+        if not set_state(RUN_STATE, argv[2]):
+            return 2
+        paint()
+        return 0
+    if len(argv) == 3 and argv[1] == "--value":
+        v = argv[2]
+        if v != "clear" and not (len(v) <= 12 and all(c in VALUE_CHARS for c in v)):
+            log("a value is made of %s only" % VALUE_CHARS)
+            return 2
+        set_plain(RUN_VALUE, v)
+        paint()
+        return 0
+    if len(argv) == 3 and argv[1] == "--progress":
+        v = argv[2]
+        if v != "clear" and not (v.isdigit() and int(v) <= 100):
+            log("progress is 0-100")
+            return 2
+        set_plain(RUN_PROGRESS, v)
+        paint()
+        return 0
+    if len(argv) == 3 and argv[1] == "--next":
+        return 0 if set_state(NEXT_BOOT, argv[2]) else 2
+    if len(argv) == 3 and argv[1] == "--shutdown" and argv[2] in ("reboot", "poweroff"):
+        # A reset or an update already said why; otherwise just what is happening.
+        cur = read(RUN_STATE)
+        paint(cur if cur in MSG["states"] and cur != "waiting" else ("reboot" if argv[2] == "reboot" else "shutdown"))
+        return 0
+    sys.stderr.write(__doc__)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

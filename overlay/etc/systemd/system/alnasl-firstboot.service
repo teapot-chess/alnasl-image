@@ -1,0 +1,11 @@
+[Unit]
+Description=Alnasl first boot: host name
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/alnasl-firstboot
+
+[Install]
+WantedBy=multi-user.target

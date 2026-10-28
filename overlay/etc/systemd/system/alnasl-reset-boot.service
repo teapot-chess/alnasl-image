@@ -1,0 +1,16 @@
+[Unit]
+Description=Alnasl reset from /boot/efi/alnasl-reset.txt
+Documentation=file:///usr/local/sbin/alnasl-reset
+RequiresMountsFor=/boot/efi
+ConditionPathExists=/boot/efi/alnasl-reset.txt
+# Before anything that holds the data it erases, or that the reset puts back to new.
+After=alnasl-splash.service
+Before=alnasl.service alnasl-kiosk.service alnasl-kiosk-load.service alnasl-setup.service alnasl-firstboot.service alnasl-wifi.service systemd-networkd.service docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/alnasl-reset --from-boot-file
+TimeoutStartSec=15min
+
+[Install]
+WantedBy=multi-user.target
