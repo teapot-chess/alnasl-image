@@ -41,6 +41,9 @@ KEY = "/etc/alnasl/update-key.pub"
 UPDATE_CONF = "/etc/alnasl/update.conf"
 SETUP_STATE = "/var/lib/alnasl-setup/state.json"
 MODE_FILE = "/var/lib/alnasl-setup/mode"
+# v7: what the box is (alnasl-mode); master/slave are v6's words for alnasl/arkab.
+ROLE_ALIASES = {"master": "alnasl", "slave": "arkab"}
+ROLE_APP = {"alnasl": ("Alnasl", 4040), "arkab": ("Arkab", 4050), "polis": ("Polis", 4061), "nunki": ("Nunki", 4062)}
 OS_DIR = "/var/lib/alnasl-os-update"
 DIR = OS_DIR + "/system"
 STATUS = DIR + "/status.json"
@@ -589,10 +592,33 @@ def vfile(path):
         return v, None
 
 
+def box_role():
+    w = read(MODE_FILE).strip().lower()
+    w = ROLE_ALIASES.get(w, w)
+    return w if w in ROLE_APP else "alnasl"
+
+
+def carry_app(app, mine):
+    """One app's newer release (its own updater wrote it into this slot's /opt/<app>) into the new slot."""
+    dst = NEWSLOT + "/opt/%s/releases/%s" % (app, mine)
+    shutil.rmtree(dst, ignore_errors=True)
+    shutil.copytree("/opt/%s/releases/%s" % (app, mine), dst, symlinks=True)
+    tmp = NEWSLOT + "/opt/%s/current.new" % app
+    if os.path.lexists(tmp):
+        os.remove(tmp)
+    os.symlink("releases/" + mine, tmp)
+    os.replace(tmp, NEWSLOT + "/opt/%s/current" % app)
+    for f in ("/opt/%s/update.sh" % app, "/opt/%s/uninstall.sh" % app, "/etc/systemd/system/%s.service" % app,
+              "/etc/systemd/system/%s-update.service" % app, "/etc/systemd/system/%s-update.path" % app):
+        if os.path.isfile(f):
+            shutil.copy2(f, NEWSLOT + f)
+
+
 def carry_over(dev, img):
     """What the new slot must know of this one: the identity PID 1 reads before any mount (machine id,
-    name, console keymap), the next boot's picture, and Alnasl itself when this slot has a newer one
-    (the app updater writes /opt/alnasl; going back a version would meet a database it migrated)."""
+    name, console keymap), the next boot's picture, and each app (Alnasl, and v7: Arkab, Polis, Nunki)
+    when this slot has a newer one than the image (its app updater writes /opt/<app>; going back a
+    version would meet a database it migrated). The role itself is on the data partition: nothing to carry."""
     os.makedirs(NEWSLOT, exist_ok=True)
     rc, out = run(["mount", "-o", "rw,noatime", dev, NEWSLOT])
     if rc != 0:
@@ -607,22 +633,14 @@ def carry_over(dev, img):
                 shutil.copy2(f, NEWSLOT + f)
         os.makedirs(NEWSLOT + "/var/lib/alnasl-screen", exist_ok=True)
         write_atomic(NEWSLOT + "/var/lib/alnasl-screen/next-boot", "update-finish\n")
-        mine, mk = vfile("/opt/alnasl/current/VERSION")
-        theirs, tk = vfile(NEWSLOT + "/opt/alnasl/current/VERSION")
-        if mk and (not tk or mk > tk) and os.path.isdir("/opt/alnasl/releases/" + mine):
-            log("Alnasl %s here is newer than the image's %s: it goes along" % (mine, theirs or "?"))
-            dst = NEWSLOT + "/opt/alnasl/releases/" + mine
-            shutil.rmtree(dst, ignore_errors=True)
-            shutil.copytree("/opt/alnasl/releases/" + mine, dst, symlinks=True)
-            tmp = NEWSLOT + "/opt/alnasl/current.new"
-            if os.path.lexists(tmp):
-                os.remove(tmp)
-            os.symlink("releases/" + mine, tmp)
-            os.replace(tmp, NEWSLOT + "/opt/alnasl/current")
-            for f in ("/opt/alnasl/update.sh", "/opt/alnasl/uninstall.sh", "/etc/systemd/system/alnasl.service",
-                      "/etc/systemd/system/alnasl-update.service", "/etc/systemd/system/alnasl-update.path"):
-                if os.path.isfile(f):
-                    shutil.copy2(f, NEWSLOT + f)
+        for app in ROLE_APP:
+            mine, mk = vfile("/opt/%s/current/VERSION" % app)
+            theirs, tk = vfile(NEWSLOT + "/opt/%s/current/VERSION" % app)
+            if not os.path.isdir(NEWSLOT + "/opt/" + app):
+                continue  # an image without this app (a v6 one has no Polis or Nunki): nothing to put it in
+            if mk and (not tk or mk > tk) and os.path.isdir("/opt/%s/releases/%s" % (app, mine)):
+                log("%s %s here is newer than the image's %s: it goes along" % (ROLE_APP[app][0], mine, theirs or "?"))
+                carry_app(app, mine)
     finally:
         os.sync()
         run(["umount", NEWSLOT])
@@ -691,6 +709,8 @@ def install(img, asked_train, restart, by):
 # -------------------------------------------------------------- round check --
 
 def round_in_progress():
+    if box_role() != "alnasl":
+        return False, "not an Alnasl box: no rounds here"
     try:
         with urllib.request.urlopen(ALNASL_STATUS_URL, timeout=4) as r:
             out = r.read(2000).decode("utf-8", "replace")
@@ -873,20 +893,21 @@ def display_connected():
 
 
 def health():
-    """(ok, what is missing). Master: Alnasl answers and, with a screen, the kiosk painted. Slave: Arkab."""
+    """(ok, what is missing). The setup server; the box's own app answers (v7: whichever role it is;
+    Alnasl only when its service is on, as in v6); with a screen, the kiosk painted."""
     missing = []
     if not answers("http://127.0.0.1:4041/healthz"):
         missing.append("the setup server")
-    mode = read(MODE_FILE).strip() or "master"
-    if mode == "slave":
+    role = box_role()
+    name, port = ROLE_APP[role]
+    if role == "arkab":
         port = kv_file("/etc/arkab/arkab.env").get("ARKAB_PORT", "4050")
         if not answers("http://127.0.0.1:%s/unlock" % port):
             missing.append("Arkab")
-    else:
-        if enabled("alnasl.service") and not answers("http://127.0.0.1:4040/"):
-            missing.append("Alnasl")
-        if enabled("alnasl-kiosk.service") and display_connected() and not os.path.exists(PAINTED):
-            missing.append("the screen")
+    elif enabled("%s.service" % role) and not answers("http://127.0.0.1:%s/" % port):
+        missing.append(name)
+    if enabled("alnasl-kiosk.service") and display_connected() and not os.path.exists(PAINTED):
+        missing.append("the screen")
     return not missing, ", ".join(missing)
 
 

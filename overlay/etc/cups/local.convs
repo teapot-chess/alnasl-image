@@ -1,0 +1,5 @@
+# Alnasl hall box (v7, a Polis box): Photon has no cups-filters and no Ghostscript, so CUPS on its own
+# cannot turn a PDF into anything. Polis sends PDFs; this hands them to the printer as they are, which
+# is what an IPP Everywhere or driverless printer that takes PDF wants (lpadmin -m everywhere). A printer
+# that only takes raster or PCL does not print from this box: docs/v7-plan.md, "Polis".
+application/pdf    application/vnd.cups-pdf    0    -

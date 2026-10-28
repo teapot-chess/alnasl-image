@@ -94,6 +94,11 @@ owner() { getent passwd "$1" >/dev/null 2>&1 && echo "$1:$1" || echo root:root; 
 dir /var/lib/alnasl "$(owner alnasl)" 0750
 dir /var/lib/alnasl/update "$(owner alnasl)" 0750
 dir /var/lib/arkab "$(owner arkab)" 0750
+dir /var/lib/polis "$(owner polis)" 0750
+dir /var/lib/polis-update root:root 0755
+dir /var/lib/nunki "$(owner nunki)" 0750
+dir /var/lib/nunki-update root:root 0755
+dir /etc/cups root:root 0755
 dir /var/lib/alnasl-setup root:root 0700
 dir /var/lib/alnasl-update root:root 0755
 dir /var/lib/alnasl-os-update root:root 0755
@@ -110,8 +115,20 @@ for f in etc/alnasl/keyboard.conf etc/alnasl/kiosk.conf; do
 done
 [ -f $DATA/etc/wpa_supplicant/wpa_supplicant-wlan0.conf ] ||
   install -m 0600 $DEFAULTS/etc/wpa_supplicant/wpa_supplicant-wlan0.conf $DATA/etc/wpa_supplicant/wpa_supplicant-wlan0.conf
+# v7: CUPS (a Polis box). The printers it was given are the box's (printers.conf, ppd/, classes.conf,
+# subscriptions.conf); everything else is the image's and is put back at every boot, so a new slot's CUPS
+# never runs on an older slot's configuration.
+if [ -d $DEFAULTS/etc/cups ]; then
+  for f in $DEFAULTS/etc/cups/* $DEFAULTS/etc/cups/.[!.]*; do
+    [ -e "$f" ] || continue
+    case "$(basename "$f")" in printers.conf* | classes.conf* | subscriptions.conf* | ppd) continue ;; esac
+    cp -a "$f" $DATA/etc/cups/ 2>/dev/null || say "could not put back /etc/cups/$(basename "$f")"
+  done
+  [ -d $DATA/etc/cups/ppd ] || install -d -m 0755 $DATA/etc/cups/ppd
+fi
 
-for d in /var/lib/alnasl /var/lib/arkab /var/lib/alnasl-setup /var/lib/alnasl-update /var/lib/alnasl-os-update \
+for d in /var/lib/alnasl /var/lib/arkab /var/lib/polis /var/lib/polis-update /var/lib/nunki /var/lib/nunki-update /etc/cups \
+         /var/lib/alnasl-setup /var/lib/alnasl-update /var/lib/alnasl-os-update \
          /var/lib/docker /var/lib/containerd /var/log/journal /etc/wpa_supplicant \
          /etc/systemd/network/10-wired.network.d /etc/systemd/network/20-wireless.network.d; do
   bind "$d"

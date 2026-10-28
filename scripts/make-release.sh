@@ -5,7 +5,7 @@
 #   make-release.sh IMAGE OUTDIR [--min-from VERSION] [--notes TEXT] [--index OLD-index.json]
 #                                [--base-url URL]
 #
-#   IMAGE      photon-alnasl-v6.img (assemble.sh's output, not compressed)
+#   IMAGE      photon-alnasl-v<train>.img, e.g. photon-alnasl-v7.img (assemble.sh's output, not compressed)
 #   OUTDIR     gets: alnasl-system-v<version>.img.zst   system slot A of IMAGE, compressed
 #                    alnasl-system-v<version>.json      this release's entry
 #                    index.json                         OLD-index.json (or an empty one) + this entry

@@ -19,7 +19,11 @@
 #     whoever asks. Not masks: a mask replaces the unit file, and the apps' updaters write those files.
 #     "mode" keeps the v6 word for the two v6 roles (master, slave); "role" is always the v7 word.
 #   - disables what is still enabled of the other roles, every boot (a new slot comes with all of it on).
-#   - on a change of role (or the first boot after a reset) enables this role's units and the screen.
+#   - on a change of role, the first boot after a reset, and the first boot of a new system slot (an update,
+#     v6 -> v7 included) enables this role's units and the screen. What was applied is noted IN THE SLOT
+#     (/etc/alnasl/role-applied), because that is where the enabled units are: a new slot comes with the
+#     image's defaults (Alnasl on, the rest off), whatever the box was. v6 kept the note on the data
+#     partition, so a v6 slave that updated came up with Arkab switched off; v7 does not.
 #   - never touches any role's data: switching back loses nothing.
 #
 #   alnasl-mode            at boot
@@ -27,7 +31,8 @@
 set -u
 STATE=/var/lib/alnasl-setup
 MODEFILE=$STATE/mode
-APPLIED=$STATE/mode-applied
+APPLIED=/etc/alnasl/role-applied
+APPLIED_V6=$STATE/mode-applied   # v6's note, on the data partition: removed, it misleads
 TXT=/boot/efi/alnasl-mode.txt
 RUN=/run/alnasl-mode
 ROLES="alnasl arkab polis nunki"
@@ -95,10 +100,9 @@ if [ "$applied" != "$role" ]; then
   say "applying $role"
   # shellcheck disable=SC2086
   systemctl enable $want alnasl-kiosk.service >/dev/null 2>&1
-  echo "$role" > "$APPLIED"
-elif [ "$(tr -d '[:space:]' < "$APPLIED" 2>/dev/null)" != "$role" ]; then
-  echo "$role" > "$APPLIED"     # a v6 word for the same role: the v7 word, nothing switched
+  echo "$role" > "$APPLIED.new" && mv -f "$APPLIED.new" "$APPLIED"
 fi
+rm -f "$APPLIED_V6"
 # What runs of another role stops (a live switch; at boot nothing runs yet). What is enabled of this role
 # starts now: this boot's job list was made before this unit decided anything.
 for u in $other; do systemctl is-active -q "$u" 2>/dev/null && systemctl stop --no-block "$u"; done

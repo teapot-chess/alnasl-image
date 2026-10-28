@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests of alnasl-system-update's decisions (v6 A/B), runnable anywhere with python3 + openssl:
+"""Tests of alnasl-system-update's decisions (v6 A/B; v7 roles), runnable anywhere with python3 + openssl:
 
     python3 scripts/test-update.py [UPDATER [SHIPPED-KEY [GRUB-AB-CFG]]]
 
@@ -86,6 +86,15 @@ check(best and best["version"] == "6.3", "a stepping stone is taken first (6.3 b
 best, up, _ = asu.choose(idx, "v7", "7.0")
 check(best and best["version"] == "7.1" and up is None, "a box on v7 never goes back to v6")
 
+# ---- v7.0 as released: min_from 6.2, beside 6.1 and 6.2 (docs/v7-plan.md, "Version") ----------------
+idx7 = [img("v6", "6.1"), img("v6", "6.2"), img("v7", "7.0", "6.2")]
+best, up, blocked = asu.choose(idx7, "v6", "6.2")
+check(best is None and up and up["version"] == "7.0", "a 6.2 box: 7.0 offered, nothing to install by itself")
+check(raises(lambda: asu.train_guard(up, "v6")), "a 6.2 box never installs 7.0 unasked (train_guard)")
+check(not raises(lambda: asu.train_guard(up, "v6", "v7")), "a 6.2 box asked for v7: 7.0 allowed")
+best, up, blocked = asu.choose(idx7, "v6", "6.1")
+check(best and best["version"] == "6.2" and up is None and blocked == "6.2", "a 6.1 box: 6.2 first, v7 waits for it")
+
 # ---- the release index -----------------------------------------------------------------------------
 good = img("v6", "6.3")
 bad = [img("v6", "7.0"), img("v6", "6.4", url="http://example.invalid/x.zst"), img("v6", "6.5", sha256="xyz"),
@@ -123,6 +132,37 @@ try:
                  'root=PARTUUID=@DISKID@-$alnasl_part', 'panic=10'):
         check(need in cfg, "grub-ab.cfg has: " + need)
     check(asu.TRIES == 3 and 'if [ "$alnasl_tries" = "3" ]' in cfg, "grub-ab.cfg counts down from the updater's TRIES (3)")
+
+    # ---- v7 roles: what the box is decides what health and the round check look at --------------------
+    mf = os.path.join(tmp, "mode")
+    asu.MODE_FILE = mf
+    for word, role in (("slave", "arkab"), ("master", "alnasl"), ("polis\n", "polis"), ("NUNKI", "nunki"),
+                       ("arkab", "arkab"), ("", "alnasl"), ("root", "alnasl")):
+        with open(mf, "w") as f:
+            f.write(word)
+        check(asu.box_role() == role, "role from the mode file %r: %s" % (word, role))
+    os.remove(mf)
+    check(asu.box_role() == "alnasl", "no mode file: alnasl")
+    asked = []
+    asu.answers = lambda url: asked.append(url) or True
+    asu.enabled = lambda unit: True
+    asu.display_connected = lambda: False
+    asu.kv_file = lambda path: {}
+    for word, port in (("polis", "4061"), ("nunki", "4062"), ("slave", "4050"), ("master", "4040")):
+        with open(mf, "w") as f:
+            f.write(word)
+        del asked[:]
+        good_, _ = asu.health()
+        check(good_ and any(":%s/" % port in u for u in asked) and not any(":%s/" % p in u for p in ("4040", "4050", "4061", "4062") if p != port for u in asked),
+              "health of a %s box asks its own app (%s) and no other: %s" % (word, port, asked))
+    asu.answers = lambda url: "4041" in url
+    with open(mf, "w") as f:
+        f.write("nunki")
+    ok_, missing = asu.health()
+    check(not ok_ and missing == "Nunki", "a nunki box whose Nunki does not answer is not healthy (%r)" % missing)
+    check(asu.round_in_progress() == (False, "not an Alnasl box: no rounds here"), "no round check on a box without Alnasl")
+    check(sorted(asu.ROLE_APP) == ["alnasl", "arkab", "nunki", "polis"], "carry-over knows all four apps")
+    os.remove(mf)
 
     # ---- signatures -------------------------------------------------------------------------------
     ph = open(PLACEHOLDER).read() if os.path.exists(PLACEHOLDER) else ""

@@ -7,7 +7,7 @@ set -uo pipefail
 if [ -z "${ALNASL_UNSHARED:-}" ]; then export ALNASL_UNSHARED=1; exec unshare -m --propagation private bash "$0" "$@"; fi
 W=/root/w-photon-img5
 . $W/lib-chroot.sh
-IMG=$W/photon-alnasl-v6.img
+IMG=$W/photon-alnasl-v7.img
 KVER=6.1.10-11.ph5
 fail=0
 ok()  { echo "  ok   $*"; }
@@ -70,11 +70,24 @@ else ok "no sshd binary"; fi
 k=$(find $R/root $R/home $R/etc/ssh -name 'authorized_keys*' 2>/dev/null)
 [ -z "$k" ] && ok "no authorized_keys anywhere" || bad "authorized_keys found: $k"
 ls $R/etc/ssh/ssh_host_* 2>/dev/null && bad "host keys baked in" || ok "no ssh host keys baked in"
-fw=$(bash -c "source <(sed -n '/^CHAIN=/p;/^rules_v4()/,/^}/p;/^rules_v6()/,/^}/p' $R/usr/local/sbin/alnasl-firewall); rules_v4; rules_v6")
+# v7: the ports depend on the role (/run/alnasl-mode/role); each role's ruleset, as the script makes it.
+fwrole() { # role -> both rulesets
+  local d; d=$(mktemp -d); [ -n "$1" ] && echo "$1" > $d/role
+  bash -c "source <(sed -n '/^CHAIN=/p;/^log()/p;/^ROLE=/,/^app_rule()/p;/^rules_v4()/,/^}/p;/^rules_v6()/,/^}/p' $R/usr/local/sbin/alnasl-firewall | sed 's#/run/alnasl-mode/role#$d/role#'); rules_v4; rules_v6"
+  rm -rf $d
+}
+fw=$(for r in alnasl arkab polis nunki; do fwrole $r; done)
 echo "$fw" | grep -q -E -- '--dport 22( |$)' && bad "firewall lets port 22 in" || ok "firewall: port 22 closed"
 echo "$fw" | grep -q -i -E 'tailscale|41641' && bad "firewall still has the Tailscale rules" || ok "firewall: no Tailscale rules"
-echo "$fw" | grep -q -- '--dport 4040 -j ACCEPT' && ok "firewall: Alnasl (4040) let in" || bad "firewall lacks the Alnasl rule"
-echo "$fw" | grep -q -- '--dport 4050 -j ACCEPT' && ok "firewall: Arkab's status page (4050) let in (a slave's)" || bad "firewall lacks the Arkab rule"
+ports() { fwrole "$1" | grep -o -- '-p tcp --dport [0-9]* -j ACCEPT' | awk '{print $4}' | sort -u | tr '\n' ' '; }
+[ "$(ports alnasl)" = "4040 " ] && ok "firewall, alnasl box: only 4040 (Alnasl) let in" || bad "firewall, alnasl box: tcp ports '$(ports alnasl)'"
+[ "$(ports "")" = "4040 " ] && ok "firewall, no role file: as an alnasl box" || bad "firewall, no role file: tcp ports '$(ports "")'"
+[ "$(ports arkab)" = "4050 " ] && ok "firewall, arkab box: only 4050 (Arkab's page) let in" || bad "firewall, arkab box: tcp ports '$(ports arkab)'"
+[ -z "$(ports polis)" ] && [ -z "$(ports nunki)" ] && ok "firewall, polis and nunki boxes: no TCP port at all (they dial out)" || bad "firewall: polis '$(ports polis)' nunki '$(ports nunki)'"
+for r in alnasl arkab polis nunki; do
+  [ "$(fwrole $r | grep -c -- '^-A ALNASL-IN -j DROP$')" = 2 ] && [ "$(fwrole $r | grep -c '^$')" = 0 ] && ok "firewall, $r: both rulesets end in DROP, no blank lines" || bad "firewall, $r: no final DROP, or blank lines"
+done
+grep -q 'After=.*alnasl-mode.service' $R/etc/systemd/system/alnasl-firewall.service && ok "alnasl-firewall runs after alnasl-mode (it reads the role)" || bad "alnasl-firewall.service not ordered after alnasl-mode"
 ts=$(ls $R/usr/local/bin/tailscale* $R/usr/bin/tailscale* $R/usr/sbin/tailscale* $R/usr/local/sbin/alnasl-tailscale-up \
         $R/etc/systemd/system/tailscale* $R/etc/systemd/system/alnasl-tailscale* $R/usr/lib/systemd/system/tailscale* $B/tailscale* 2>/dev/null)
 [ -z "$ts" ] && ok "no Tailscale binary, unit, script or key file" || bad "Tailscale pieces: $ts"
@@ -181,13 +194,13 @@ chroot $R /usr/sbin/iw --version 2>&1 | sed 's/^/       /'; [ -x $R/usr/sbin/iw 
 [ -x $R/usr/local/sbin/alnasl-screen ] && bash -n $R/usr/local/sbin/alnasl-screen && ok "alnasl-screen present, bash -n" || bad "alnasl-screen"
 for pk in linux linux-drivers-gpu dtb-rpi4 linux-firmware; do echo "       $(rpm --root=$R -q $pk)"; done
 echo "== settings server / wizard / kiosk script"
-for f in usr/local/lib/alnasl-setup/server.py usr/local/lib/alnasl-setup/diag.py usr/local/share/alnasl-setup/www/index.html usr/local/share/alnasl-setup/www/app.js usr/local/share/alnasl-setup/www/app.css \
+for f in usr/local/lib/alnasl-setup/server.py usr/local/lib/alnasl-setup/diag.py usr/local/lib/alnasl-setup/bootlog.py usr/local/share/alnasl-setup/www/index.html usr/local/share/alnasl-setup/www/app.js usr/local/share/alnasl-setup/www/app.css \
          usr/local/sbin/alnasl-setup etc/alnasl/keyboard.conf etc/alnasl/kiosk.conf etc/alnasl/image-version etc/wpa_supplicant/wpa_supplicant-wlan0.conf \
          etc/systemd/system/alnasl-setup.service; do
   [ -e $R/$f ] || [ -L $R/$f ] && ok "present: /$f" || bad "missing: /$f"
 done
 chroot $R python3 -c "import sys; compile(open('/usr/local/lib/alnasl-setup/server.py').read(), 'server.py', 'exec'); print('compiles with image python', sys.version.split()[0])" 2>&1 | sed 's/^/       /'
-for s in alnasl-setup alnasl-kiosk alnasl-kiosk-load alnasl-firstboot alnasl-wifi-setup alnasl-os-update alnasl-reset alnasl-data alnasl-mode; do bash -n $R/usr/local/sbin/$s && ok "bash -n $s" || bad "bash -n $s"; done
+for s in alnasl-setup alnasl-kiosk alnasl-kiosk-load alnasl-firstboot alnasl-wifi-setup alnasl-os-update alnasl-reset alnasl-data alnasl-mode alnasl-sound alnasl-firewall; do bash -n $R/usr/local/sbin/$s && ok "bash -n $s" || bad "bash -n $s"; done
 echo "       vconsole.conf: $(cat $R/etc/vconsole.conf 2>/dev/null)"
 for k in be-latin1 fr-latin9 nl us-acentos de-latin1-nodeadkeys us uk es it pt-latin1; do
   f=$(find $R/usr/share/keymaps $R/usr/lib/kbd $R/lib/kbd -name "$k.map*" 2>/dev/null | head -n 1); [ -n "$f" ] && ok "keymap $k" || bad "keymap $k missing"
@@ -230,7 +243,15 @@ echo "POST resolution evil -> $(c -X POST -H "$H" -H 'X-Alnasl-Setup: 1' -H 'Con
 echo "POST resolution confirm -> $(c -X POST -H "$H" -H 'X-Alnasl-Setup: 1' -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:4041/api/resolution/confirm) (200 expected)"
 echo "POST resolution no header -> $(c -X POST -H "$H" -d '{}' http://127.0.0.1:4041/api/resolution) (403 expected)"
 echo "app.js serves the resolution UI: $(curl -s -H "$H" http://127.0.0.1:4041/app.js | grep -c 'api/resolution') api/resolution references"
-echo "GET /api/mode    -> $(c -H "$H" http://127.0.0.1:4041/api/mode) $(head -c 90 /tmp/body) (master, not set expected)"
+echo "GET /api/mode    -> $(c -H "$H" http://127.0.0.1:4041/api/mode) $(head -c 160 /tmp/body) (master/alnasl, not set expected)"
+echo "ROLEAPI $(python3 -c 'import json;d=json.load(open("/tmp/body"));print(d["mode"], d["role"], ",".join(d["roles"]), d["set"])')"
+echo "BOOTLOG $(c -H "$H" 'http://127.0.0.1:4041/api/bootlog?after=0') $(python3 -c 'import json;d=json.load(open("/tmp/body"));v=d.get("view") or {};print(sorted(k for k in d if k!="view"), "view", sorted(v), type(d["lines"]).__name__)' 2>&1)"
+echo "BOOTLOG2 $(c -H "$H" 'http://127.0.0.1:4041/api/bootlog?after=999999') $(python3 -c 'import json;d=json.load(open("/tmp/body"));print("view" in d, d["lines"])' 2>&1)"
+echo "BOOTLOGHOST $(c -H 'Host: evil.example:4041' http://127.0.0.1:4041/api/bootlog)"
+echo "PRINTERS $(c -H "$H" http://127.0.0.1:4041/api/printers)"
+echo "PRINTADD $(c -X POST -H "$H" -H 'X-Alnasl-Setup: 1' -H 'Content-Type: application/json' -d '{"name":"hall","uri":"ipp://10.0.0.9/ipp/print"}' http://127.0.0.1:4041/api/printers/add) $(head -c 80 /tmp/body)"
+echo "SOUND $(c -H "$H" http://127.0.0.1:4041/api/sound)"
+echo "SOUNDSET $(c -X POST -H "$H" -H 'X-Alnasl-Setup: 1' -H 'Content-Type: application/json' -d '{"output":"jack","volume":50}' http://127.0.0.1:4041/api/sound) $(head -c 80 /tmp/body)"
 echo "state has mode   -> $(curl -s -H "$H" http://127.0.0.1:4041/api/state | python3 -c 'import sys,json;print(json.load(sys.stdin)["mode"])')"
 echo "POST mode no confirm -> $(c -X POST -H "$H" -H 'X-Alnasl-Setup: 1' -H 'Content-Type: application/json' -d '{"mode":"slave"}' http://127.0.0.1:4041/api/mode) (400 expected)"
 echo "POST mode evil   -> $(c -X POST -H "$H" -H 'X-Alnasl-Setup: 1' -H 'Content-Type: application/json' -d '{"mode":"root","confirm":"SWITCH"}' http://127.0.0.1:4041/api/mode) (400 expected)"
@@ -249,11 +270,22 @@ echo "listening on:    $(ss -ltn 2>/dev/null | awk '$4 ~ /:4041$/ {print $4}' | 
 kill $(cat /tmp/setup.pid); sleep 1
 echo "log (no secrets expected):"; sed 's/^/  | /' /tmp/setup.log | head -20
 IN
-chroot $R /bin/bash /tmp/setup-test.sh 2>&1 | sed 's/^/       /'
+sto=$(chroot $R /bin/bash /tmp/setup-test.sh 2>&1); echo "$sto" | sed 's/^/       /'
+grep -q '^ROLEAPI master alnasl alnasl,arkab,polis,nunki False$' <<<"$sto" && ok "/api/mode: v6's word (master, for Arkab's sake) and the v7 role beside it, four roles" || bad "/api/mode role fields"
+grep -q "^BOOTLOG 200 \['lines', 'ready', 'seq', 'status'\] view \['logview', 'mono', 'steps'\] list$" <<<"$sto" && ok "/api/bootlog: seq, ready, status, lines, and the layout on the first ask" || bad "/api/bootlog shape"
+grep -q '^BOOTLOG2 200 False \[\]$' <<<"$sto" && ok "/api/bootlog?after=N: only newer lines, no layout" || bad "/api/bootlog?after"
+grep -q '^BOOTLOGHOST 403$' <<<"$sto" && ok "/api/bootlog: a foreign Host is refused" || bad "/api/bootlog foreign Host"
+grep -q '^PRINTERS 200' <<<"$sto" && grep -q '^PRINTADD 400.*not_polis' <<<"$sto" && ok "printers: listed anywhere, added only on a Polis box (400 here)" || bad "printers API: $(grep '^PRINT' <<<"$sto" | tr '\n' ' ')"
+grep -q '^SOUND 200' <<<"$sto" && grep -q '^SOUNDSET 400.*not_nunki' <<<"$sto" && ok "sound: read anywhere, set only on a Nunki box (400 here)" || bad "sound API: $(grep '^SOUND' <<<"$sto" | tr '\n' ' ')"
 echo "  -- redaction unit test (fake wpa conf with a psk, a clear passphrase and a Tailscale key; image python) --"
 install -m 0644 $W/test-diag.py $R/tmp/test-diag.py
 chroot $R python3 -I /tmp/test-diag.py 2>&1 | sed 's/^/       /'
 [ "${PIPESTATUS[0]}" = 0 ] && ok "redaction: no secret survives, SSIDs do" || bad "redaction unit test failed"
+echo "  -- v7 boot log: redaction, allow-list, colours, status line (image python) --"
+install -m 0644 $W/test-bootlog.py $R/tmp/test-bootlog.py
+chroot $R python3 -I /tmp/test-bootlog.py /usr/local/lib/alnasl-setup/bootlog.py 2>&1 | grep -v '^ok ' | sed 's/^/       /'
+[ "${PIPESTATUS[0]}" = 0 ] && ok "boot log: no secret reaches the hall screen, failures always do (test-bootlog.py)" || bad "boot log unit test failed"
+rm -f $R/tmp/test-bootlog.py
 cumount $R
 rm -rf $R/var/lib/alnasl-setup $R/tmp/setup-test.sh $R/tmp/setup.* $R/tmp/body $R/tmp/test-diag.py $R/run/alnasl-kiosk
 find $R/usr/local -name __pycache__ -prune -exec rm -rf {} +
@@ -261,7 +293,7 @@ find $R/usr/local -name __pycache__ -prune -exec rm -rf {} +
 echo "== v4: PrivateTmp, policies, OSK extension, resolution, touch"
 if grep -E '^[[:space:]]*PrivateTmp=(yes|true|1)' $R/etc/systemd/system/alnasl-setup.service $R/etc/systemd/system/alnasl-setup.service.d/*.conf $R/usr/lib/systemd/system/alnasl-setup.service 2>/dev/null; then bad "alnasl-setup.service has PrivateTmp=yes (wpa_cli replies would be swallowed)"; else ok "alnasl-setup.service has no PrivateTmp=yes"; fi
 grep -q '^PrivateTmp=no' $R/etc/systemd/system/alnasl-setup.service && ok "alnasl-setup.service sets PrivateTmp=no explicitly" || bad "PrivateTmp=no missing"
-[ "$(cat $R/etc/alnasl/image-version)" = v6 ] && ok "image-version v6" || bad "image-version: $(cat $R/etc/alnasl/image-version)"
+[ "$(cat $R/etc/alnasl/image-version)" = v7 ] && ok "image-version v7" || bad "image-version: $(cat $R/etc/alnasl/image-version)"
 grep -q '^KIOSK_RES="auto"' $R/usr/share/alnasl/defaults/etc/alnasl/kiosk.conf && ok "kiosk.conf defaults to KIOSK_RES=auto" || bad "kiosk.conf default resolution"
 grep -q 'KIOSK_RES' $R/usr/local/sbin/alnasl-kiosk && ok "alnasl-kiosk passes KIOSK_RES to the container" || bad "alnasl-kiosk lacks KIOSK_RES"
 KC=alnasl-kiosk:latest
@@ -288,7 +320,11 @@ for f in js + css + [m["background"]["service_worker"]]:
 assert "osk.js" in js and "menu-button.js" in js and "touch.css" in css and "external-bar.js" in js
 assert "http://localhost:4041/*" in m["host_permissions"]
 mb = [c for c in m["content_scripts"] if "menu-button.js" in c.get("js", [])][0]
-assert mb["matches"] == ["http://localhost:4040/*"]
+assert mb["matches"] == ["http://localhost:%d/*" % p for p in (4040, 4050, 4061, 4062)], mb["matches"]
+bar = [c for c in m["content_scripts"] if "external-bar.js" in c.get("js", [])][0]
+for p in (4040, 4041, 4050, 4061, 4062):
+    assert "http://localhost:%d/*" % p in bar["exclude_matches"] and "http://127.0.0.1:%d/*" % p in bar["exclude_matches"], p
+assert m["version"].startswith("7.")
 PY
 for f in osk.js touch.js bg.js menu-button.js external-bar.js; do
   if command -v node >/dev/null; then node --check $E/kiosk-ext/$f && ok "node --check $f" || bad "syntax $f"; fi
@@ -363,7 +399,7 @@ assert "https://*/*" in touch["matches"]
 assert "webNavigation" in m["permissions"]
 PY
 b=$E/kiosk-ext/external-bar.js
-grep -q 'Back to Alnasl' $b && grep -q 'Terug naar Alnasl' $b && grep -q 'http://localhost:4040/' $b && grep -q 'history.back' $b && grep -q 'http://localhost:4041/menu' $b && ok "external-bar.js: EN+NL 'Back to Alnasl', history.back first, then localhost:4040, menu button" || bad "external-bar.js content"
+grep -q 'Back to Alnasl' $b && grep -q 'Terug naar Alnasl' $b && grep -q '"http://localhost:4041/"' $b && grep -q 'history.back' $b && grep -q 'http://localhost:4041/menu' $b && ok "external-bar.js: EN+NL 'Back to Alnasl', history.back first, then the menu server's / (the role's app), menu button" || bad "external-bar.js content"
 grep -q 'onErrorOccurred' $E/kiosk-ext/bg.js && ok "bg.js: an unreachable external page returns to Alnasl" || bad "bg.js error redirect"
 grep -q 'webkit-scrollbar' $E/kiosk-ext/touch.css && grep -q 'webkit-scrollbar' $R/usr/local/share/alnasl-setup/www/app.css && ok "thin, see-through scrollbars in Alnasl/external pages (touch.css) and the setup pages (app.css)" || bad "scrollbar CSS"
 rm -rf $E
@@ -390,10 +426,12 @@ PY
 
 echo "== firewall script: syntax + ruleset dry run on the build VM's iptables"
 bash -n $R/usr/local/sbin/alnasl-firewall && ok "bash -n"
-for fn in rules_v4 rules_v6; do
-  out=$(bash -c "source <(sed -n '/^CHAIN=/p;/^rules_v4()/,/^}/p;/^rules_v6()/,/^}/p' $R/usr/local/sbin/alnasl-firewall); $fn" | grep -c -E '^-A ALNASL-IN')
-  echo "       $fn: $out rules"
-done
+for r in alnasl arkab polis nunki; do echo "       $r: $(fwrole $r | grep -c -E '^-A ALNASL-IN') rules (IPv4 + IPv6)"; done
+if command -v iptables-restore >/dev/null; then
+  for r in alnasl polis; do
+    fwrole $r | awk '/^\*filter/{n++} n==1' | iptables-restore --noflush --test && ok "iptables-restore --test accepts the $r IPv4 ruleset" || bad "iptables-restore --test refuses the $r ruleset"
+  done
+fi
 
 echo "== Alnasl release inside the image (qemu-user)"
 cmount $R
@@ -502,14 +540,14 @@ end=$(( ($(pst 4) + $(psz 4)) * 512 )); [ $end -le 15000000000 ] && ok "image is
 cmount $R; chroot $R e2fsck -fn ${L}p4 >/dev/null 2>&1; rc=$?; chroot $R resize2fs -P ${L}p4 >/dev/null 2>&1; rr=$?; cumount $R
 [ $rc = 0 ] && [ $rr = 0 ] && ok "data partition: the image's own e2fsck and resize2fs accept it (no newer ext4 features)" || bad "the image's e2fsck ($rc) / resize2fs -P ($rr) refuse the data partition: made with a newer mke2fs?"
 dumpe2fs -h ${L}p2 2>/dev/null | awk -F: '/^Block count/{c=$2} /^Block size/{b=$2} END{exit !(c*b <= 3221225472)}' && ok "slot A's file system fits a slot" || bad "slot A's file system is larger than the partition"
-grep -q '^ALNASL_TRAIN=v6$' $R/etc/alnasl/image-release && grep -q -E '^ALNASL_VERSION=6\.[0-9]+' $R/etc/alnasl/image-release && ok "image-release: $(grep -h ALNASL_ $R/etc/alnasl/image-release | tr '\n' ' ')" || bad "image-release"
+grep -q '^ALNASL_TRAIN=v7$' $R/etc/alnasl/image-release && grep -q -E '^ALNASL_VERSION=7\.[0-9]+' $R/etc/alnasl/image-release && ok "image-release: $(grep -h ALNASL_ $R/etc/alnasl/image-release | tr '\n' ' ')" || bad "image-release"
 grep -E '^[^#]*[[:space:]]/[[:space:]]' $R/etc/fstab && bad "fstab still mounts / (the slot comes from the kernel command line)" || ok "fstab: no / line"
 grep -q -i swap $R/etc/fstab && bad "fstab has swap" || ok "fstab: no swap"
 grep -q "^PARTUUID=$DISK_ID-01[[:space:]]*/boot/efi" $R/etc/fstab && ok "fstab: /boot/efi by PARTUUID $DISK_ID-01" || bad "fstab /boot/efi line"
 s=$(chroot $R systemctl is-enabled resizefs.service 2>&1 | tail -1); [ "$s" = masked ] && ok "resizefs masked (it would grow / over slot B)" || bad "resizefs.service: $s"
 [ -d $R/data ] && ok "/data mount point" || bad "no /data"
 for f in keyboard.conf kiosk.conf; do [ "$(readlink $R/etc/alnasl/$f)" = /data/etc/alnasl/$f ] && ok "/etc/alnasl/$f -> data partition" || bad "/etc/alnasl/$f is not the data symlink"; done
-for d in var/lib/arkab var/lib/alnasl-setup var/lib/alnasl-os-update var/lib/docker var/log/journal etc/wpa_supplicant etc/systemd/network/10-wired.network.d; do
+for d in var/lib/arkab var/lib/polis var/lib/polis-update var/lib/nunki var/lib/nunki-update etc/cups var/lib/alnasl-setup var/lib/alnasl-os-update var/lib/docker var/log/journal etc/wpa_supplicant etc/systemd/network/10-wired.network.d; do
   grep -q "$d" $R/usr/local/sbin/alnasl-data && ok "alnasl-data binds /$d" || bad "alnasl-data does not keep /$d"
 done
 grep -q '.alnasl-wipe' $R/usr/local/sbin/alnasl-data && grep -q '.alnasl-wipe' $R/usr/local/sbin/alnasl-reset && ok "reset = flag on the data partition, formatted by alnasl-data at the next boot" || bad "reset/data wipe flag"
@@ -545,69 +583,140 @@ chroot $R python3 -I /tmp/test-update.py /usr/local/sbin/alnasl-system-update /e
 rm -f $R/tmp/test-update.py $R/tmp/grub-ab.cfg
 find $R/usr/local -name __pycache__ -prune -exec rm -rf {} +
 
-echo "== modes: master (Alnasl + screen) or slave (Arkab only)"
+echo "== v7 roles: alnasl, arkab, polis, nunki (docs/v7-plan.md section 1)"
 M=$R/usr/local/sbin/alnasl-mode
 [ -x $M ] && bash -n $M && ok "alnasl-mode: executable, bash -n" || bad "alnasl-mode"
 MS=$R/etc/systemd/system/alnasl-mode.service
 grep -q '^DefaultDependencies=no' $MS && grep -q '^After=alnasl-data.service' $MS && grep -q '^Before=sysinit.target' $MS && ! grep -q -E '^(After|Requires|Wants)=.*(basic|multi-user|reset-boot|network)' $MS && ok "alnasl-mode.service: before sysinit.target, after the data partition, no default dependencies (no ordering cycle with the path units)" || bad "alnasl-mode.service ordering (a cycle through paths.target / basic.target)"
-for u in alnasl.service alnasl-update.path alnasl-kiosk.service alnasl-kiosk-load.service; do
-  grep -q '^ConditionPathExists=/run/alnasl-mode/master$' $R/etc/systemd/system/$u.d/alnasl-mode.conf 2>/dev/null && ok "$u: master only" || bad "$u has no master-only condition"
+cond() { sed -n 's/^ConditionPathExists=//p' $R/etc/systemd/system/$1.d/alnasl-mode.conf 2>/dev/null; }
+for ru in alnasl:alnasl.service alnasl:alnasl-update.path arkab:arkab.service arkab:arkab-update.path \
+          polis:polis.service polis:polis-update.path polis:cups.service polis:cups.socket polis:cups.path \
+          nunki:nunki.service nunki:nunki-update.path nunki:alnasl-sound.service; do
+  r=${ru%%:*}; u=${ru#*:}
+  [ "$(cond $u)" = "/run/alnasl-mode/$r" ] && ok "$u: $r boxes only" || bad "$u: condition '$(cond $u)' ($r expected)"
 done
-for u in arkab.service arkab-update.path; do
-  grep -q '^ConditionPathExists=/run/alnasl-mode/slave$' $R/etc/systemd/system/$u.d/alnasl-mode.conf 2>/dev/null && ok "$u: slave only" || bad "$u has no slave-only condition"
+for u in alnasl-kiosk.service alnasl-kiosk-load.service; do
+  [ -z "$(cond $u)" ] && ok "$u: every role (the screen shows the role's page)" || bad "$u still has a role condition: $(cond $u)"
 done
-# Arkab is in the image, installed by its own install.sh, and shipped switched off (a new box is a master).
-AV=$(cat $R/opt/arkab/current/VERSION 2>/dev/null)
-[ -n "$AV" ] && [ -x $R/opt/arkab/current/bin/arkab ] && ok "Arkab $AV installed in /opt/arkab (current)" || bad "Arkab is not in the image (/opt/arkab/current/bin/arkab)"
+# The apps: each installed by its own install.sh, shipped switched off (a new box is an alnasl box).
+for a in arkab polis nunki; do
+  V=$(cat $R/opt/$a/current/VERSION 2>/dev/null)
+  [ -n "$V" ] && [ -x $R/opt/$a/current/bin/$a ] && ok "$a $V installed in /opt/$a (current)" || bad "$a is not in the image (/opt/$a/current/bin/$a)"
+  if chroot $R /bin/bash -c "ldd /opt/$a/current/erts-*/bin/beam.smp | grep -q 'not found'"; then bad "$a's runtime misses a library on Photon"; else ok "$a's runtime: every library found on Photon"; fi
+  chroot $R getent passwd $a >/dev/null && ok "user $a" || bad "no user $a"
+  for u in $a.service $a-update.path; do
+    st=$(chroot $R systemctl is-enabled $u 2>&1 | tail -1); [ "$st" = disabled ] && ok "$u ships disabled (alnasl-mode enables it on a $a box)" || bad "$u: $st (disabled expected)"
+  done
+done
 ls $R/opt/arkab/current/lib/circuits_uart-*/priv/circuits_uart >/dev/null 2>&1 && ok "Arkab: the serial program is in the release" || bad "Arkab has no circuits_uart (cannot read a board)"
-if chroot $R /bin/bash -c 'ldd /opt/arkab/current/erts-*/bin/beam.smp | grep -q "not found"'; then bad "Arkab's runtime misses a library on Photon"; else ok "Arkab's runtime: every library found on Photon"; fi
-chroot $R getent passwd arkab >/dev/null && chroot $R id -nG arkab | grep -q -w dialout && ok "user arkab, in dialout (the serial ports)" || bad "user arkab / group dialout"
+chroot $R id -nG arkab | grep -q -w dialout && ok "arkab in dialout (the serial ports)" || bad "arkab not in dialout"
 grep -q '^PORT=4050$' $R/etc/arkab/arkab.env && ! grep -q '^ARKAB_LISTEN=local' $R/etc/arkab/arkab.env && ok "arkab.env: port 4050, the hall's network may look" || bad "arkab.env"
-for u in arkab.service arkab-update.path; do
-  st=$(chroot $R systemctl is-enabled $u 2>&1 | tail -1); [ "$st" = disabled ] && ok "$u ships disabled (alnasl-mode enables it on a slave)" || bad "$u: $st (disabled expected)"
-done
 grep -q 'ARKAB_DATA=/var/lib/arkab' $R/etc/systemd/system/arkab.service && ok "arkab.service keeps its data in /var/lib/arkab (the data partition)" || bad "arkab.service ARKAB_DATA"
-[ -f $B/alnasl-mode.txt.example ] && [ ! -f $B/alnasl-mode.txt ] && ok "boot partition: alnasl-mode.txt example, no live file" || bad "boot partition mode files"
-grep -q '/api/mode' $S && grep -q '"SWITCH"' $S && ok "setup server: GET/POST /api/mode (SWITCH), mode in /api/state and /api/finish" || bad "setup server mode API"
-for key in mode_title mode_master_d mode_slave_d mode_switch_slave mode_switch_master mode_q_slave mode_q_master mode_d_slave mode_d_master mode_yes done_slave_d; do n=$(grep -c "$key:" $J); [ "$n" = 2 ] && ok "app.js: $key in EN and NL" || bad "app.js: $key found $n times (2 expected)"; done
-grep -q '"mode", "services"\|"welcome", "mode"' $J && ok "wizard: the Master / Slave step follows the language" || bad "wizard has no mode step"
-# The script itself, run for real in the image's root: master by default, then the boot file says slave.
+grep -q '^PORT=4061$' $R/etc/polis/polis.env && ! grep -q '^POLIS_LISTEN=lan' $R/etc/polis/polis.env && ok "polis.env: port 4061, this box only (no --lan)" || bad "polis.env"
+grep -q '^PORT=4062$' $R/etc/nunki/nunki.env && ! grep -q '^NUNKI_LISTEN=lan' $R/etc/nunki/nunki.env && ok "nunki.env: port 4062, this box only (no --lan)" || bad "nunki.env"
+chroot $R id -nG nunki | grep -q -w audio && ok "nunki in audio (the sound card)" || bad "nunki not in audio"
+# Polis's printing: CUPS from Photon, switched off unless this is a Polis box; PDFs go to the printer as they are.
+rpm --root=$R -q cups alsa-lib alsa-utils | sed 's/^/       /'
+rpm --root=$R -q cups >/dev/null && [ -x $R/usr/bin/lp ] && [ -x $R/usr/sbin/lpadmin ] && ok "cups installed (lp, lpadmin)" || bad "cups / lp / lpadmin missing"
+for u in cups.service cups.socket cups.path; do
+  st=$(chroot $R systemctl is-enabled $u 2>&1 | tail -1); case "$st" in disabled|static|indirect) ok "$u: $st (alnasl-mode enables it on a polis box)" ;; *) bad "$u: $st (off expected)" ;; esac
+done
+grep -q '^application/pdf[[:space:]]*application/vnd.cups-pdf[[:space:]]*0[[:space:]]*-' $R/etc/cups/local.convs && ok "cups: PDF passes straight to the printer (local.convs)" || bad "cups local.convs"
+[ -f $R/usr/share/alnasl/defaults/etc/cups/cupsd.conf ] && [ -f $R/usr/share/alnasl/defaults/etc/cups/local.convs ] && ok "cups: the image's configuration kept in defaults (alnasl-data puts it back)" || bad "cups defaults missing"
+grep -q '/etc/cups' $R/usr/local/sbin/alnasl-data && grep -q 'printers.conf' $R/usr/local/sbin/alnasl-data && ok "alnasl-data: printers survive updates, the rest of /etc/cups is the image's" || bad "alnasl-data and /etc/cups"
+# Nunki's voice and sound.
+[ -x $R/usr/bin/aplay ] && [ -x $R/usr/bin/amixer ] && ok "alsa-utils: aplay, amixer" || bad "aplay/amixer missing"
+[ -x $R/usr/local/sbin/alnasl-sound ] && bash -n $R/usr/local/sbin/alnasl-sound && ok "alnasl-sound: executable, bash -n" || bad "alnasl-sound"
+st=$(chroot $R systemctl is-enabled alnasl-sound.service 2>&1 | tail -1); [ "$st" = disabled ] && ok "alnasl-sound.service ships disabled (a nunki box's)" || bad "alnasl-sound.service: $st"
+[ -x $R/usr/local/bin/espeak-ng ] && [ -x $R/opt/espeak-ng/bin/espeak-ng ] && ok "espeak-ng in /opt/espeak-ng, run by /usr/local/bin/espeak-ng" || bad "espeak-ng missing"
+chroot $R /bin/bash -c 'LD_LIBRARY_PATH=/opt/espeak-ng/lib ldd /opt/espeak-ng/bin/espeak-ng' | grep -E 'not found|pulse' && bad "espeak-ng: a library is missing, or it wants PulseAudio" || ok "espeak-ng: every library found, no PulseAudio"
+cmount $R
+v=$(chroot $R /usr/local/bin/espeak-ng --voices=nl 2>&1 | head -n 3); echo "$v" | sed 's/^/       /'
+chroot $R /usr/local/bin/espeak-ng -v nl -w /tmp/espeak.wav "Ronde drie begint nu" 2>&1 | sed 's/^/       /'
+[ -s $R/tmp/espeak.wav ] && head -c 4 $R/tmp/espeak.wav | grep -q RIFF && ok "espeak-ng speaks Dutch in the image ($(stat -c %s $R/tmp/espeak.wav) bytes of wav)" || bad "espeak-ng does not speak in the image"
+rm -f $R/tmp/espeak.wav
+cumount $R
+grep -q 'alnasl_vol' $R/usr/local/sbin/alnasl-sound && grep -q 'vc4hdmi0' $R/usr/local/sbin/alnasl-sound && grep -q 'Headphones' $R/usr/local/sbin/alnasl-sound && ok "alnasl-sound: HDMI or the 3.5 mm jack, softvol volume" || bad "alnasl-sound content"
+# The menu and the wizard.
+[ -f $B/alnasl-mode.txt.example ] && [ ! -f $B/alnasl-mode.txt ] && grep -q 'polis' $B/alnasl-mode.txt.example && grep -q 'nunki' $B/alnasl-mode.txt.example && ok "boot partition: alnasl-mode.txt example (four roles), no live file" || bad "boot partition mode files"
+grep -q '/api/mode' $S && grep -q '"SWITCH"' $S && ok "setup server: GET/POST /api/mode (SWITCH), as Arkab's page calls it" || bad "setup server mode API"
+grep -q '"/api/bootlog"' $S && grep -q '/api/printers' $S && grep -q '/api/sound' $S && ok "setup server: /api/bootlog, /api/printers, /api/sound" || bad "setup server v7 routes"
+for key in role_title role_d role_alnasl_d role_arkab_d role_polis_d role_nunki_d role_now role_change role_yes role_q role_switch_d role_down done_arkab_d done_polis_d done_nunki_d printers printers_d sound sound_d out_jack volume; do
+  n=$(grep -c -E "(^|[^A-Za-z0-9_])$key:" $J); [ "$n" = 2 ] && ok "app.js: $key in EN and NL" || bad "app.js: $key found $n times (2 expected)"
+done
+grep -q '"welcome", "mode"' $J && ok "wizard: the role step follows the language" || bad "wizard has no role step"
+grep -q 'printersPage' $J && grep -q 'soundPage' $J && ok "Settings: Printers (polis) and Sound (nunki) pages" || bad "app.js lacks the printers/sound pages"
+# Small screens: 800x480, 1024x600, 720x720.
+C=$R/usr/local/share/alnasl-setup/www/app.css
+grep -q '@media (max-width: 900px), (max-height: 640px)' $C && grep -q '@media (max-width: 560px)' $C && grep -q '@media (max-height: 520px)' $C && ok "app.css: small-screen rules (900x640 and below, one column under 560 px, short screens)" || bad "app.css small-screen media queries"
+grep -q -- '--tap: 48px' $C && grep -q 'min-height: 44px' $C && grep -q 'grid-template-columns: 1fr' $C && ok "app.css: tap targets 44-48 px, one column on narrow screens" || bad "app.css small-screen sizes"
+grep -q ':focus-visible' $C && ok "app.css: focus stays visible" || bad "app.css: no :focus-visible"
+# The kiosk follows the role.
+grep -q 'KIOSK_APP_PORT' $R/usr/local/sbin/alnasl-kiosk && grep -q '/run/alnasl-mode/role' $R/usr/local/sbin/alnasl-kiosk && ok "alnasl-kiosk: the watchdog watches the role's own app" || bad "alnasl-kiosk KIOSK_APP_PORT"
+if [ -n "$dk" ]; then grep -q 'KIOSK_APP_PORT' <<<"$dk" && ok "kiosk image's kiosk.sh: KIOSK_APP_PORT" || bad "kiosk image is not the v7 kiosk (rebuild it)"; fi
+# The boot log (painter, browser page, server).
+grep -q 'import bootlog' $R/usr/local/sbin/alnasl-splash && grep -q 'api/bootlog' $R/usr/local/share/alnasl-setup/www/screen.html && ok "boot log: painter and /boot page both read it" || bad "boot log wiring"
+python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); assert set(m["mono"]) >= {"1080","720"} and "colours" in m["logview"] and len(m["logview"]["fade"]) >= 4' $R/usr/share/alnasl/splash/messages.json && ok "messages.json: mono atlas (1080, 720) and the log layout" || bad "messages.json lacks mono/logview"
+
+# The script itself, run for real in the image's root (its systemctl enable/disable work on the image's
+# units; the run ends as a new box: alnasl, everything else off).
 cmount $R
 mkdir -p $R/boot/efi
 cat > $R/tmp/mode-test.sh <<'IN'
 set -u
 M=/usr/local/sbin/alnasl-mode
-rm -f /var/lib/alnasl-setup/mode /var/lib/alnasl-setup/mode-applied
+E() { local o=""; for u in alnasl.service arkab.service polis.service cups.service nunki.service alnasl-sound.service alnasl-kiosk.service; do
+        [ "$(systemctl is-enabled $u 2>/dev/null)" = enabled ] && o="$o ${u%.service}"; done; echo "on:$o"; }
+F() { echo "mode=$(cat /run/alnasl-mode/mode) role=$(cat /run/alnasl-mode/role) flags=$(ls /run/alnasl-mode | tr '\n' ' ')"; }
+txt() { printf '%s\r\nignored\r\n' "$1" > /boot/efi/alnasl-mode.txt; $M >/dev/null 2>&1; }
+rm -f /var/lib/alnasl-setup/mode /var/lib/alnasl-setup/mode-applied /etc/alnasl/role-applied
 $M >/dev/null 2>&1
-echo "default: $(cat /run/alnasl-mode/mode) flags: $(ls /run/alnasl-mode | tr '
-' ' ')"
-printf 'SLAVE
-ignored
-' > /boot/efi/alnasl-mode.txt
+echo "default: $(F) $(E) applied=$(cat /etc/alnasl/role-applied)"
+txt SLAVE
+echo "slave: $(F) file=$(cat /var/lib/alnasl-setup/mode) txt=$(ls /boot/efi/alnasl-mode.txt 2>/dev/null | wc -l) $(E)"
+txt banana
+echo "junk: $(F) txt=$(ls /boot/efi/alnasl-mode.txt 2>/dev/null | wc -l)"
+txt polis
+echo "polis: $(F) $(E)"
+txt Nunki
+echo "nunki: $(F) $(E)"
+txt master
+echo "master: $(F) $(E)"
+# A v6 slave updated to v7: its data partition says slave (mode and v6's mode-applied); the new slot is the
+# image as shipped (Alnasl on, Arkab off, nothing applied in the slot). It must come up as an Arkab box.
+echo slave > /var/lib/alnasl-setup/mode; echo slave > /var/lib/alnasl-setup/mode-applied; rm -f /etc/alnasl/role-applied
 $M >/dev/null 2>&1
-echo "boot file slave: $(cat /run/alnasl-mode/mode) flags: $(ls /run/alnasl-mode | tr '
-' ' ') file: $(cat /var/lib/alnasl-setup/mode) txt left: $(ls /boot/efi/alnasl-mode.txt 2>/dev/null | wc -l)"
-printf 'banana
-' > /boot/efi/alnasl-mode.txt
+echo "v6 slave updated: $(F) $(E) v6note=$(ls /var/lib/alnasl-setup/mode-applied 2>/dev/null | wc -l) applied=$(cat /etc/alnasl/role-applied)"
+# A second boot of the same: nothing switched on again (Settings > Services stays as it was).
+systemctl disable alnasl-kiosk.service >/dev/null 2>&1
 $M >/dev/null 2>&1
-echo "boot file junk: $(cat /run/alnasl-mode/mode) txt left: $(ls /boot/efi/alnasl-mode.txt 2>/dev/null | wc -l)"
-printf 'master
-' > /boot/efi/alnasl-mode.txt
+echo "second boot: $(E)"
+# Back to a new box.
+rm -f /var/lib/alnasl-setup/mode /var/lib/alnasl-setup/mode-applied /etc/alnasl/role-applied /boot/efi/alnasl-mode.txt
 $M >/dev/null 2>&1
-echo "boot file master: $(cat /run/alnasl-mode/mode) flags: $(ls /run/alnasl-mode | tr '
-' ' ')"
-rm -f /var/lib/alnasl-setup/mode /var/lib/alnasl-setup/mode-applied /boot/efi/alnasl-mode.txt
+echo "new again: $(F) $(E)"
+rm -f /var/lib/alnasl-setup/mode /var/lib/alnasl-setup/mode-applied /etc/alnasl/role-applied
 rm -rf /run/alnasl-mode
 IN
 out=$(chroot $R /bin/bash /tmp/mode-test.sh 2>&1); echo "$out" | sed 's/^/       /'
-echo "$out" | grep -q '^default: master flags: master mode ' && ok "alnasl-mode: nothing set = master" || bad "alnasl-mode default"
-echo "$out" | grep -q '^boot file slave: slave flags: mode slave  file: slave txt left: 0' && ok "alnasl-mode: alnasl-mode.txt (SLAVE, CRLF) -> slave, file consumed" || bad "alnasl-mode boot file slave"
-echo "$out" | grep -q '^boot file junk: slave txt left: 0' && ok "alnasl-mode: a junk boot file is deleted and changes nothing" || bad "alnasl-mode junk boot file"
-echo "$out" | grep -q '^boot file master: master flags: master mode ' && ok "alnasl-mode: and back to master" || bad "alnasl-mode back to master"
+want() { grep -q -x -F -- "$1" <<<"$out" && ok "$2" || bad "$2: expected '$1'"; }
+want "default: mode=master role=alnasl flags=alnasl mode role  on: alnasl alnasl-kiosk applied=alnasl" "alnasl-mode: nothing set = alnasl (v6's word 'master' beside it), Alnasl and the screen on"
+want "slave: mode=slave role=arkab flags=arkab mode role  file=arkab txt=0 on: arkab alnasl-kiosk" "alnasl-mode: alnasl-mode.txt SLAVE (CRLF) = arkab, file consumed, Arkab on, Alnasl off"
+want "junk: mode=slave role=arkab flags=arkab mode role  txt=0" "alnasl-mode: a junk boot file is deleted and changes nothing"
+want "polis: mode=polis role=polis flags=mode polis role  on: polis cups alnasl-kiosk" "alnasl-mode: polis = Polis + CUPS on, Arkab off"
+want "nunki: mode=nunki role=nunki flags=mode nunki role  on: nunki alnasl-sound alnasl-kiosk" "alnasl-mode: Nunki = Nunki + sound on, Polis and CUPS off"
+want "master: mode=master role=alnasl flags=alnasl mode role  on: alnasl alnasl-kiosk" "alnasl-mode: master = alnasl again, the others off"
+want "v6 slave updated: mode=slave role=arkab flags=arkab mode role  on: arkab alnasl-kiosk v6note=0 applied=arkab" "a v6 slave updated to v7 keeps its role: Arkab on in the new slot, Alnasl off"
+want "second boot: on: arkab" "alnasl-mode: a box that is still what it was keeps what Settings switched off"
+want "new again: mode=master role=alnasl flags=alnasl mode role  on: alnasl alnasl-kiosk" "alnasl-mode: and back to a new box"
 rm -f $R/tmp/mode-test.sh
 cumount $R
-[ ! -e $R/var/lib/alnasl-setup/mode ] && [ ! -e $R/var/lib/alnasl-setup/mode-applied ] && ok "no mode file left in the image (a new card asks the wizard)" || bad "a mode file is left in the image"
-grep -q 'mode: back to master' $R/usr/local/sbin/alnasl-reset && ok "factory reset clears the mode (it is on the wiped data partition)" || bad "alnasl-reset does not say it clears the mode"
+for u in alnasl.service alnasl-update.path alnasl-kiosk.service; do st=$(chroot $R systemctl is-enabled $u 2>&1 | tail -1); [ "$st" = enabled ] && ok "after the test: $u enabled, as shipped" || bad "after the test: $u $st"; done
+for u in arkab.service polis.service nunki.service cups.service alnasl-sound.service; do st=$(chroot $R systemctl is-enabled $u 2>&1 | tail -1); [ "$st" = disabled ] && ok "after the test: $u disabled, as shipped" || bad "after the test: $u $st"; done
+[ ! -e $R/var/lib/alnasl-setup/mode ] && [ ! -e $R/var/lib/alnasl-setup/mode-applied ] && [ ! -e $R/etc/alnasl/role-applied ] && ok "no role file left in the image (a new card asks the wizard)" || bad "a role file is left in the image"
+grep -q 'role: back to alnasl' $R/usr/local/sbin/alnasl-reset && grep -q 'polis.service nunki.service' $R/usr/local/sbin/alnasl-reset && ok "factory reset: stops every role's app, clears the role (on the wiped data partition)" || bad "alnasl-reset and the roles"
+U=$R/usr/local/sbin/alnasl-system-update
+grep -q 'def box_role' $U && grep -q 'ROLE_APP' $U && grep -q 'def carry_app' $U && ok "system update: health and carry-over follow the role (Polis and Nunki included)" || bad "alnasl-system-update is not role-aware"
 
 echo "== sizes"
 df -h $R | tail -1

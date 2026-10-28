@@ -3,6 +3,9 @@
 #   base/rpi/photon-rpi-5.0-*.raw       Photon's own Raspberry Pi image
 #   alnasl-linux-aarch64.tar.gz         build-alnasl.sh
 #   arkab-linux-aarch64.tar.gz          build-arkab.sh
+#   polis-linux-aarch64.tar.gz          build-polis.sh   (v7)
+#   nunki-linux-aarch64.tar.gz          build-nunki.sh   (v7)
+#   espeak-ng-aarch64.tar.gz            build-espeak.sh  (v7: Nunki's voice)
 #   modules-out/*.ko                    build-modules.sh
 #   kiosk image (docker, alnasl-kiosk:latest)   build-kiosk.sh
 #   overlay/                            files laid over the root
@@ -14,15 +17,15 @@ if [ -z "${ALNASL_UNSHARED:-}" ]; then export ALNASL_UNSHARED=1; exec unshare -m
 W=/root/w-photon-img5
 cd $W
 . $W/lib-chroot.sh
-IMG=$W/photon-alnasl-v6.img
+IMG=$W/photon-alnasl-v7.img
 KVER=6.1.10-11.ph5
 # v6 A/B (docs/v6-plan.md, "Updates without reflashing"): boot (FAT) | system A | system B | data.
 # Each system slot is SLOT_MB; data starts at DATA_MB and grows to the end of the card at the first
 # boot. The image file is ~6.6 GB, mostly zeros (slot B, data): it compresses to next to nothing. The
 # card must be 16 GB or larger. Every v6+ image has the same MBR disk identifier: grub and the kernel
 # find the slots by it (root=PARTUUID=416c6e73-02 / -03), and so do the updates.
-ALNASL_TRAIN=${ALNASL_TRAIN:-v6}
-ALNASL_VERSION=${ALNASL_VERSION:-6.0}
+ALNASL_TRAIN=${ALNASL_TRAIN:-v7}
+ALNASL_VERSION=${ALNASL_VERSION:-7.0}
 SLOT_MB=${SLOT_MB:-3072}
 DATA_MB=${DATA_MB:-512}
 DISK_ID=416c6e73
@@ -100,9 +103,11 @@ chroot $R mkfs.ext4 -q -F -L ALNASL_DATA ${L}p4
 cat > $R/inside-pkgs.sh <<'IN'
 set -euo pipefail
 tdnf install -y --nogpgcheck --disablerepo=photon-updates \
-  linux-drivers-gpu-6.1.10-11.ph5 docker-23.0.2-1.ph5 docker-engine-23.0.2-1.ph5 docker-cli-23.0.2-1.ph5 tar diffutils kbd 2>&1 | tail -25
+  linux-drivers-gpu-6.1.10-11.ph5 docker-23.0.2-1.ph5 docker-engine-23.0.2-1.ph5 docker-cli-23.0.2-1.ph5 tar diffutils kbd \
+  cups alsa-lib alsa-utils 2>&1 | tail -25
 tdnf clean all || true
-rpm -q tar diffutils kbd linux linux-drivers-gpu docker containerd runc dtb-rpi4 u-boot-rpi4 grub2-efi-image raspberrypi-firmware linux-firmware
+# v7: cups (Polis prints through lp), alsa-lib + alsa-utils (Nunki: aplay, amixer; espeak-ng's audio).
+rpm -q tar diffutils kbd cups alsa-lib alsa-utils linux linux-drivers-gpu docker containerd runc dtb-rpi4 u-boot-rpi4 grub2-efi-image raspberrypi-firmware linux-firmware
 IN
 chroot $R /bin/bash /inside-pkgs.sh
 rm -f $R/inside-pkgs.sh $R/etc/yum.repos.d/zz-build-release.repo
@@ -173,7 +178,8 @@ chroot $R /bin/bash -c 'ldd /usr/sbin/iw; if ldd /usr/sbin/iw | grep -q "not fou
 chmod 0755 $R
 chmod 0755 $R/usr/local/sbin/alnasl-* $R/usr/local/lib/alnasl-setup/server.py
 [ -x $R/usr/local/sbin/alnasl-mode ] || { echo "alnasl-mode missing from the overlay"; exit 1; }
-chmod 0644 $R/usr/local/lib/alnasl-setup/diag.py
+chmod 0644 $R/usr/local/lib/alnasl-setup/diag.py $R/usr/local/lib/alnasl-setup/bootlog.py
+chmod 0755 $R/usr/local/bin/espeak-ng
 chmod 0600 $R/etc/wpa_supplicant/wpa_supplicant-wlan0.conf
 # Console keyboard: Belgian by default (the setup pages change it later).
 KM=$(find $R/usr/share/keymaps $R/usr/lib/kbd $R/lib/kbd -name 'be-latin1.map*' 2>/dev/null | head -n 1 || true)
@@ -188,13 +194,19 @@ rm -f $R/etc/resolv.conf.build
 for f in etc/alnasl/keyboard.conf etc/alnasl/kiosk.conf etc/vconsole.conf etc/hostname etc/wpa_supplicant/wpa_supplicant-wlan0.conf; do
   [ -f $R/$f ] && install -D -m 0644 $R/$f $R/usr/share/alnasl/defaults/$f
 done
+# v7: CUPS's settings as this image ships them. /etc/cups itself lives on the data partition (the printers
+# a Polis box was given survive updates); alnasl-data fills it from here and puts the image's own
+# configuration back over it at every boot, printers.conf/ppd/classes/subscriptions excepted.
+[ -d $R/etc/cups ] || { echo "no /etc/cups: the cups package did not install"; exit 1; }
+rm -rf $R/usr/share/alnasl/defaults/etc/cups
+cp -a $R/etc/cups $R/usr/share/alnasl/defaults/etc/cups
 chmod 0600 $R/usr/share/alnasl/defaults/etc/wpa_supplicant/wpa_supplicant-wlan0.conf
 # v6 A/B: what the box keeps lives on the data partition (alnasl-data binds it over these directories
 # at boot); the slot has only the mount points, and the two settings files point there. That way a slot
 # can be replaced whole by an update. PID 1 reads /etc/machine-id, /etc/hostname and /etc/vconsole.conf
 # before anything is mounted, so those stay in the slot (the updater copies them into the new one).
 install -d -m 0755 $R/data
-for d in var/lib/arkab var/lib/alnasl-setup var/lib/alnasl-update var/lib/alnasl-os-update var/lib/docker var/lib/containerd \
+for d in var/lib/arkab var/lib/polis var/lib/polis-update var/lib/nunki var/lib/nunki-update etc/cups var/lib/alnasl-setup var/lib/alnasl-update var/lib/alnasl-os-update var/lib/docker var/lib/containerd \
          var/log/journal etc/systemd/network/10-wired.network.d etc/systemd/network/20-wireless.network.d; do
   install -d -m 0755 $R/$d
 done
@@ -275,6 +287,50 @@ echo "Arkab in the image: $(cat $R/opt/arkab/current/VERSION 2>/dev/null || echo
 rm -rf $R/tmp/arkab-rel $R/tmp/shim $R/inside-arkab.sh
 chroot $R chown arkab:arkab /var/lib/arkab
 
+# --- 6c. Polis and Nunki (v7, docs/v7-plan.md section 1): the print station and the announcer ---------
+# The same way again: each release's own install.sh in the chroot with the systemctl shim, WITHOUT --lan
+# (their pages are for this box's own screen; nothing in the hall connects to them, and the firewall has no
+# port for them anyway). Both are shipped DISABLED; alnasl-mode enables the one this box is.
+#   polis: user polis, /opt/polis, /etc/polis/polis.env (PORT=4061); prints with `lp` through CUPS
+#   nunki: user nunki in group audio, /opt/nunki, /etc/nunki/nunki.env (PORT=4062); speaks with espeak-ng
+# espeak-ng is not a Photon package: build-espeak.sh builds it (Debian's, with an ALSA-only pcaudiolib)
+# into /opt/espeak-ng, and /usr/local/bin/espeak-ng (overlay) runs it from there.
+rm -rf $R/opt/espeak-ng
+tar -xzf $W/espeak-ng-aarch64.tar.gz -C $R/opt
+chown -R 0:0 $R/opt/espeak-ng
+for app in polis nunki; do
+  rm -rf $R/tmp/$app-rel; mkdir -p $R/tmp/$app-rel $R/tmp/shim
+  tar -xzf $W/$app-linux-aarch64.tar.gz -C $R/tmp/$app-rel
+  cat > $R/tmp/shim/systemctl <<'SH'
+#!/bin/sh
+case "$1" in
+  enable|disable|mask|unmask|is-enabled) exec /usr/bin/systemctl "$@" ;;
+  *) exit 0 ;;
+esac
+SH
+  chmod +x $R/tmp/shim/systemctl
+  cat > $R/inside-app.sh <<IN
+set -euo pipefail
+export PATH=/tmp/shim:\$PATH
+getent group audio >/dev/null || groupadd -r audio
+sh /tmp/$app-rel/$app/install.sh
+systemctl disable $app.service $app-update.path
+ls -la /opt/$app /opt/$app/current/ | head -20
+cat /etc/$app/$app.env
+id $app
+IN
+  chroot $R /bin/bash /inside-app.sh
+  echo "$app in the image: $(cat $R/opt/$app/current/VERSION 2>/dev/null || echo MISSING)"
+  [ -x $R/opt/$app/current/bin/$app ] || { echo "$app did not install"; exit 1; }
+  rm -rf $R/tmp/$app-rel $R/tmp/shim $R/inside-app.sh
+  chroot $R chown $app:$app /var/lib/$app
+done
+chroot $R id -nG nunki | grep -qw audio || { echo "nunki is not in the group audio"; exit 1; }
+chroot $R /usr/local/bin/espeak-ng --voices=nl | head -n 3
+chroot $R /usr/local/bin/espeak-ng -v nl -w /tmp/espeak-test.wav "Ronde drie begint nu" && [ -s $R/tmp/espeak-test.wav ] ||
+  { echo "espeak-ng does not speak in the image"; exit 1; }
+rm -f $R/tmp/espeak-test.wav
+
 # --- 7. v6 lockdown: no ssh server, no baked key, no host keys ---------------------------
 # Photon's base image comes with sshd. It goes; if something insists on keeping the package,
 # the units are masked so nothing can start it.
@@ -291,6 +347,8 @@ rm -f $R/root/.ssh/authorized_keys $R/etc/ssh/ssh_host_* $R/etc/ssh/alnasl-sshd.
 # --- 8. services: enable ours, silence the ones that would wait for a network --------
 chroot $R /bin/bash -e <<'IN'
 systemctl disable iptables.service || true
+# v7: CUPS is Polis's, and alnasl-mode enables it only on a Polis box.
+systemctl disable cups.service cups.socket cups.path >/dev/null 2>&1 || true
 systemctl mask systemd-networkd-wait-online.service
 rm -f /etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service
 systemctl enable alnasl-firewall.service alnasl-firstboot.service alnasl-wifi.service \

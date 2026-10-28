@@ -1,13 +1,13 @@
 #!/bin/bash
-# alnasl-reset: erase this box back to new (v6). It then restarts into the first-time setup wizard.
+# alnasl-reset: erase this box back to new (v6; v7's roles). It then restarts into the first-time setup wizard.
 #
 #   alnasl-reset --yes              from the menu (Settings > Erase this box, held down to confirm)
 #   alnasl-reset --from-boot-file   at boot, when /boot/efi/alnasl-reset.txt says RESET on its first line
 #
 # v6 A/B: everything the box keeps is on the data partition (/data), so erasing is "that partition,
 # empty": this script leaves a flag on it and restarts; alnasl-data formats the partition early in the
-# next boot, before anything uses it. Erased that way: Alnasl's and Arkab's data, the app updater's
-# state, the setup state (wizard done, language, mode: back to master and the wizard), Wi-Fi networks, network, keyboard and screen
+# next boot, before anything uses it. Erased that way: Alnasl's, Arkab's, Polis's (and CUPS's printers) and Nunki's data, the app updater's
+# state, the setup state (wizard done, language, role: back to alnasl and the wizard), Wi-Fi networks, network, keyboard and screen
 # settings, the logs, the update results, the loaded kiosk image (loaded again from the slot).
 # The slot's own copies of the host name and console keyboard go back to the image's defaults here.
 # Kept: the system slots (the OS and the Alnasl version on them) and the boot partition (except the
@@ -35,17 +35,18 @@ case "${1:-}" in
   *) echo "usage: alnasl-reset --yes | --from-boot-file" >&2; exit 2 ;;
 esac
 
-step 1 "stopping Alnasl, Arkab, the screen and the updaters"
+step 1 "stopping the box's app, the screen and the updaters"
 systemctl stop alnasl-os-update.timer alnasl-os-update.service alnasl-update.path alnasl-update.service \
   alnasl-system-update.service alnasl-system-update-check.service 2>/dev/null
-systemctl stop alnasl-kiosk.service alnasl.service arkab.service alnasl-setup.service 2>/dev/null
+systemctl stop alnasl-kiosk.service alnasl.service arkab.service polis.service nunki.service cups.service   arkab-update.path polis-update.path nunki-update.path alnasl-setup.service 2>/dev/null
 $SPLASH --once
 
 # The slot's own settings (read before /data is mounted, so they live in the slot): back to the image's.
 for f in etc/vconsole.conf etc/hostname; do
   [ -f "$DEFAULTS/$f" ] && cp "$DEFAULTS/$f" "/$f"
 done
-# What the services page may have switched off comes back on, as on a new box.
+# What the services page may have switched off comes back on, as on a new box (an alnasl box: the role
+# file goes with the data, and alnasl-mode switches the other roles' units off at the next boot).
 systemctl enable alnasl.service alnasl-update.path alnasl-kiosk.service alnasl-setup.service alnasl-os-update.timer >/dev/null 2>&1
 
 if mountpoint -q $DATA && [ "$(cat /run/alnasl-data/state 2>/dev/null | cut -c1-3)" = "ok:" ]; then
@@ -59,12 +60,17 @@ else
   step 2 "erasing the hall data"
   wipe /var/lib/alnasl
   wipe /var/lib/arkab
+  wipe /var/lib/polis
+  wipe /var/lib/nunki
+  rm -f /etc/cups/printers.conf* /etc/cups/classes.conf* /etc/cups/ppd/*
   wipe /var/lib/alnasl-update
   if id alnasl >/dev/null 2>&1; then
     chown alnasl:alnasl /var/lib/alnasl
     install -d -m 0750 -o alnasl -g alnasl /var/lib/alnasl/update
   fi
-  [ -d /var/lib/arkab ] && id arkab >/dev/null 2>&1 && chown arkab:arkab /var/lib/arkab
+  for u in arkab polis nunki; do
+    [ -d /var/lib/$u ] && id $u >/dev/null 2>&1 && chown $u:$u /var/lib/$u
+  done
   step 3 "erasing settings, Wi-Fi and logs"
   rm -rf /var/lib/alnasl-setup /var/lib/alnasl-os-update /var/lib/alnasl-firstboot.done
   rm -f /etc/systemd/network/10-wired.network.d/50-alnasl.conf /etc/systemd/network/20-wireless.network.d/50-alnasl.conf

@@ -1,12 +1,16 @@
 # Set what this box is, without a screen.
 #
 # To use it: make a file called "alnasl-mode.txt" in this folder whose FIRST
-# line is the word master or slave, and boot the Pi.
+# line is one of the words below, and boot the Pi.
 # This example does not count as it is: its first line is this comment.
 #
-#   master  runs the hall: Alnasl and the hall screen (the default)
-#   slave   only reads DGT boards and passes them to a master: Arkab, no screen
+#   alnasl  runs the hall: Alnasl and the hall screen (the default)
+#   arkab   reads DGT boards and passes them to an Alnasl box
+#   polis   the print station: prints what Alnasl sends to a printer on this box
+#   nunki   the announcer: speaks the hall's announcements through HDMI or the
+#           headphone jack
 #
-# The file is read at boot and deleted. Nothing is erased: both keep their
-# data, so switching back loses nothing. A slave is joined to its master on
-# its own status page (http://<this box>:4050), once it is on the network.
+# v6's words still work: master means alnasl, slave means arkab.
+# The file is read at boot and deleted. Nothing is erased: every role keeps its
+# data, so switching back loses nothing. An Arkab box is joined to its Alnasl
+# on its own status page (http://<this box>:4050), once it is on the network.

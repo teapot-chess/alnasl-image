@@ -3,8 +3,8 @@ Alnasl hall box (Raspberry Pi 4, Photon OS 5.0)
 Optional files to put in this folder before the first boot:
   alnasl-wifi.txt          Wi-Fi name and passphrase   (see alnasl-wifi.txt.example)
   alnasl-reset.txt         RESET on the first line: erase this box back to new (see alnasl-reset.txt.example)
-  alnasl-upgrade.txt       the next release train on the first line, e.g. v7 (see alnasl-upgrade.txt.example)
-  alnasl-mode.txt          master or slave on the first line: what this box is (see alnasl-mode.txt.example)
+  alnasl-upgrade.txt       the next release train on the first line, e.g. v8 (see alnasl-upgrade.txt.example)
+  alnasl-mode.txt          alnasl, arkab, polis or nunki on the first line: what this box is (see alnasl-mode.txt.example)
 
 All four are read at boot and deleted. Do not edit config.txt or the other files here.
 This box has no remote login (no ssh, no VPN): everything is done on its own screen.

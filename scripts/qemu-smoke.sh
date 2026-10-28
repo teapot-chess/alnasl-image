@@ -15,14 +15,14 @@ CPUS=${QEMU_CPUS:-4}
 cd $W
 # QEMU_SECOND_BOOT=1: boot the disk the previous run left (first-boot work done: data grown, hwdb
 # rebuilt, docker store loaded): what every later boot of a box looks like. Its serial logs replace the first run's.
-# QEMU_MODE_TXT=slave (or master) with QEMU_SECOND_BOOT=1: first puts alnasl-mode.txt with that word on the card's
+# QEMU_MODE_TXT=arkab, polis, nunki or alnasl (v6: slave, master) with QEMU_SECOND_BOOT=1: first puts alnasl-mode.txt with that word on the card's
 # boot (FAT) partition, as a person would from a PC, so the box comes up in that mode (docs/v6-plan.md section 1).
 # The card is flattened to raw, the file put on partition 1 through a loop device, and converted back (the host has
 # no nbd module and no qemu-nbd).
 if [ "${QEMU_SECOND_BOOT:-0}" = 1 ] && [ -f qemu/sd.qcow2 ]; then
   SECOND=1; rm -f qemu/ttyAMA0.log qemu/ttyS0.log; touch qemu/ttyAMA0.log qemu/ttyS0.log
   if [ -n "${QEMU_MODE_TXT:-}" ]; then
-    case "$QEMU_MODE_TXT" in master|slave) ;; *) echo "QEMU_MODE_TXT must be master or slave"; exit 1 ;; esac
+    case "$QEMU_MODE_TXT" in alnasl|arkab|polis|nunki|master|slave) ;; *) echo "QEMU_MODE_TXT must be alnasl, arkab, polis or nunki (or master, slave)"; exit 1 ;; esac
     docker run --rm -v $W:/w qemu-sys:trixie qemu-img convert -O raw /w/qemu/sd.qcow2 /w/qemu/sd.raw
     L=$(losetup -f --show -P qemu/sd.raw)
     mkdir -p qm; mount ${L}p1 qm
@@ -35,12 +35,12 @@ if [ "${QEMU_SECOND_BOOT:-0}" = 1 ] && [ -f qemu/sd.qcow2 ]; then
 else
 SECOND=0
 rm -rf qemu && mkdir qemu && touch qemu/ttyAMA0.log qemu/ttyS0.log
-L=$(losetup -f --show -P -r photon-alnasl-v6.img)
+L=$(losetup -f --show -P -r photon-alnasl-v7.img)
 mkdir -p qm
 mount -o ro,noload ${L}p2 qm; cp qm/boot/vmlinuz-6.1.10-11.ph5 qm/boot/initrd.img-6.1.10-11.ph5 qemu/; umount qm
 mount -o ro ${L}p1 qm; cp qm/bcm2711-rpi-4-b.dtb qemu/; umount qm
 losetup -d $L
-docker run --rm -v $W:/w qemu-sys:trixie qemu-img create -f qcow2 -b /w/photon-alnasl-v6.img -F raw /w/qemu/sd.qcow2 8G >/dev/null   # v6 A/B: 8G (a power of two, as raspi4b wants) > the 6.6 GB image, so alnasl-data has room to grow the data partition
+docker run --rm -v $W:/w qemu-sys:trixie qemu-img create -f qcow2 -b /w/photon-alnasl-v7.img -F raw /w/qemu/sd.qcow2 8G >/dev/null   # v6 A/B: 8G (a power of two, as raspi4b wants) > the 6.6 GB image, so alnasl-data has room to grow the data partition
 fi
 # modprobe.blacklist=bcm2835_wdt: QEMU's bcm2835 power manager does not model the watchdog's countdown; it
 # resets the machine the moment the driver arms it, which systemd does right after switch-root (v6 enables

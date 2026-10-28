@@ -1,15 +1,15 @@
-# Move the Alnasl hall box to the next release train (v6 -> v7), without a screen.
+# Move the Alnasl hall box to the next release train (v7 -> v8), without a screen.
 #
-# Inside its train a box updates by itself at night (6.0 -> 6.1 -> 6.2). A new train
+# Inside its train a box updates by itself at night (7.0 -> 7.1 -> 7.2). A new train
 # never installs by itself: it is asked for, in the menu (Settings > System updates >
-# "Upgrade to v7"), on Arkab's page, or with this file.
+# "Upgrade to v8"), on Arkab's page, or with this file.
 #
 # To use it: make a file called "alnasl-upgrade.txt" in this folder whose FIRST line is
-# the train, for example v7 (nothing else on that line), and boot the Pi with a network.
+# the train, for example v8 (nothing else on that line), and boot the Pi with a network.
 # This example does not count as it is: its first line is this comment.
 #
 # At boot the box deletes the file first (so it cannot happen twice), waits for the
-# network, downloads the newest v7 image, checks its signature, writes it next to the
-# running system and restarts into it. If v7 does not start properly three times, the
+# network, downloads the newest v8 image, checks its signature, writes it next to the
+# running system and restarts into it. If v8 does not start properly three times, the
 # box goes back to the version it had by itself. Not during a round: then nothing
 # happens and the result (Settings > System updates, or the diagnostics) says so.

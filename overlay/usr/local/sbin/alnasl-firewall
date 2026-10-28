@@ -51,7 +51,7 @@ open_everything() { # tool: last resort
 }
 
 rules_v4() {
-  cat <<EOF
+  sed '/^$/d' <<EOF
 *filter
 :$CHAIN - [0:0]
 -A $CHAIN -i lo -j ACCEPT
@@ -66,7 +66,7 @@ EOF
 }
 
 rules_v6() {
-  cat <<EOF
+  sed '/^$/d' <<EOF
 *filter
 :$CHAIN - [0:0]
 -A $CHAIN -i lo -j ACCEPT
