@@ -903,7 +903,9 @@ def ping_text():
 def system_header():
     s = sysinfo()
     return {"hostname": s["hostname"], "model": s["model"], "serial": s["serial"], "kernel": s["kernel"], "os": s["os"],
-            "image": s["image"], "alnasl": s["alnasl"], "uptime": "%d s" % s["uptime"], "screen": s["display"]}
+            "image": s["image"], "alnasl": s["alnasl"], "uptime": "%d s" % s["uptime"], "screen": s["display"],
+            # v7: what the box is, chosen and running (the ROLE section has the detail)
+            "role": "%s (chosen: %s)" % (read(ROLE_RUN).strip() or "none this boot", read(MODE_FILE).strip() or "default")}
 
 
 def diag_info():
@@ -979,6 +981,7 @@ def switch_mode(mode, confirm):
         raise ValueError("bad_mode")
     if role == running_role() and role == get_mode():
         return {"ok": True, "mode": LEGACY.get(role, role), "role": role, "same": True}
+    log("role switch: %s -> %s (running %s); restarting" % (get_mode(), role, running_role()))  # diagnostics read this
     set_mode(role)
     power("reboot")
     return {"ok": True, "mode": LEGACY.get(role, role), "role": role, "same": False}

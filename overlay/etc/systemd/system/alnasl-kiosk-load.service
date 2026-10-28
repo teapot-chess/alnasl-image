@@ -1,7 +1,10 @@
 [Unit]
 Description=Alnasl kiosk: load the container image baked into the SD image
+# v7.1: Wants, not Requires. With Requires a docker that is late at boot (containerd's start timed out) fails
+# this job as a "dependency", which Restart= never retries: no kiosk image, no screen, for good. The script
+# waits for docker itself, and alnasl-kiosk asks again when nothing loaded the image.
 After=docker.service
-Requires=docker.service
+Wants=docker.service
 ConditionPathExists=/var/lib/alnasl-image/alnasl-kiosk.tar.gz
 
 [Service]

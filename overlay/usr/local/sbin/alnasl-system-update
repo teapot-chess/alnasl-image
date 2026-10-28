@@ -911,6 +911,26 @@ def health():
     return not missing, ", ".join(missing)
 
 
+def trial_report(version, boot, missing):
+    """v7.1: a trial boot that did not become healthy leaves the full diagnostics on the boot partition
+    (alnasl-trial-<version>-boot<N>.txt), so a box whose screen shows nothing can still say why: take the
+    card out, read it on any PC. No network, no remote access; the same report as Menu > Diagnostics > Save."""
+    try:
+        sys.path.insert(0, "/usr/local/lib/alnasl-setup")
+        import diag  # noqa: E402 - only here, on the way to a reboot
+        info = diag.collect({}, "", {})
+        header = {"slot": current_slot(), "version": version, "trial boot": "%d of %d" % (boot, TRIES),
+                  "missing": missing or "?"}
+        text = diag.report_text(info, diag.journals(), header)
+        name = diag.save_report(text)
+        final = os.path.join(diag.BOOT_EFI, "alnasl-trial-%s-boot%d.txt" % (re.sub(r"[^0-9A-Za-z.]", "", version) or "x", boot))
+        os.replace(os.path.join(diag.BOOT_EFI, name), final)
+        os.sync()
+        log("diagnostics of this trial boot saved to %s" % final)
+    except Exception as e:  # noqa: BLE001 - a report must never stop the reboot that gives the box its next try
+        log("could not save the diagnostics of this trial boot: %r" % e)
+
+
 def cmd_boot_check():
     try:
         env = read_env()
@@ -978,6 +998,7 @@ def cmd_boot_check():
     else:
         log("%s not healthy after %d min (%s); restarting for another try" % (version, HEALTH_MINUTES, missing))
     save_status(last_trial_note="boot %d: missing %s" % (t["boots"], missing))
+    trial_report(version, t["boots"], missing)
     splash("--set", "reboot")
     os.sync()
     run(["systemctl", "reboot"])

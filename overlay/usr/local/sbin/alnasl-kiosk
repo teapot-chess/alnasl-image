@@ -25,7 +25,14 @@ announced=""
 fast=0
 while true; do
   if ! docker image inspect "$IMG" >/dev/null 2>&1; then
-    [ "$announced" != noimg ] && echo "kiosk: image $IMG not loaded yet; waiting" && announced=noimg
+    [ "$announced" != noimg ] && echo "kiosk: image $IMG not loaded yet; waiting" && announced=noimg && noimg_since=$(date +%s)
+    # v7.1: alnasl-kiosk-load's job is dropped for good when docker was not up in time at boot (a "dependency"
+    # failure is not a failure Restart= retries), and then nothing would ever load the image. Ask again.
+    if [ $(( $(date +%s) - ${noimg_since:-0} )) -ge 60 ] && ! systemctl -q is-active alnasl-kiosk-load.service; then
+      echo "kiosk: still no image after 60 s and nothing loading it; starting alnasl-kiosk-load again"
+      systemctl start --no-block alnasl-kiosk-load.service
+      noimg_since=$(date +%s)
+    fi
     sleep 3; continue
   fi
   if screen_connected || have_fb; then   # no KMS output (vc4 did not load?) but a firmware framebuffer is enough for X

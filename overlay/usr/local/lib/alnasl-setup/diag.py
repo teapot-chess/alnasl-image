@@ -25,6 +25,16 @@ JOURNAL_UNITS = [
     ("alnasl-setup.service", []),
     ("alnasl-kiosk.service", []),
     ("alnasl.service", []),
+    # v7: the role, every role's app, and the steps between docker and the screen
+    ("alnasl-mode.service", []),
+    ("arkab.service", []),
+    ("polis.service", []),
+    ("nunki.service", []),
+    ("cups.service", []),
+    ("alnasl-sound.service", []),
+    ("containerd.service", []),
+    ("alnasl-kiosk-load.service", []),
+    ("alnasl-slot-check.service", []),
     ("wpa_supplicant@wlan0.service", ["-t", "wpa_supplicant"]),
     ("systemd-networkd.service", []),
     ("systemd-resolved.service", []),
@@ -37,7 +47,15 @@ JOURNAL_UNITS = [
 SERVICE_UNITS = ["alnasl.service", "alnasl-kiosk.service", "alnasl-setup.service", "wpa_supplicant@wlan0.service",
                  "systemd-networkd.service", "systemd-resolved.service", "docker.service", "alnasl-firewall.service",
                  "alnasl-os-update.timer", "alnasl-os-update.service", "alnasl-splash.service",
-                 "getty@tty1.service", "getty@tty2.service", "getty@tty3.service", "systemd-logind.service"]
+                 "getty@tty1.service", "getty@tty2.service", "getty@tty3.service", "systemd-logind.service",
+                 # v7: every role's units, not only Alnasl's: a box that is the wrong thing, or no thing, shows here
+                 "alnasl-mode.service", "alnasl-update.path", "arkab.service", "arkab-update.path",
+                 "polis.service", "polis-update.path", "cups.service", "nunki.service", "nunki-update.path",
+                 "alnasl-sound.service", "containerd.service", "alnasl-kiosk-load.service", "alnasl-slot-check.service"]
+ROLE_FILE = "/var/lib/alnasl-setup/mode"   # the role as chosen (data partition; v6 wrote master/slave)
+ROLE_RUN = "/run/alnasl-mode"               # what alnasl-mode made of it this boot
+ROLE_APPLIED = "/etc/alnasl/role-applied"   # the role whose units this slot last switched on
+ROLES = ("alnasl", "arkab", "polis", "nunki")
 
 # --------------------------------------------------------------------- redact --
 
@@ -256,11 +274,39 @@ def updates_text():
 def services_text():
     lines = []
     for u in SERVICE_UNITS:
-        rc, o = runo(["systemctl", "show", "-p", "ActiveState", "-p", "SubState", "-p", "UnitFileState", "-p", "Result", "-p", "NRestarts", u])
+        rc, o = runo(["systemctl", "show", "-p", "ActiveState", "-p", "SubState", "-p", "UnitFileState", "-p", "Result",
+                      "-p", "NRestarts", "-p", "ConditionResult", "-p", "LoadState", u])
         d = dict(l.split("=", 1) for l in o.splitlines() if "=" in l)
-        lines.append("%-34s %s (%s), %s, result=%s, restarts=%s" % (u, d.get("ActiveState", "?"), d.get("SubState", "?"),
-                                                                    d.get("UnitFileState") or "static/not found", d.get("Result", "?"), d.get("NRestarts", "?")))
+        if d.get("LoadState") == "not-found":
+            lines.append("%-34s not installed" % u)
+            continue
+        # v7: a unit of another role is skipped by its condition, which is not the same as failed.
+        cond = {"yes": "conditions met", "no": "SKIPPED (a condition was not met)"}.get(
+            d.get("ConditionResult", ""), "not started this boot")
+        lines.append("%-34s %s (%s), %s, result=%s, restarts=%s, %s" % (
+            u, d.get("ActiveState", "?"), d.get("SubState", "?"), d.get("UnitFileState") or "static/not found",
+            d.get("Result", "?"), d.get("NRestarts", "?"), cond))
     return "\n".join(lines)
+
+
+def role_text():
+    """v7: what this box is: the stored choice, what alnasl-mode made of it this boot, what the slot applied.
+    A box whose app never starts is most often a box that is not what its owner thinks it is."""
+    out = [
+        "role as chosen:     %s  (%s)" % (read(ROLE_FILE).strip() or "(no file: alnasl, the default)", ROLE_FILE),
+        "role this boot:     %s  (%s/role)" % (read(ROLE_RUN + "/role").strip() or "(none: alnasl-mode did not run)", ROLE_RUN),
+        "v6 word this boot:  %s  (%s/mode)" % (read(ROLE_RUN + "/mode").strip() or "-", ROLE_RUN),
+        "role flags present: %s" % (" ".join(r for r in ROLES if os.path.exists(os.path.join(ROLE_RUN, r)))
+                                     or "NONE: every role's app is held back by its condition"),
+        "units applied for:  %s  (%s)" % (read(ROLE_APPLIED).strip() or "(none yet)", ROLE_APPLIED),
+        "alnasl-mode.txt:    %s" % ("waiting on the boot partition" if os.path.exists(BOOT_EFI + "/alnasl-mode.txt") else "none"),
+        "alnasl-mode, this boot:\n  " + ("\n  ".join(runo(
+            ["journalctl", "-b", "-u", "alnasl-mode.service", "--no-pager", "-o", "cat", "-n", "30"], 15)[1].splitlines()) or "(nothing)"),
+        "role requests to the setup server (last 10):\n  " + ("\n  ".join(grep_lines(runo(
+            ["journalctl", "-u", "alnasl-setup.service", "--no-pager", "-o", "short-iso", "-n", "20000"], 20)[1],
+            r"POST /api/mode|role switch:", 10)) or "none"),
+    ]
+    return "\n".join(out)
 
 
 def kiosk_text(extra):
@@ -304,6 +350,7 @@ def collect(wpa_summary, last_scan="", extra=None):
     sections = [
         {"id": "wifi", "title": "Wi-Fi hardware and driver", "text": wifi_text(klog, wpa_summary, last_scan)},
         {"id": "network", "title": "Network", "text": network_text()},
+        {"id": "role", "title": "Role (what this box is)", "text": role_text()},
         {"id": "services", "title": "Services", "text": services_text()},
         {"id": "kiosk", "title": "Screen and kiosk", "text": kiosk_text(extra)},
         {"id": "updates", "title": "OS and system updates", "text": updates_text()},

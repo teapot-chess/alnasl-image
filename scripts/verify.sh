@@ -719,6 +719,25 @@ grep -q 'role: back to alnasl' $R/usr/local/sbin/alnasl-reset && grep -q 'polis.
 U=$R/usr/local/sbin/alnasl-system-update
 grep -q 'def box_role' $U && grep -q 'ROLE_APP' $U && grep -q 'def carry_app' $U && ok "system update: health and carry-over follow the role (Polis and Nunki included)" || bad "alnasl-system-update is not role-aware"
 
+echo "== v7.1: the screen after an update, and what a box with no screen can still tell"
+# The kiosk chain must never end in a job that nothing retries (docs/v7-blackscreen.md).
+KL=$R/etc/systemd/system/alnasl-kiosk-load.service
+grep -q '^Requires=docker.service' $KL && bad "alnasl-kiosk-load Requires=docker: a late docker drops it for good" || ok "alnasl-kiosk-load does not Require docker (a late docker cannot drop it)"
+grep -q 'docker info' $R/usr/local/sbin/alnasl-kiosk-load && ok "alnasl-kiosk-load waits for docker itself" || bad "alnasl-kiosk-load does not wait for docker"
+grep -q 'systemctl start --no-block alnasl-kiosk-load.service' $R/usr/local/sbin/alnasl-kiosk && ok "alnasl-kiosk asks for the image again when nothing is loading it" || bad "alnasl-kiosk never asks for the image again"
+cdd=$(cat $R/etc/systemd/system/containerd.service.d/*.conf 2>/dev/null)
+grep -q '^TimeoutStartSec=300$' <<<"$cdd" && grep -q '^Restart=on-failure$' <<<"$cdd" && ok "containerd: 5 min to start, and another try (drop-in)" || bad "containerd start timeout/restart drop-in missing"
+grep -q 'def trial_report' $U && grep -q 'trial_report(version' $U && ok "a trial boot that fails leaves its diagnostics on the boot partition" || bad "no diagnostics from a failed trial boot"
+D=$R/usr/local/lib/alnasl-setup/diag.py
+grep -q 'def role_text' $D && grep -q '"id": "role"' $D && ok "diagnostics: a Role section (chosen, this boot, flags)" || bad "diagnostics have no Role section"
+for u in arkab.service polis.service nunki.service cups.service alnasl-sound.service alnasl-mode.service alnasl-kiosk-load.service containerd.service alnasl-slot-check.service; do
+  grep -q "\"$u\"" $D || { bad "diagnostics do not list $u"; continue; }
+done
+grep -q 'ConditionResult' $D && ok "diagnostics: every role's units, with whether their condition held" || bad "diagnostics do not show ConditionResult"
+# The diagnostics run end to end in the image's Python (the Role section on a box with no role yet).
+dg=$(chroot $R /usr/bin/python3 -c 'import sys; sys.path.insert(0,"/usr/local/lib/alnasl-setup"); import diag; print("ROLE" if "chosen" in diag.role_text() else "NOROLE")' 2>&1 | tail -1)
+[ "$dg" = ROLE ] && ok "diag.role_text() runs in the image" || bad "diag.role_text(): $dg"
+
 echo "== sizes"
 df -h $R | tail -1
 echo "== result: $([ $fail = 0 ] && echo ALL CHECKS PASSED || echo SOME CHECKS FAILED)"

@@ -5,6 +5,14 @@
 # loaded at the first boot, after a reset (the store was emptied) and after an update brought a new
 # kiosk. The tarball stays in the slot for exactly those cases; the old image is pruned afterwards.
 TAR=/var/lib/alnasl-image/alnasl-kiosk.tar.gz
+# v7.1: docker may still be coming up (or have failed its first start); wait for it, asking it to start.
+for i in $(seq 1 90); do
+  docker info >/dev/null 2>&1 && break
+  [ "$i" = 1 ] && echo "alnasl-kiosk-load: waiting for docker"
+  [ $((i % 10)) = 1 ] && systemctl start --no-block docker.service
+  sleep 10
+done
+docker info >/dev/null 2>&1 || { echo "alnasl-kiosk-load: docker did not come up in 15 min" >&2; exit 1; }
 WANT=$(cat /usr/share/alnasl/kiosk-image-id 2>/dev/null)
 HAVE=$(docker image inspect alnasl-kiosk:latest --format '{{.Id}}' 2>/dev/null)
 if [ -n "$HAVE" ] && { [ -z "$WANT" ] || [ "$HAVE" = "$WANT" ]; }; then
