@@ -93,13 +93,22 @@ say "this boot runs as $role"
 
 # 3. the units. The other roles are switched off every boot; only what is still enabled is touched (enable
 # and disable make systemd reload, and a boot where nothing changed needs none of that).
-for u in $other; do systemctl is-enabled -q "$u" 2>/dev/null && systemctl disable "$u" >/dev/null 2>&1; done
+off=""
+for u in $other; do systemctl is-enabled -q "$u" 2>/dev/null && off="$off $u"; done
+# shellcheck disable=SC2086
+[ -z "$off" ] || systemctl disable $off >/dev/null 2>&1 || say "could not disable:$off"
 # This role's units are switched on only when the role changed, so what somebody switched off in Settings >
 # Services (the screen, say) stays off on a box that is still what it was.
 if [ "$applied" != "$role" ]; then
   say "applying $role"
-  # One by one: a single unit that is not there makes `systemctl enable a b c` enable none of them.
-  for u in $want alnasl-kiosk.service; do systemctl enable "$u" >/dev/null 2>&1 || say "could not enable $u"; done
+  # Only units that are there: one missing unit makes `systemctl enable a b c` enable none of them. One
+  # call, not one per unit: every enable is a daemon-reload, and this runs before sysinit.target.
+  have=""
+  for u in $want alnasl-kiosk.service; do
+    if [ -e "/etc/systemd/system/$u" ] || [ -e "/usr/lib/systemd/system/$u" ]; then have="$have $u"; else say "no unit $u"; fi
+  done
+  # shellcheck disable=SC2086
+  systemctl enable $have >/dev/null 2>&1 || say "could not enable:$have"
   echo "$role" > "$APPLIED.new" && mv -f "$APPLIED.new" "$APPLIED"
 fi
 rm -f "$APPLIED_V6"
