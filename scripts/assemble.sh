@@ -141,7 +141,13 @@ out=$(rpm --dbpath /tmp/kdb -K "/tmp/$SND" 2>&1); echo "$out"
 echo "$out" | grep -q 'signatures OK' || { echo "SIGNATURE CHECK FAILED for $SND"; exit 1; }
 echo "$out" | grep -q -i -E 'NOT OK|NOKEY|BAD' && { echo "SIGNATURE CHECK FAILED for $SND"; exit 1; }
 rpm -qp --requires "/tmp/$SND" | sed 's/^/  requires: /'
-rpm -ivh "/tmp/$SND"
+# v7: alsa-utils (Nunki) pulls this very package in from the same release repository; then it is there
+# already, and must be exactly this version.
+if rpm -q "linux-drivers-sound-$KVER" >/dev/null 2>&1; then
+  echo "linux-drivers-sound-$KVER already installed (pulled in by alsa-utils): the same package, kept"
+else
+  rpm -ivh "/tmp/$SND"
+fi
 rm -rf /tmp/kdb "/tmp/$SND"
 depmod -a "$KVER"
 rpm -q "linux-drivers-sound-$KVER" linux
