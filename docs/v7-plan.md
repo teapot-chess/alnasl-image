@@ -24,7 +24,7 @@ One box, one job. "Master slave is simple" stays simple: there are just four wor
   apps' updaters rewrite their unit files):
   - alnasl: `alnasl.service alnasl-update.path`
   - arkab: `arkab.service arkab-update.path`
-  - polis: `polis.service polis-update.path cups.service cups.socket cups.path`
+  - polis: `polis.service polis-update.path cups.service (Photon's cups package has no socket or path unit)`
   - nunki: `nunki.service nunki-update.path alnasl-sound.service`
 - The kiosk is every role's screen now (no condition on it). The setup server's `/` sends it to the role's
   page when that is up, otherwise to the menu (Settings, Get help) which says what is wrong.

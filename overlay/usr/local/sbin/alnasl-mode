@@ -41,7 +41,7 @@ units() {
   case "$1" in
     alnasl) echo "alnasl.service alnasl-update.path" ;;
     arkab)  echo "arkab.service arkab-update.path" ;;
-    polis)  echo "cups.socket cups.path cups.service polis.service polis-update.path" ;;
+    polis)  echo "cups.service polis.service polis-update.path" ;;   # Photon's cups has no .socket/.path units
     nunki)  echo "alnasl-sound.service nunki.service nunki-update.path" ;;
   esac
 }
@@ -98,8 +98,8 @@ for u in $other; do systemctl is-enabled -q "$u" 2>/dev/null && systemctl disabl
 # Services (the screen, say) stays off on a box that is still what it was.
 if [ "$applied" != "$role" ]; then
   say "applying $role"
-  # shellcheck disable=SC2086
-  systemctl enable $want alnasl-kiosk.service >/dev/null 2>&1
+  # One by one: a single unit that is not there makes `systemctl enable a b c` enable none of them.
+  for u in $want alnasl-kiosk.service; do systemctl enable "$u" >/dev/null 2>&1 || say "could not enable $u"; done
   echo "$role" > "$APPLIED.new" && mv -f "$APPLIED.new" "$APPLIED"
 fi
 rm -f "$APPLIED_V6"

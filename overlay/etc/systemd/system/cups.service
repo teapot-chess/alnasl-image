@@ -1,0 +1,16 @@
+# CUPS, for Polis (v7, a polis box only: alnasl-mode enables it there, and cups.service.d/alnasl-mode.conf
+# keeps it off everywhere else). Photon's cups package ships only a SysV init script, which systemd's
+# generator turns into a unit nobody can switch on or off; a unit here takes its place.
+[Unit]
+Description=CUPS printing for Polis
+Documentation=man:cupsd(8)
+After=network.target alnasl-data.service
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/cupsd -f
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

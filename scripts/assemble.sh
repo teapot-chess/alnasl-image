@@ -354,7 +354,8 @@ rm -f $R/root/.ssh/authorized_keys $R/etc/ssh/ssh_host_* $R/etc/ssh/alnasl-sshd.
 chroot $R /bin/bash -e <<'IN'
 systemctl disable iptables.service || true
 # v7: CUPS is Polis's, and alnasl-mode enables it only on a Polis box.
-systemctl disable cups.service cups.socket cups.path >/dev/null 2>&1 || true
+systemctl disable cups.service >/dev/null 2>&1 || true
+[ "$(systemctl is-enabled cups.service 2>/dev/null)" != enabled ] || { echo "cups.service is still enabled"; exit 1; }
 systemctl mask systemd-networkd-wait-online.service
 rm -f /etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service
 systemctl enable alnasl-firewall.service alnasl-firstboot.service alnasl-wifi.service \

@@ -590,7 +590,7 @@ MS=$R/etc/systemd/system/alnasl-mode.service
 grep -q '^DefaultDependencies=no' $MS && grep -q '^After=alnasl-data.service' $MS && grep -q '^Before=sysinit.target' $MS && ! grep -q -E '^(After|Requires|Wants)=.*(basic|multi-user|reset-boot|network)' $MS && ok "alnasl-mode.service: before sysinit.target, after the data partition, no default dependencies (no ordering cycle with the path units)" || bad "alnasl-mode.service ordering (a cycle through paths.target / basic.target)"
 cond() { sed -n 's/^ConditionPathExists=//p' $R/etc/systemd/system/$1.d/alnasl-mode.conf 2>/dev/null; }
 for ru in alnasl:alnasl.service alnasl:alnasl-update.path arkab:arkab.service arkab:arkab-update.path \
-          polis:polis.service polis:polis-update.path polis:cups.service polis:cups.socket polis:cups.path \
+          polis:polis.service polis:polis-update.path polis:cups.service \
           nunki:nunki.service nunki:nunki-update.path nunki:alnasl-sound.service; do
   r=${ru%%:*}; u=${ru#*:}
   [ "$(cond $u)" = "/run/alnasl-mode/$r" ] && ok "$u: $r boxes only" || bad "$u: condition '$(cond $u)' ($r expected)"
@@ -618,9 +618,10 @@ chroot $R id -nG nunki | grep -q -w audio && ok "nunki in audio (the sound card)
 # Polis's printing: CUPS from Photon, switched off unless this is a Polis box; PDFs go to the printer as they are.
 rpm --root=$R -q cups alsa-lib alsa-utils | sed 's/^/       /'
 rpm --root=$R -q cups >/dev/null && [ -x $R/usr/bin/lp ] && [ -x $R/usr/sbin/lpadmin ] && ok "cups installed (lp, lpadmin)" || bad "cups / lp / lpadmin missing"
-for u in cups.service cups.socket cups.path; do
+for u in cups.service; do
   st=$(chroot $R systemctl is-enabled $u 2>&1 | tail -1); case "$st" in disabled|static|indirect) ok "$u: $st (alnasl-mode enables it on a polis box)" ;; *) bad "$u: $st (off expected)" ;; esac
 done
+grep -q '^ExecStart=/usr/sbin/cupsd -f$' $R/etc/systemd/system/cups.service && ok "cups.service: our own unit (Photon ships only a SysV script)" || bad "no native cups.service"
 grep -q '^application/pdf[[:space:]]*application/vnd.cups-pdf[[:space:]]*0[[:space:]]*-' $R/etc/cups/local.convs && ok "cups: PDF passes straight to the printer (local.convs)" || bad "cups local.convs"
 [ -f $R/usr/share/alnasl/defaults/etc/cups/cupsd.conf ] && [ -f $R/usr/share/alnasl/defaults/etc/cups/local.convs ] && ok "cups: the image's configuration kept in defaults (alnasl-data puts it back)" || bad "cups defaults missing"
 grep -q '/etc/cups' $R/usr/local/sbin/alnasl-data && grep -q 'printers.conf' $R/usr/local/sbin/alnasl-data && ok "alnasl-data: printers survive updates, the rest of /etc/cups is the image's" || bad "alnasl-data and /etc/cups"
@@ -641,7 +642,7 @@ grep -q 'alnasl_vol' $R/usr/local/sbin/alnasl-sound && grep -q 'vc4hdmi0' $R/usr
 [ -f $B/alnasl-mode.txt.example ] && [ ! -f $B/alnasl-mode.txt ] && grep -q 'polis' $B/alnasl-mode.txt.example && grep -q 'nunki' $B/alnasl-mode.txt.example && ok "boot partition: alnasl-mode.txt example (four roles), no live file" || bad "boot partition mode files"
 grep -q '/api/mode' $S && grep -q '"SWITCH"' $S && ok "setup server: GET/POST /api/mode (SWITCH), as Arkab's page calls it" || bad "setup server mode API"
 grep -q '"/api/bootlog"' $S && grep -q '/api/printers' $S && grep -q '/api/sound' $S && ok "setup server: /api/bootlog, /api/printers, /api/sound" || bad "setup server v7 routes"
-for key in role_title role_d role_alnasl_d role_arkab_d role_polis_d role_nunki_d role_now role_change role_yes role_q role_switch_d role_down done_arkab_d done_polis_d done_nunki_d printers printers_d sound sound_d out_jack volume; do
+for key in role_title role_d role_alnasl_d role_arkab_d role_polis_d role_nunki_d role_now role_change role_yes role_q role_switch_d role_down done_arkab_d done_polis_d done_nunki_d printers_tile printers_d sound_tile sound_d out_jack sound_test; do
   n=$(grep -c -E "(^|[^A-Za-z0-9_])$key:" $J); [ "$n" = 2 ] && ok "app.js: $key in EN and NL" || bad "app.js: $key found $n times (2 expected)"
 done
 grep -q '"welcome", "mode"' $J && ok "wizard: the role step follows the language" || bad "wizard has no role step"

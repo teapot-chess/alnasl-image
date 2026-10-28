@@ -38,7 +38,8 @@ esac
 step 1 "stopping the box's app, the screen and the updaters"
 systemctl stop alnasl-os-update.timer alnasl-os-update.service alnasl-update.path alnasl-update.service \
   alnasl-system-update.service alnasl-system-update-check.service 2>/dev/null
-systemctl stop alnasl-kiosk.service alnasl.service arkab.service polis.service nunki.service cups.service   arkab-update.path polis-update.path nunki-update.path alnasl-setup.service 2>/dev/null
+systemctl stop alnasl-kiosk.service alnasl.service arkab.service polis.service nunki.service cups.service \
+  arkab-update.path polis-update.path nunki-update.path alnasl-setup.service 2>/dev/null
 $SPLASH --once
 
 # The slot's own settings (read before /data is mounted, so they live in the slot): back to the image's.
