@@ -65,6 +65,7 @@ PARTNO = {"A": 2, "B": 3}
 LABEL = {"A": "ALNASL_A", "B": "ALNASL_B"}
 TRIES = 3                                # boots a new slot gets before grub goes back
 HEALTH_MINUTES = 15                      # a first boot after an update may load a new kiosk image
+HEALTH_MAX_MINUTES = 60                  # v7.1: ... and while it is still loading one, it gets this long
 WINDOW = (3, 5)                          # [03:00, 05:00): the only hours a nightly restart may happen
 ALNASL_STATUS_URL = "http://127.0.0.1:4040/local/status"
 ENV_HEAD = b"# GRUB Environment Block\n"
@@ -883,6 +884,12 @@ def enabled(unit):
     return out.strip().splitlines()[-1:] == ["enabled"]
 
 
+def kiosk_loading():
+    """alnasl-kiosk-load is at work (or between two tries of it): the screen is on its way."""
+    _, out = run(["systemctl", "show", "-p", "ActiveState", "--value", "alnasl-kiosk-load.service"], timeout=10)
+    return out.strip() in ("activating", "reloading")
+
+
 def display_connected():
     base = "/sys/class/drm"
     try:
@@ -976,9 +983,23 @@ def cmd_boot_check():
         log("grub did not count this boot down (save_env failed?); counting here instead")
     log("trial boot %d of %s %s (grub tries left: %s); waiting up to %d min for it to be healthy" % (
         t["boots"], train, version, left, HEALTH_MINUTES))
-    deadline = time.monotonic() + HEALTH_MINUTES * 60
+    start = time.monotonic()
+    deadline = start + HEALTH_MINUTES * 60
     ok, missing = health()
-    while not ok and time.monotonic() < deadline:
+    extended = False
+    while not ok:
+        now = time.monotonic()
+        if now >= deadline:
+            # v7.1: a reboot in the middle of loading the new kiosk image throws that work away and starts it
+            # again on the next try; on a slow card all three tries ran out like that (docs/v7-blackscreen.md).
+            # While the load is still running, wait for it, up to HEALTH_MAX_MINUTES in all.
+            if now - start < HEALTH_MAX_MINUTES * 60 and kiosk_loading():
+                if not extended:
+                    log("not healthy after %d min (%s), but the kiosk image is still loading; waiting for it, up to %d min"
+                        % (HEALTH_MINUTES, missing, HEALTH_MAX_MINUTES))
+                    extended = True
+            else:
+                break
         time.sleep(10)
         ok, missing = health()
     env = read_env()
@@ -996,7 +1017,8 @@ def cmd_boot_check():
         write_env(env)
         log("%s did not become healthy (%s) in %d boots; going back to slot %s" % (version, missing, t["boots"], other(cur)))
     else:
-        log("%s not healthy after %d min (%s); restarting for another try" % (version, HEALTH_MINUTES, missing))
+        log("%s not healthy after %d min (%s); restarting for another try" % (
+            version, (time.monotonic() - start) // 60, missing))
     save_status(last_trial_note="boot %d: missing %s" % (t["boots"], missing))
     trial_report(version, t["boots"], missing)
     splash("--set", "reboot")

@@ -1,7 +1,7 @@
 # v7.0: a 6.2 box with a screen updated and went black (2026-10-28)
 
 The report: a real Pi 4, role master (alnasl), kiosk on HDMI, 6.2. It updated itself to v7.0 the day
-v7.0 came out, and the screen has been black since. There is no SSH on the box and there never will be,
+v7.0 came out, and the screen went black. (It later came up on 7.0 by itself; see the next section but one.) There is no SSH on the box and there never will be,
 so all of this comes from the code and from qemu.
 
 ## What was reproduced and what was not
@@ -32,7 +32,47 @@ What qemu could not show is the screen itself. raspi4b has no framebuffer and no
 splash → X → Chromium hand-over never runs there. **The exact cause on the maintainer's Pi 4 is
 therefore not proven.** Without the box's journal, it cannot be.
 
-## The defect that was found on this path
+## Later evidence from the box, and the cause it points to
+
+The box did **not** roll back. After about three reboots it came up on 7.0 and has run fine since. 7.0
+is therefore not broken; its first boots were too slow. Read against the code, the evidence goes like
+this.
+
+- **Why the box rebooted.** The trial health check (`alnasl-system-update --boot-check`) allows
+  `HEALTH_MINUTES` = 15. In that time it needs three things: the setup server, Alnasl, and Chromium
+  having requested /boot.
+- **Why Chromium is so late on that boot.** 7.0 ships a new kiosk image, so the first boot runs
+  `docker load` on a 338 MB gzip (about 1 GB unpacked) from the SD card. alnasl-kiosk.service is
+  ordered after alnasl-kiosk-load. The load may take 30 minutes (`TimeoutStartSec=1800`), and there is
+  no X and no Chromium until it is done.
+  - On this card the load did not finish in 15 minutes, so the check rebooted in the middle of it.
+  - The qemu journal shows one more way the load restarts from 0 % without a reboot (the
+    progress-painter timeout below).
+- **Why each try got further (most likely; not measured on the box).** docker keeps every layer it has
+  fully unpacked. A load interrupted by a
+  reboot skips those layers next time ("already exists"). So boot 2 had less to do than boot 1, and
+  boot 3 finished inside the window and passed.
+- **Why it stayed on 7.0.** grub counts the trial down 3 → 2 → 1 → 0 (`scripts/grub-ab.cfg`).
+  - The boot check goes back to the old slot only when a trial boot fails while no tries are left
+    (`alnasl_tries=0`, or `trial.json` counted 3 boots).
+  - Here the third trial boot was healthy, so it was marked good.
+  - "About three reboots" = the 6.2 updater's reboot into B plus two health-check reboots.
+  - This is the intended behaviour, and grub's counter did not misbehave. The margin was one boot: one
+    more slow boot and it would have gone back to 6.2.
+  - If the third boot had also failed, the next boot would have been 6.2, never 7.0.
+- **Why the screen was black.** This part is still unproven. During the load the screen should show the
+  boot picture with a progress bar, and qemu has no display to check that with. The diagnostics from
+  the box's history (Menu > Diagnostics > Save, "OS and system updates" section) will name what each
+  trial boot was missing ("boot N: missing the screen").
+
+## The fixes for this
+
+- **The health check waits for a kiosk load that is still running.** At 15 minutes, while
+  alnasl-kiosk-load is active or between two of its retries, the check keeps waiting, up to
+  `HEALTH_MAX_MINUTES` = 60 in all. A reboot in the middle of the load only throws away work.
+- **The load itself cannot be cut by its own progress bar** (below).
+
+## Other defects found on this path
 
 qemu showed one real chain that ends with no browser for good, on 6.2 and v7 alike:
 

@@ -728,6 +728,7 @@ grep -B1 -A3 '"--progress", str(pct)' $R/usr/local/sbin/alnasl-kiosk-load | grep
 grep -q 'systemctl start --no-block alnasl-kiosk-load.service' $R/usr/local/sbin/alnasl-kiosk && ok "alnasl-kiosk asks for the image again when nothing is loading it" || bad "alnasl-kiosk never asks for the image again"
 cdd=$(cat $R/etc/systemd/system/containerd.service.d/*.conf 2>/dev/null)
 grep -q '^TimeoutStartSec=300$' <<<"$cdd" && grep -q '^Restart=on-failure$' <<<"$cdd" && ok "containerd: 5 min to start, and another try (drop-in)" || bad "containerd start timeout/restart drop-in missing"
+grep -q 'def kiosk_loading' $U && grep -q 'HEALTH_MAX_MINUTES = 60' $U && ok "a trial boot is not restarted while the kiosk image is still loading (up to 60 min)" || bad "the health check can reboot in the middle of the kiosk load"
 grep -q 'def trial_report' $U && grep -q 'trial_report(version' $U && ok "a trial boot that fails leaves its diagnostics on the boot partition" || bad "no diagnostics from a failed trial boot"
 D=$R/usr/local/lib/alnasl-setup/diag.py
 grep -q 'def role_text' $D && grep -q '"id": "role"' $D && ok "diagnostics: a Role section (chosen, this boot, flags)" || bad "diagnostics have no Role section"
