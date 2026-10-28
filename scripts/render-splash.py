@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Renders the v6 boot screen and every screen that follows it, on the PC (needs Pillow).
 
-    python scripts/render-splash.py path/to/alnasl-src.tar
+    python scripts/render-splash.py path/to/alnasl-src.tar [fonts/DejaVuSansMono.ttf]
 
 One look for every state the screen can be in: the Alnasl mark (brand/marks/alnasl.svg, nine
 squares on a 24 x 24 grid, drawn here as rectangles so nothing is lost to an SVG renderer) on
@@ -17,6 +17,12 @@ Writes into overlay/usr/share/alnasl/splash/:
   text/glyphs/<h>/<name>.pgm        the few characters a changing value is made of ("37%", "v6.2"):
                                     0-9, dot, v, pct; their advances are in messages.json
   screens/glyphs/<name>.png         the same characters for the browser (1080 lines, ink, alpha)
+
+v7, the boot log (docs/v7-plan.md section 2), from the second argument (default fonts/DejaVuSansMono.ttf):
+  text/mono/<h>.pgm                 printable ASCII (32-126) in one row of fixed cells, coverage, for
+                                    h = 1080 and 720 (the painter composes log lines from it)
+  screens/mono/<h>.png              the same in white on alpha (the /boot page tints and draws it)
+  messages.json "mono", "logview"   cell sizes, and where the status line and the log go, and their colours
 
 A state can also show a value (a percentage or a version, composed from the glyphs) in the place
 of its line, and a progress bar in the place of its step squares ("value"/"bar" in messages.json).
@@ -54,6 +60,21 @@ BAR_W, BAR_H = 360, 6             # the progress bar (system updates), where the
 BAR_STEPS_Y = DOTS_Y + DOT + 2 * DOT_GAP  # the bar of a state that also has step squares: under them
 GLYPHS = {"0": "0", "1": "1", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9",
           ".": "dot", "v": "v", "%": "pct"}
+
+# v7 boot log. Offsets below the centre at 1080 lines, like the rest; the mark ends at +150.
+MONO_PX, MONO_LH = 17, 24          # at 1080 lines; 720 lines get round(x * 720 / 1080)
+LOGVIEW = {
+    "status_y": 178,               # the status line ("starting nunki - 7 of 12 up"), centred
+    "log_y": 220,                  # the first log line's top; lines run down to `bottom` above the edge
+    "log_y_steps": 410,            # ... on a screen that has a title, a line and step squares (first boot)
+    "bottom": 18, "margin": 60, "max_chars": 150,
+    # the newest line is drawn at full strength, older ones fade over BG: 255 = the colour itself
+    "fade": [255, 225, 195, 170, 145, 120, 100, 85],
+    # by source (bootlog.py COLOURS); errors are never faded
+    "colours": {"kernel": [0x8A, 0x8B, 0x90], "systemd": list(INK), "network": [0x9D, 0xB8, 0xD6],
+                "app": [0xA9, 0xC7, 0xB0], "box": list(DIM), "error": list(ACCENT), "status": list(INK)},
+}
+
 
 # state: steps (done-so-far, total) or None; EN and NL title and line.
 STATES = {
@@ -171,16 +192,45 @@ def paste_line(im, cov, top, colour):
     im.paste(Image.new("RGB", cov.size, colour), (x, y), cov)
 
 
+def mono_atlas(path, meta):
+    """One row of 95 fixed cells (ASCII 32-126) per height: coverage for the painter, white-on-alpha for
+    the browser. Cell width is the font's advance rounded; the text sits in the middle of the line box."""
+    meta["mono"] = {}
+    for h in (1080, 720):
+        px, lh = round(MONO_PX * h / 1080), round(MONO_LH * h / 1080)
+        f = ImageFont.truetype(path, px)
+        adv = int(round(f.getlength("M")))
+        asc, desc = f.getmetrics()
+        top = (lh - (asc + desc)) // 2
+        im = Image.new("L", (95 * adv, lh), 0)
+        d = ImageDraw.Draw(im)
+        for i in range(95):
+            ch = chr(32 + i)
+            cell = Image.new("L", (adv, lh), 0)
+            ImageDraw.Draw(cell).text((0, top), ch, font=f, fill=255)
+            im.paste(cell, (i * adv, 0))
+        write_pgm(os.path.join(OUT, "text", "mono", "%d.pgm" % h), im)
+        g = Image.new("RGBA", im.size, (255, 255, 255, 0))
+        g.putalpha(im)
+        p = os.path.join(OUT, "screens", "mono", "%d.png" % h)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        g.save(p, optimize=True)
+        meta["mono"][str(h)] = {"adv": adv, "lh": lh, "first": 32, "count": 95}
+    meta["logview"] = LOGVIEW
+
+
 def main():
-    if len(sys.argv) != 2:
+    if len(sys.argv) not in (2, 3):
         sys.exit(__doc__)
     with tarfile.open(sys.argv[1]) as t:
         fdata = t.extractfile(FONT_IN_TAR).read()
+    mono = sys.argv[2] if len(sys.argv) == 3 else os.path.join(ROOT, "fonts", "DejaVuSansMono.ttf")
     os.makedirs(OUT, exist_ok=True)
     draw_base(1920, 1080).save(os.path.join(OUT, "alnasl-splash.png"), optimize=True)
     meta = {"geometry": {"title_y": TITLE_Y, "sub_y": SUB_Y, "dots_y": DOTS_Y, "dot": DOT, "dot_gap": DOT_GAP,
                          "bar_w": BAR_W, "bar_h": BAR_H, "bar_steps_y": BAR_STEPS_Y},
             "glyphs": {}, "states": {}}
+    mono_atlas(mono, meta)
     # The glyphs of a value line: coverage for the painter, ink-on-alpha PNGs for the browser.
     for h in (1080, 720):
         f = font(fdata, round(SUB_PX * h / 1080), 500)

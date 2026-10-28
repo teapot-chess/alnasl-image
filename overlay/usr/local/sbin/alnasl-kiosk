@@ -46,11 +46,15 @@ while true; do
   [ -r /etc/alnasl/kiosk.conf ] && . /etc/alnasl/kiosk.conf
   mkdir -p /run/alnasl-kiosk
   case "$KIOSK_PATH" in cage) mode=cage ;; *) mode=x ;; esac
+  # v7: the page the screen shows is the role's own app; the watchdog inside watches that one.
+  case "$(cat /run/alnasl-mode/role 2>/dev/null)" in
+    arkab) app_port=4050 ;; polis) app_port=4061 ;; nunki) app_port=4062 ;; *) app_port=4040 ;;
+  esac
   echo "kiosk: starting container (mode $mode, keyboard $KBD_LAYOUT/$KBD_VARIANT, scale $KIOSK_SCALE, resolution $KIOSK_RES)"
   docker run --rm --name "$NAME" --privileged --network host --ipc host \
     -v /dev:/dev -v /run/udev:/run/udev:ro -v /run/alnasl-kiosk:/run/alnasl-kiosk \
     --tmpfs /tmp:exec,size=256m --shm-size=256m \
-    -e KIOSK_MODE="$mode" -e KIOSK_URL=http://localhost:4041/boot \
+    -e KIOSK_MODE="$mode" -e KIOSK_URL=http://localhost:4041/boot -e KIOSK_APP_PORT="$app_port" \
     -e KBD_LAYOUT="$KBD_LAYOUT" -e KBD_VARIANT="$KBD_VARIANT" -e KIOSK_SCALE="$KIOSK_SCALE" -e KIOSK_RES="$KIOSK_RES" \
     "$IMG"
   rc=$?

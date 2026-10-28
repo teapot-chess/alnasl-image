@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""alnasl-splash: the boot screen, painted straight into the framebuffer (v6).
+"""alnasl-splash: the boot screen, painted straight into the framebuffer (v6; the log is v7).
 
     alnasl-splash --hold              at boot: paint, and paint again whenever the framebuffer is
                                       replaced or cleared (vc4 taking over from the firmware's) or
@@ -16,16 +16,31 @@ the browser shows (/boot, /screen), so the hand-over from framebuffer to X to Ch
 picture replaced by itself. No Plymouth (not in Photon's aarch64 repos), no decoder: the mark is
 seven rectangles and the text is pre-rendered coverage.
 
+v7: while the box starts ("boot", and under the first boot's steps), the screen also shows a status line
+("starting nunki - 7 of 12 up") and the box's log scrolling below the mark, newest at the bottom, older
+lines fading, coloured by where they came from. What may be shown, and the redaction of everything that
+looks like a secret, is bootlog.py's (the setup server's /api/bootlog serves the same lines to the
+browser's /boot page, which carries on from here once X has the screen). Text comes from a monospace glyph
+atlas of printable ASCII; only the rows of the log are rewritten when it moves. The update and reset
+screens are v6's, unchanged.
+
 It never paints while X or cage runs, and never over a text console someone is using (only
 when tty1 is the active VT). Painting puts tty1 in graphics mode so the console stops drawing
 over the picture; X takes the VT over from there and gives it back in text mode when it ends.
 """
+import collections
 import fcntl
 import json
 import os
 import struct
 import sys
 import time
+
+sys.path.insert(0, "/usr/local/lib/alnasl-setup")
+try:
+    import bootlog  # the allow-list and the redaction; without it there is no log on the screen, only the mark
+except Exception:  # noqa: BLE001 - a broken log must never cost the picture
+    bootlog = None
 
 SHARE = "/usr/share/alnasl/splash"
 RUN_DIR = "/run/alnasl-screen"
@@ -45,6 +60,12 @@ ACCENT = (0xE2, 0xA0, 0x8C)
 DIM = (0xA3, 0xA3, 0x9F)
 OUTLINE = (0x55, 0x56, 0x5A)
 MARK = [(0, 0, INK), (1, 0, INK), (2, 0, ACCENT), (1, 1, INK), (2, 1, INK), (0, 2, INK), (2, 2, INK)]
+
+# v7: the states that show the box's log. "boot" and "waiting": the log instead of a title; the first
+# boot's steps: under them. Everything else (updates, reset, shutdown) is v6's picture alone.
+LOG_STATES = ("boot", "waiting", "firstboot-1", "firstboot-2", "firstboot-3")
+LOG_KEEP = 200
+LOG_FPS = 5
 
 FBIOGET_VSCREENINFO = 0x4600
 KDSETMODE, KD_GRAPHICS = 0x4B3A, 0x01
@@ -172,9 +193,116 @@ def glyph_run(text, size):
     return out
 
 
-def compose(fb, key, lng, val=None, prog=None):
+# ------------------------------------------------------------------ the log (v7) --
+def log_geom(W, H, key):
+    """Where the status line and the log go. The /boot page (screen.html) computes the same from the same
+    numbers in messages.json, in its canvas's pixels, so the hand-over puts every line where it was."""
+    mono, lv = MSG.get("mono") or {}, MSG.get("logview") or {}
+    size = 720 if H < 900 else 1080
+    m = mono.get(str(size))
+    if not m or not lv:
+        return None
+    s = H / 1080
+    cx, cy = W // 2, H // 2
+    steps = bool((MSG["states"].get(key) or {}).get("steps"))
+    A, LH = m["adv"], m["lh"]
+    top = cy + round((lv["log_y_steps"] if steps else lv["log_y"]) * s)
+    status_y = None if steps else cy + round(lv["status_y"] * s)
+    n = max(0, (H - round(lv["bottom"] * s) - top) // LH)
+    cols = max(10, min(lv["max_chars"], (W - 2 * round(lv["margin"] * s)) // A))
+    return {"size": size, "A": A, "LH": LH, "top": top, "status_y": status_y, "n": n, "cols": cols,
+            "x0": cx - cols * A // 2, "cx": cx, "y0": status_y if status_y is not None else top,
+            "y1": top + n * LH, "fade": lv["fade"], "colours": lv["colours"]}
+
+
+class Atlas:
+    """The glyph atlas as framebuffer bytes: for a colour and a fade level, every glyph's rows, ready to
+    join. Made the first time a colour is used (a few tens of ms each on a Pi 4)."""
+
+    def __init__(self, fb, size):
+        self.fb = fb
+        img = pgm("%s/text/mono/%d.pgm" % (SHARE, size))
+        if not img:
+            raise OSError("no glyph atlas for %d lines" % size)
+        self.w, self.h, self.cov = img
+        meta = MSG["mono"][str(size)]
+        self.A, self.first, self.count = meta["adv"], meta["first"], meta["count"]
+        self.cache = {}
+
+    def glyphs(self, rgb, alpha):
+        k = (tuple(rgb), alpha)
+        g = self.cache.get(k)
+        if g is None:
+            target = blend(BG, tuple(rgb), alpha)
+            lut = [self.fb.px(blend(BG, target, c)) for c in range(256)]
+            A, w, cov = self.A, self.w, self.cov
+            g = []
+            for i in range(self.count):
+                rows = []
+                for r in range(self.h):
+                    o = r * w + i * A
+                    rows.append(b"".join(lut[c] for c in cov[o:o + A]))
+                g.append(rows)
+            self.cache[k] = g
+        return g
+
+
+ATLASES = {}
+
+
+def atlas_for(fb, size):
+    k = (fb.w, fb.h, fb.B, tuple(fb.chan), size)
+    if k not in ATLASES:
+        ATLASES.clear()
+        ATLASES[k] = Atlas(fb, size)
+    return ATLASES[k]
+
+
+def log_region(fb, key, status, lines):
+    """(first row, bytes of rows y0..y1 as whole rows of fb.stride) holding the status line and the log,
+    or None."""
+    W, H, B, S = fb.w, fb.h, fb.B, fb.stride
+    g = log_geom(W, H, key)
+    if not g or g["y1"] <= g["y0"]:
+        return None
+    try:
+        at = atlas_for(fb, g["size"])
+    except OSError:
+        return None
+    bgp = fb.px(BG)
+    pad = bytes(S - W * B)
+    blank = bgp * W + pad
+    A, LH, first, cnt = at.A, at.h, at.first, at.count
+    rows = [blank] * (g["y1"] - g["y0"])
+
+    def put(y, x, text, rgb, alpha):
+        text = text[:max(0, (W - x) // A)]
+        gl = at.glyphs(rgb, alpha)
+        idx = [min(max(ord(c) - first, 0), cnt - 1) for c in text]
+        left, right = bgp * x, bgp * (W - x - len(text) * A)
+        for r in range(LH):
+            ry = y - g["y0"] + r
+            if 0 <= ry < len(rows):
+                rows[ry] = left + b"".join(gl[i][r] for i in idx) + right + pad
+
+    cols = g["colours"]
+    if g["status_y"] is not None and status:
+        t = status[:g["cols"]]
+        put(g["status_y"], g["cx"] - len(t) * A // 2, t, cols.get("status", INK), 255)
+    shown = list(lines)[-g["n"]:] if g["n"] else []
+    fade = g["fade"]
+    for i, (tag, colour, err, text) in enumerate(shown):
+        age = len(shown) - 1 - i
+        alpha = 255 if err else fade[min(age, len(fade) - 1)]
+        line = bootlog.format_line(tag, text) if bootlog else text
+        put(g["top"] + i * LH, g["x0"], line[:g["cols"]], cols.get(colour, INK), alpha)
+    return g["y0"], b"".join(rows)
+
+
+def compose(fb, key, lng, val=None, prog=None, logv=None):
     """The whole picture as one bytes object, rows of fb.stride bytes. val/prog: the value line and the
-    progress bar of the states that have them (None: read what the update scripts left in /run)."""
+    progress bar of the states that have them (None: read what the update scripts left in /run).
+    logv: (status line, lines) of the v7 log, on the states that show it."""
     W, H, B, S = fb.w, fb.h, fb.B, fb.stride
     bgp = fb.px(BG)
     frame = bytearray((bgp * W + b"\0" * (S - W * B)) * H)
@@ -196,6 +324,8 @@ def compose(fb, key, lng, val=None, prog=None):
         rect(cx + round((col * 105 - 150) * s), cy + round((row * 105 - 150) * s), sq, sq, colour)
 
     st = MSG["states"].get(key) or {}
+    if logv is not None and key in ("boot", "waiting"):
+        st = {}  # the log says what is going on, not a title
     if st.get("text"):
         g = MSG.get("geometry", {})
         size = 720 if H < 900 else 1080  # text made for 1080 or 720 lines; offsets follow the real height
@@ -246,6 +376,11 @@ def compose(fb, key, lng, val=None, prog=None):
                     rect(x, y, lw, dot, OUTLINE)
                     rect(x + dot - lw, y, lw, dot, OUTLINE)
                 x += dot + gap
+    if logv is not None:
+        reg = log_region(fb, key, *logv)
+        if reg:
+            y0, data = reg
+            frame[y0 * S:y0 * S + len(data)] = data
     return bytes(frame), (cy - round(105 * s)) * S + (cx + round(105 * s)) * B  # the middle of the accent square
 
 
@@ -261,7 +396,7 @@ def graphics_mode():
         pass
 
 
-def paint(key=None):
+def paint(key=None, logv=None):
     """Returns (offset, bytes) of a probe pixel to check later, or None when nothing was painted."""
     if x_running() or not tty1_active():
         return None
@@ -272,7 +407,7 @@ def paint(key=None):
         log("no framebuffer to paint on (%s)" % e)
         return None
     try:
-        frame, probe = compose(fb, key, lang())
+        frame, probe = compose(fb, key, lang(), logv=logv)
         graphics_mode()
         os.pwrite(fb.fd, frame, fb.yoff * fb.stride)
         return probe + fb.yoff * fb.stride, fb.px(ACCENT)
@@ -294,9 +429,32 @@ def intact(probe):
         return False
 
 
+def paint_log(key, logv):
+    """Only the rows of the status line and the log: the rest of the picture stays as it is."""
+    if x_running() or not tty1_active():
+        return False
+    try:
+        fb = Fb()
+    except OSError:
+        return False
+    try:
+        reg = log_region(fb, key, *logv)
+        if reg:
+            os.pwrite(fb.fd, reg[1], (fb.yoff + reg[0]) * fb.stride)
+        return True
+    except OSError as e:
+        log("painting the log failed: %s" % e)
+        return False
+    finally:
+        fb.close()
+
+
 def hold():
     t0 = time.monotonic()
     last, probe = None, None
+    follower = bootlog.Follower(bootlog.role) if bootlog else None
+    lines = collections.deque(maxlen=LOG_KEEP)
+    status, next_status, dirty, last_log = "", 0.0, False, 0.0
     while True:
         if x_running():
             # X has the screen; the "after the update" picture of the next boot has done its job.
@@ -304,13 +462,37 @@ def hold():
                 os.remove(NEXT_BOOT)
             except OSError:
                 pass
+            if follower:
+                follower.close()
             log("X is up after %.1f s; the screen is its from here" % (time.monotonic() - t0))
             return 0
-        sig = (state(), lang(), fb_identity(), tty1_active(), value(), progress())
+        key = state()
+        logv = None
+        if follower and key in LOG_STATES:
+            try:
+                new = follower.poll(0)
+                if new:
+                    lines.extend(new)
+                    dirty = True
+                now = time.monotonic()
+                if now >= next_status:
+                    next_status = now + 1.0
+                    st = bootlog.status(lang())["text"] if key in ("boot", "waiting") else ""
+                    if st != status:
+                        status, dirty = st, True
+            except Exception as e:  # noqa: BLE001 - the log is a nicety; the picture is not
+                log("the log stopped: %r" % e)
+                follower.close()
+                follower = None
+            logv = (status, lines)
+        sig = (key, lang(), fb_identity(), tty1_active(), value(), progress())
         if sig != last or (probe and not intact(probe)):
-            probe = paint(sig[0])
-            last = sig
-        time.sleep(0.1 if time.monotonic() - t0 < 90 else 0.5)
+            probe = paint(key, logv)
+            last, dirty, last_log = sig, False, time.monotonic()
+        elif logv is not None and dirty and time.monotonic() - last_log >= 1.0 / LOG_FPS:
+            paint_log(key, logv)
+            dirty, last_log = False, time.monotonic()
+        time.sleep(0.1 if (logv is not None or time.monotonic() - t0 < 90) else 0.5)
 
 
 def set_plain(path, text):

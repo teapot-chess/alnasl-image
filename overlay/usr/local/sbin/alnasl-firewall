@@ -3,25 +3,37 @@
 #
 #  1. The built-in INPUT policy is NEVER changed from ACCEPT. The "default
 #     deny" is the last rule of our own chain (ALNASL-IN), reached only after
-#     the rule that lets Alnasl (4040) in. So a ruleset that fails to load,
+#     the rules that let the box's own app (and loopback) in. So a ruleset that fails to load,
 #     loads halfway, or is flushed leaves the box OPEN, never closed with the
 #     hall locked out. (v6: open costs little; there is no ssh to reach.)
 #  2. The chain is loaded in one atomic iptables-restore, after a --test
 #     dry run. Our chain is only hooked into INPUT once it is complete.
-#  3. Afterwards the script checks that the Alnasl rule is really in place;
-#     if not, it unhooks the chain again.
+#  3. Afterwards the script checks that the app's rule (or, for a role with no
+#     inbound port, the loopback rule) is really in place; if not, it unhooks
+#     the chain again.
 #  4. Only our own chain is touched. Anyone else's chains (docker's) are
 #     left alone, and the stock iptables.service (INPUT policy DROP, loaded
 #     from /etc/systemd/scripts/ip4save) is disabled in this image.
 #
-# v6: inbound is Alnasl (4040), Arkab's status page (4050, a slave's; nothing listens there on a master), mDNS, DHCP replies and ICMP. Nothing else:
-# no ssh (22), no Tailscale (41641, tailscale0). verify.sh fails the build if
-# either comes back.
+# v7: inbound is only what the box's role needs (docs/v7-plan.md section 1):
+#   alnasl  4040 (Alnasl, for the hall's network)
+#   arkab   4050 (Arkab's status page)
+#   polis, nunki  no port at all: they dial out, and their pages are for this box's own screen
+# plus mDNS, DHCP replies and ICMP. Nothing else: no ssh (22), no Tailscale (41641, tailscale0).
+# verify.sh fails the build if either comes back. The role is /run/alnasl-mode/role (alnasl-mode runs
+# first); no role file means alnasl, as everywhere.
 #
 # Usage: alnasl-firewall [start|stop|status]   (start is the default)
 
 CHAIN=ALNASL-IN
 log() { echo "alnasl-firewall: $*"; }
+ROLE=$(cat /run/alnasl-mode/role 2>/dev/null)
+case "$ROLE" in
+  arkab) PORT=4050 ;;
+  polis | nunki) PORT="" ;;
+  *) ROLE=alnasl; PORT=4040 ;;
+esac
+app_rule() { [ -n "$PORT" ] && echo "-A $CHAIN -p tcp --dport $PORT -j ACCEPT"; }
 
 unhook() { # tool
   local t=$1
@@ -44,8 +56,7 @@ rules_v4() {
 :$CHAIN - [0:0]
 -A $CHAIN -i lo -j ACCEPT
 -A $CHAIN -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
--A $CHAIN -p tcp --dport 4040 -j ACCEPT
--A $CHAIN -p tcp --dport 4050 -j ACCEPT
+$(app_rule)
 -A $CHAIN -p icmp -j ACCEPT
 -A $CHAIN -p udp --sport 67 --dport 68 -j ACCEPT
 -A $CHAIN -p udp --dport 5353 -j ACCEPT
@@ -60,8 +71,7 @@ rules_v6() {
 :$CHAIN - [0:0]
 -A $CHAIN -i lo -j ACCEPT
 -A $CHAIN -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
--A $CHAIN -p tcp --dport 4040 -j ACCEPT
--A $CHAIN -p tcp --dport 4050 -j ACCEPT
+$(app_rule)
 -A $CHAIN -p ipv6-icmp -j ACCEPT
 -A $CHAIN -p udp --dport 546 -j ACCEPT
 -A $CHAIN -p udp --dport 5353 -j ACCEPT
@@ -87,8 +97,9 @@ apply() { # tool rules-function
     open_everything "$t"
     return 1
   fi
-  if ! "$t" -C "$CHAIN" -p tcp --dport 4040 -j ACCEPT 2>/dev/null; then
-    log "$t: the Alnasl rule is not in the chain; leaving the box open"
+  if [ -n "$PORT" ] && ! "$t" -C "$CHAIN" -p tcp --dport "$PORT" -j ACCEPT 2>/dev/null ||
+     ! "$t" -C "$CHAIN" -i lo -j ACCEPT 2>/dev/null; then
+    log "$t: the rule for $ROLE (or loopback) is not in the chain; leaving the box open"
     open_everything "$t"
     return 1
   fi
@@ -98,7 +109,7 @@ apply() { # tool rules-function
     open_everything "$t"
     return 1
   fi
-  log "$t: ruleset active (4040, 4050, DHCP, mDNS, ICMP; everything else dropped)"
+  log "$t: ruleset active for $ROLE (${PORT:-no app port}, DHCP, mDNS, ICMP; everything else dropped)"
   return 0
 }
 

@@ -11,7 +11,8 @@
   if (h === "localhost" || h === "127.0.0.1" || h === "[::1]" || h === "::1") return;   // Alnasl, the box's pages
   if (document.getElementById("alnasl-kiosk-bar")) return;
 
-  var ALNASL = "http://localhost:4040/", MENU = "http://localhost:4041/menu", BAR = 56;
+  // v7: home is the menu server's /, which sends the screen to the box's own app (whichever role it has).
+  var ALNASL = "http://localhost:4041/", MENU = "http://localhost:4041/menu", BAR = 56;
   var TEXT = {
     en: { back: "← Back to Alnasl", menu: "Menu" },
     nl: { back: "← Terug naar Alnasl", menu: "Menu" }
@@ -26,7 +27,7 @@
   } catch (_) { /* optional */ }
 
   function goBack() {
-    var cameFromAlnasl = (document.referrer || "").indexOf("http://localhost:4040") === 0;
+    var cameFromAlnasl = /^http:\/\/localhost:(4040|4050|4061|4062)(\/|$)/.test(document.referrer || "");
     if (cameFromAlnasl && !moved && history.length > 1) {
       history.back();
       // If that went nowhere (no entry to go back to), load Alnasl directly.

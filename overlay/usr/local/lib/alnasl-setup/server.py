@@ -11,6 +11,7 @@ Secrets: Wi-Fi passphrases arrive in POST bodies, are written to their
 root-only file (0600) and are never logged; the access log
 holds only method, path and status.
 """
+import collections
 import datetime
 import hashlib
 import ipaddress
@@ -31,6 +32,7 @@ from urllib.parse import parse_qs, urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import diag  # noqa: E402  (diagnostics + redaction; same folder)
+import bootlog  # noqa: E402  (v7: what the boot screen may show of the log; same folder)
 
 HOST, PORT = "127.0.0.1", 4041
 WWW = "/usr/local/share/alnasl-setup/www"
@@ -1312,6 +1314,75 @@ def screen_geom():
         return None
 
 
+# v7: the boot log for the browser's /boot page (screen.html), after X has taken the screen from the
+# framebuffer painter. Same source, same allow-list, same redaction, same order (bootlog.py), so the page
+# carries on with the lines the painter last showed, in the same places. Loopback only, like all of this
+# server. The reader is a thread with journalctl -b -f; it starts with the server when the box has just
+# booted (so it has caught up by the time Chromium asks) and otherwise on the first request, and stops
+# after two minutes without one.
+BOOTLOG = {"lock": threading.Lock(), "lines": collections.deque(maxlen=400), "seq": 0, "thread": None,
+           "asked": 0.0, "ready": False, "status": ("", 0.0)}
+BOOTLOG_IDLE = 120
+
+
+def _bootlog_reader():
+    f = bootlog.Follower(bootlog.role)
+    try:
+        while time.monotonic() - BOOTLOG["asked"] < BOOTLOG_IDLE:
+            new = f.poll(1.0)
+            with BOOTLOG["lock"]:
+                for line in new:
+                    BOOTLOG["seq"] += 1
+                    BOOTLOG["lines"].append((BOOTLOG["seq"],) + tuple(line))
+                if f.caught_up:
+                    BOOTLOG["ready"] = True
+    finally:
+        f.close()
+        with BOOTLOG["lock"]:
+            BOOTLOG["thread"] = None
+            BOOTLOG["ready"] = False
+            BOOTLOG["lines"].clear()
+
+
+def bootlog_start():
+    with BOOTLOG["lock"]:
+        BOOTLOG["asked"] = time.monotonic()
+        if BOOTLOG["thread"] is None:
+            t = threading.Thread(target=_bootlog_reader, daemon=True, name="bootlog")
+            BOOTLOG["thread"] = t
+            t.start()
+
+
+def bootlog_view():
+    """What screen.html needs to lay the log out exactly as alnasl-splash does."""
+    try:
+        with open(SPLASH + "/messages.json", encoding="utf-8") as f:
+            m = json.load(f)
+        return {"mono": m["mono"], "logview": m["logview"],
+                "steps": [k for k, v in (m.get("states") or {}).items() if v.get("steps")]}
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def bootlog_get(q):
+    bootlog_start()
+    try:
+        after = int((parse_qs(q or "").get("after") or ["0"])[0])
+    except ValueError:
+        after = 0
+    text, t = BOOTLOG["status"]
+    if time.monotonic() - t > 1.0:
+        text = bootlog.status(get_state().get("lang", "en"))["text"]
+        BOOTLOG["status"] = (text, time.monotonic())
+    with BOOTLOG["lock"]:
+        lines = [l for l in BOOTLOG["lines"] if l[0] > after][-60:]
+        out = {"seq": BOOTLOG["seq"], "ready": BOOTLOG["ready"], "status": text,
+               "lines": [{"n": n, "t": tag, "c": col, "e": err, "m": msg} for n, tag, col, err, msg in lines]}
+    if after == 0:
+        out["view"] = bootlog_view()
+    return out
+
+
 def bootscreen():
     st = read(SCREEN_STATE).strip()
     out = {"state": st if st in screen_states() else "", "lang": get_state().get("lang", "en"),
@@ -1451,6 +1522,8 @@ def api_get(path, q):
     if path == "/api/bootscreen":
         mark_painted()
         return bootscreen()
+    if path == "/api/bootlog":  # ?after=N: the log lines after N, the status line (v7)
+        return bootlog_get(q)
     if path == "/api/system":
         return system_status()
     if path == "/api/mode":
@@ -1672,6 +1745,11 @@ def main():
     srv = ThreadingHTTPServer((HOST, PORT), H)
     srv.daemon_threads = True
     log("listening on %s:%d" % (HOST, PORT))
+    try:  # a box that has just started: have the log ready before the browser asks for it
+        if float(read("/proc/uptime", "9999").split()[0]) < 600:
+            bootlog_start()
+    except (ValueError, IndexError):
+        pass
     srv.serve_forever()
 
 

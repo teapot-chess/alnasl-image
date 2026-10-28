@@ -5,8 +5,11 @@
 // 2. A web page that cannot be loaded at all (no internet, DNS) shows Chromium's own error page, which no content
 //    script can reach and which has no way back on a touch-only screen. After a few seconds the tab goes back to Alnasl.
 // 3. v6: Alnasl itself not answering (restarting, updating) shows the boot screen, which waits for it and
-//    comes back, instead of Chromium's error page.
-var ALNASL = "http://localhost:4040/";
+//    comes back, instead of Chromium's error page. v7: the same for the box's own app, whichever it is
+//    (Alnasl 4040, Arkab 4050, Polis 4061, Nunki 4062); "home" is the menu server's /, which sends the
+//    screen to that app.
+var ALNASL = "http://localhost:4041/";
+var APP_RE = /^http:\/\/(localhost|127\.0\.0\.1):(4040|4050|4061|4062)(\/|$)/;
 var SCREEN = "http://localhost:4041/screen";
 
 chrome.runtime.onMessage.addListener(function (msg, _sender, reply) {
@@ -34,7 +37,7 @@ function isBoxUrl(u) { return /^http:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(
 if (chrome.webNavigation && chrome.webNavigation.onErrorOccurred) {
   chrome.webNavigation.onErrorOccurred.addListener(function (d) {
     if (d.frameId !== 0 || d.error === "net::ERR_ABORTED") return;
-    if (/^http:\/\/(localhost|127\.0\.0\.1):4040(\/|$)/.test(d.url || "")) {
+    if (APP_RE.test(d.url || "")) {
       chrome.tabs.update(d.tabId, { url: SCREEN });
       return;
     }

@@ -1,0 +1,6 @@
+#!/bin/sh
+# espeak-ng for Nunki (v7, nunki role): Debian's build with its libraries and voices in /opt/espeak-ng
+# (scripts/build-espeak.sh). Nunki finds this on its PATH, as it would a distribution's espeak-ng.
+export LD_LIBRARY_PATH=/opt/espeak-ng/lib
+export ESPEAK_DATA_PATH=/opt/espeak-ng/share
+exec /opt/espeak-ng/bin/espeak-ng "$@"

@@ -3,3 +3,4 @@
 *.png binary
 *.pgm binary
 *.ps1 text eol=crlf
+*.ttf binary

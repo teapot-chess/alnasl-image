@@ -165,18 +165,19 @@ if [ -z "${KIOSK_NO_WATCHDOG:-}" ]; then
       down=$((down + 1))
       [ "$down" -eq 3 ] && echo "kiosk: the menu server did not answer for 30 s"
     fi
-    if curl -fsS -o /dev/null --max-time 8 http://localhost:4040/; then
+    # v7: the box's own app, whichever role it has (alnasl-kiosk passes its port).
+    if curl -fsS -o /dev/null --max-time 8 "http://localhost:${KIOSK_APP_PORT:-4040}/"; then
       if [ "$adown" -ge 3 ]; then
         if menu_open; then
-          echo "kiosk: Alnasl is back after $((adown * 10)) s; a menu page is open, so the browser is left alone"
+          echo "kiosk: the app (port ${KIOSK_APP_PORT:-4040}) is back after $((adown * 10)) s; a menu page is open, so the browser is left alone"
         else
-          reload_browser "Alnasl (port 4040) was unreachable for $((adown * 10)) s and is back; the screen may show an error page"
+          reload_browser "the app (port ${KIOSK_APP_PORT:-4040}) was unreachable for $((adown * 10)) s and is back; the screen may show an error page"
         fi
       fi
       adown=0
     else
       adown=$((adown + 1))
-      [ "$adown" -eq 3 ] && echo "kiosk: Alnasl (port 4040) did not answer for 30 s"
+      [ "$adown" -eq 3 ] && echo "kiosk: the app (port ${KIOSK_APP_PORT:-4040}) did not answer for 30 s"
     fi
   done
 ) &

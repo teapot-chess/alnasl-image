@@ -1,8 +1,9 @@
 [Unit]
-Description=Alnasl firewall (fail-open-safe: Alnasl always let in, nothing else)
+Description=Alnasl firewall (fail-open-safe: the role's own port let in, nothing else)
 Documentation=file:///usr/local/sbin/alnasl-firewall
 DefaultDependencies=no
-After=systemd-modules-load.service local-fs.target
+# After alnasl-mode: the ports depend on the role it writes.
+After=systemd-modules-load.service local-fs.target alnasl-mode.service
 Before=network-pre.target
 Wants=network-pre.target
 Conflicts=shutdown.target iptables.service

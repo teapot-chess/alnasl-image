@@ -3,11 +3,13 @@
 <head>
 <meta charset="utf-8">
 <title>Alnasl</title>
-<!-- The boot screen, in the browser (v6). /boot is the kiosk's first page, /screen is where it waits
-     while Alnasl is away (an update, a reset, a restart). The pictures are the framebuffer painter's own
-     (alnasl-splash), so the hand-over from the console to Chromium is the same picture over itself.
-     When there is nothing left to wait for, it goes to / and the next page fades in from this picture
-     (boot-fade.js in the kiosk extension). -->
+<!-- The boot screen, in the browser (v6; the log is v7). /boot is the kiosk's first page, /screen is where
+     it waits while the box's own app is away (an update, a reset, a restart). The pictures are the
+     framebuffer painter's own (alnasl-splash), so the hand-over from the console to Chromium is the same
+     picture over itself. v7: while the box starts, the status line and the log below the mark carry on
+     from the painter's, from the same lines (/api/bootlog), the same glyph atlas and the same geometry,
+     drawn on a canvas in device pixels. When there is nothing left to wait for, it goes to / and the
+     next page fades in from this picture (boot-fade.js in the kiosk extension). -->
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #16171a; cursor: none; }
   .l { position: fixed; inset: 0; background: #16171a center / auto 100vh no-repeat; transition: opacity .6s ease; }
@@ -18,6 +20,9 @@
   .ov.on { opacity: 1; }
   .ov img { position: absolute; top: 0; display: block; }
   #bar i { position: absolute; left: 0; top: 0; bottom: 0; background: #e2a08c; transition: width .5s ease; }
+  #log { position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; opacity: 0; pointer-events: none; image-rendering: pixelated; }
+  #log.on { opacity: 1; }
+  #log.fade { transition: opacity .4s ease; }
 </style>
 </head>
 <body>
@@ -25,10 +30,12 @@
 <div class="l" id="b" style="opacity: 0"></div>
 <div class="ov" id="val"></div>
 <div class="ov" id="bar" style="background: #55565a"><i></i></div>
+<canvas id="log"></canvas>
 <script>
 (function () {
   var BOOT = location.pathname === "/boot";
   var PLAIN = "/splash/alnasl-splash.png";
+  var LOG_STATES = ["", "boot", "waiting", "firstboot-1", "firstboot-2", "firstboot-3"];
   var front = document.getElementById("a"), back = document.getElementById("b");
   var shown = PLAIN, wanted = PLAIN, t0 = Date.now(), leaving = false;
 
@@ -88,20 +95,122 @@
     }
     barEl.classList.toggle("on", p != null);
   }
+
+  /* ---- v7: the log -------------------------------------------------------------------------------
+     The geometry is alnasl-splash's log_geom(), line for line, in the canvas's own pixels (the screen's,
+     whatever the kiosk's zoom), and the glyphs are the painter's atlas: so a line the painter showed is
+     drawn here in the same place, the same size and the same colour. */
+  var BG = [0x16, 0x17, 0x1a];
+  var cv = document.getElementById("log"), ctx = cv.getContext("2d");
+  var LOG = { view: null, seq: 0, lines: [], status: "", key: "", atlas: {}, tint: {}, ready: false, firstAt: 0, on: false };
+  function blend(a, b, t) { return [0, 1, 2].map(function (i) { return Math.round(a[i] + (b[i] - a[i]) * t / 255); }); }
+  function rgb(c) { return "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")"; }
+  function geom(W, H, key) {
+    var v = LOG.view; if (!v) return null;
+    var size = H < 900 ? 720 : 1080, m = v.mono[String(size)], lv = v.logview;
+    if (!m || !lv) return null;
+    var s = H / 1080, cx = Math.floor(W / 2), cy = Math.floor(H / 2);
+    var steps = v.steps.indexOf(key) >= 0, A = m.adv, LH = m.lh;
+    var top = cy + Math.round((steps ? lv.log_y_steps : lv.log_y) * s);
+    var statusY = steps ? null : cy + Math.round(lv.status_y * s);
+    var n = Math.max(0, Math.floor((H - Math.round(lv.bottom * s) - top) / LH));
+    var cols = Math.max(10, Math.min(lv.max_chars, Math.floor((W - 2 * Math.round(lv.margin * s)) / A)));
+    return { size: size, A: A, LH: LH, top: top, statusY: statusY, n: n, cols: cols, x0: cx - Math.floor(cols * A / 2), cx: cx,
+             y0: statusY != null ? statusY : top, y1: top + n * LH, fade: lv.fade, colours: lv.colours };
+  }
+  // Python rounds halves to even; Math.round rounds them up. Only the tint's blend could meet a half.
+  function pyround(x) { var r = Math.round(x); return (Math.abs(x % 1) === 0.5 && r % 2) ? r - 1 : r; }
+  function tinted(size, col, alpha) {
+    var k = size + ":" + col + ":" + alpha;
+    if (LOG.tint[k]) return LOG.tint[k];
+    var a = LOG.atlas[size]; if (!a || !a.complete || !a.naturalWidth) return null;
+    var c = document.createElement("canvas"); c.width = a.naturalWidth; c.height = a.naturalHeight;
+    var x = c.getContext("2d");
+    x.drawImage(a, 0, 0);
+    x.globalCompositeOperation = "source-in";
+    var target = [0, 1, 2].map(function (i) { return pyround(BG[i] + (col[i] - BG[i]) * alpha / 255); });
+    x.fillStyle = rgb(target); x.fillRect(0, 0, c.width, c.height);
+    return (LOG.tint[k] = c);
+  }
+  function fmt(tag, text) { tag = tag.slice(0, 8); while (tag.length < 8) tag += " "; return tag + " " + text; }
+  function draw() {
+    var dpr = window.devicePixelRatio || 1;
+    var W = Math.round(innerWidth * dpr), H = Math.round(innerHeight * dpr);
+    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+    ctx.clearRect(0, 0, W, H);
+    var g = geom(W, H, LOG.key); if (!g || g.y1 <= g.y0) return false;
+    var a = LOG.atlas[g.size];
+    if (!a) { a = LOG.atlas[g.size] = new Image(); a.onload = draw; a.src = "/splash/screens/mono/" + g.size + ".png"; return false; }
+    if (!a.complete) return false;
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = rgb(BG); ctx.fillRect(0, g.y0, W, g.y1 - g.y0);
+    function put(y, x, text, col, alpha) {
+      var t = tinted(g.size, col, alpha); if (!t) return;
+      for (var i = 0; i < text.length && x + (i + 1) * g.A <= W; i++) {
+        var c = Math.min(Math.max(text.charCodeAt(i) - 32, 0), 94);
+        ctx.drawImage(t, c * g.A, 0, g.A, g.LH, x + i * g.A, y, g.A, g.LH);
+      }
+    }
+    if (g.statusY != null && LOG.status) {
+      var st = LOG.status.slice(0, g.cols);
+      put(g.statusY, g.cx - Math.floor(st.length * g.A / 2), st, g.colours.status, 255);
+    }
+    var shown = g.n ? LOG.lines.slice(-g.n) : [];
+    for (var i = 0; i < shown.length; i++) {
+      var l = shown[i], age = shown.length - 1 - i;
+      var alpha = l.e ? 255 : g.fade[Math.min(age, g.fade.length - 1)];
+      put(g.top + i * g.LH, g.x0, fmt(l.t, l.m).slice(0, g.cols), g.colours[l.c] || g.colours.systemd, alpha);
+    }
+    return true;
+  }
+  function logTick() {
+    fetch("/api/bootlog?after=" + LOG.seq, { cache: "no-store" })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j.view) LOG.view = j.view;
+        var changed = j.status !== LOG.status;
+        LOG.status = j.status || "";
+        if (j.seq < LOG.seq) { LOG.lines = []; LOG.seq = 0; }    // the reader started over
+        (j.lines || []).forEach(function (l) { LOG.lines.push(l); LOG.seq = l.n; changed = true; });
+        if (LOG.lines.length > 200) LOG.lines = LOG.lines.slice(-200);
+        if (!LOG.firstAt) LOG.firstAt = Date.now();
+        LOG.ready = LOG.ready || j.ready || Date.now() - LOG.firstAt > 2500;
+        if (LOG.on && changed) draw();
+        if (!leaving) setTimeout(logTick, LOG.ready ? 400 : 150);
+      })
+      .catch(function () { if (!leaving) setTimeout(logTick, 1000); });
+  }
+  // Shown at once, with no fade, when it first appears (the painter's log was there a moment ago); faded
+  // out when the screen moves on to an update or reset picture.
+  function logShow(key, on) {
+    LOG.key = key;
+    on = on && LOG.ready && !!LOG.view;
+    if (on && !LOG.on) { draw(); cv.classList.add("on"); setTimeout(function () { cv.classList.add("fade"); }, 50); }
+    if (!on && LOG.on) cv.classList.remove("on");
+    if (on && LOG.on) draw();
+    LOG.on = on;
+  }
+  window.addEventListener("resize", function () { if (LOG.on) draw(); });
+  logTick();
+
   function tick() {
     fetch("/api/bootscreen", { cache: "no-store" })
       .then(function (r) { return r.json(); })
       .then(function (s) {
         var lang = s.lang === "nl" ? "nl" : "en";
+        var withLog = LOG_STATES.indexOf(s.state || "") >= 0;
         overlay(s.state ? s : {});
         if (s.state) {
           show(s.state === "boot" ? PLAIN : "/splash/screens/" + lang + "/" + s.state + ".png");
+          logShow(s.state, withLog);
         } else {
           var waited = Date.now() - t0;
-          // Alnasl is meant to run but does not answer yet: wait for it (a while at boot, longer after an
-          // update). Then / decides: the wizard, Alnasl or the menu.
+          // The role's app is meant to run but does not answer yet: wait for it (a while at boot, longer after
+          // an update). Then / decides: the wizard, the app or the menu.
           if (!(s.alnasl_wanted && !s.alnasl_up && waited < (BOOT ? 120000 : 600000))) return leave();
-          show(waited > 2500 ? "/splash/screens/" + lang + "/waiting.png" : PLAIN);
+          // v7: the log says what is going on; v6's "Starting Alnasl" picture only when there is no log.
+          show(LOG.view || waited <= 2500 ? PLAIN : "/splash/screens/" + lang + "/waiting.png");
+          logShow("boot", true);
         }
         setTimeout(tick, 1000);
       })
