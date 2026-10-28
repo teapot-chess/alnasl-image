@@ -6,3 +6,4 @@ scripts/__pycache__/
 # never: a private signing key has no business anywhere near an image source tree
 *.key
 *.pem
+__pycache__/
