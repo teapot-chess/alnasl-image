@@ -1,0 +1,18 @@
+[Unit]
+Description=Arkab remote PIN from /boot/efi/alnasl-arkab-pin.txt
+Documentation=file:///usr/local/sbin/alnasl-arkab-pin
+# After the role is known (alnasl-mode writes the flag) and the data partition holds /var/lib/arkab; before
+# Arkab starts, because Arkab reads the request this leaves when it starts. arkab.service wants this unit
+# and waits for it (arkab.service.d/alnasl-pin.conf), whoever starts it.
+RequiresMountsFor=/boot/efi
+After=alnasl-mode.service alnasl-data.service
+Before=arkab.service
+ConditionPathExists=/run/alnasl-mode/arkab
+ConditionPathExists=/boot/efi/alnasl-arkab-pin.txt
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/alnasl-arkab-pin
+
+[Install]
+WantedBy=multi-user.target

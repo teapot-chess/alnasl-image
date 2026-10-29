@@ -5,8 +5,9 @@ Optional files to put in this folder before the first boot:
   alnasl-reset.txt         RESET on the first line: erase this box back to new (see alnasl-reset.txt.example)
   alnasl-upgrade.txt       the next release train on the first line, e.g. v8 (see alnasl-upgrade.txt.example)
   alnasl-mode.txt          alnasl, arkab, polis or nunki on the first line: what this box is (see alnasl-mode.txt.example)
+  alnasl-arkab-pin.txt     (already here) the remote PIN of an Arkab box: fill in the PIN= line; it is emptied again at boot
 
-All four are read at boot and deleted. Do not edit config.txt or the other files here.
+The first four are read at boot and deleted; alnasl-arkab-pin.txt stays and only has its PIN line emptied. Do not edit config.txt or the other files here.
 This box has no remote login (no ssh, no VPN): everything is done on its own screen.
 Everything else is described in the README that came with the image.
 
