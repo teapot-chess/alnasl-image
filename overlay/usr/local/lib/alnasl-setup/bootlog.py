@@ -90,7 +90,8 @@ APP_UNITS = {
 BOX_UNITS = {"docker.service", "containerd.service", "alnasl-setup.service", "alnasl-data.service",
              "alnasl-mode.service", "alnasl-firstboot.service", "alnasl-kiosk.service", "alnasl-kiosk-load.service",
              "alnasl-slot-check.service", "alnasl-upgrade-boot.service", "alnasl-os-update.service",
-             "alnasl-system-update.service", "alnasl-system-update-check.service", "alnasl-reset-boot.service"}
+             "alnasl-system-update.service", "alnasl-system-update-check.service", "alnasl-reset-boot.service",
+             "alnasl-hotspot.service"}  # v7.3: says when the hotspot goes on and off; never its password
 ALL_APPS = set().union(*APP_UNITS.values())
 ALLOWED = NET_UNITS | ALL_APPS | BOX_UNITS
 

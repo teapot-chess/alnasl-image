@@ -104,10 +104,11 @@ cat > $R/inside-pkgs.sh <<'IN'
 set -euo pipefail
 tdnf install -y --nogpgcheck --disablerepo=photon-updates \
   linux-drivers-gpu-6.1.10-11.ph5 docker-23.0.2-1.ph5 docker-engine-23.0.2-1.ph5 docker-cli-23.0.2-1.ph5 tar diffutils kbd \
-  cups alsa-lib alsa-utils 2>&1 | tail -25
+  cups alsa-lib alsa-utils dnsmasq 2>&1 | tail -25
 tdnf clean all || true
+# v7.3: dnsmasq is the setup hotspot's DHCP and catch-all DNS (docs/captive-portal.md); nothing else uses it.
 # v7: cups (Polis prints through lp), alsa-lib + alsa-utils (Nunki: aplay, amixer; espeak-ng's audio).
-rpm -q tar diffutils kbd cups alsa-lib alsa-utils linux linux-drivers-gpu docker containerd runc dtb-rpi4 u-boot-rpi4 grub2-efi-image raspberrypi-firmware linux-firmware
+rpm -q tar diffutils kbd cups alsa-lib alsa-utils dnsmasq linux linux-drivers-gpu docker containerd runc dtb-rpi4 u-boot-rpi4 grub2-efi-image raspberrypi-firmware linux-firmware
 IN
 chroot $R /bin/bash /inside-pkgs.sh
 rm -f $R/inside-pkgs.sh $R/etc/yum.repos.d/zz-build-release.repo
@@ -172,6 +173,11 @@ unres=$(chroot $R depmod -a -e -F /boot/System.map-$KVER $KVER 2>&1 | grep -E 'v
 install -m 0755 $W/iw-out/iw $R/usr/sbin/iw
 echo "iw: $(cat $W/iw-out/iw.version | tr '\n' ' ')"
 chroot $R /bin/bash -c 'ldd /usr/sbin/iw; if ldd /usr/sbin/iw | grep -q "not found"; then echo "iw: MISSING LIBRARY"; exit 1; fi; iw --version'
+# --- 3c. hostapd (v7.3, the setup hotspot; Photon has none and its wpa_supplicant has no AP mode) ----
+install -m 0755 $W/hostapd-out/hostapd $R/usr/sbin/hostapd
+install -m 0755 $W/hostapd-out/hostapd_cli $R/usr/sbin/hostapd_cli
+echo "hostapd: $(cat $W/hostapd-out/hostapd.version | tr '\n' ' ')"
+chroot $R /bin/bash -c 'for b in /usr/sbin/hostapd /usr/sbin/hostapd_cli; do ldd $b; if ldd $b | grep -q "not found"; then echo "$b: MISSING LIBRARY"; exit 1; fi; done; hostapd -v 2>&1 | head -1'
 
 # --- 4. (v1-v5: Tailscale. Gone in v6: no VPN, no remote shell.) ---------------------
 
@@ -185,6 +191,10 @@ chmod 0755 $R
 chmod 0755 $R/usr/local/sbin/alnasl-* $R/usr/local/lib/alnasl-setup/server.py
 [ -x $R/usr/local/sbin/alnasl-mode ] || { echo "alnasl-mode missing from the overlay"; exit 1; }
 chmod 0644 $R/usr/local/lib/alnasl-setup/diag.py $R/usr/local/lib/alnasl-setup/bootlog.py
+chmod 0755 $R/usr/local/lib/alnasl-setup/hotspot.py $R/usr/local/lib/alnasl-setup/portal.py
+chmod 0644 $R/usr/local/lib/alnasl-setup/alnasl_qr.py $R/usr/local/lib/alnasl-setup/arkab_live.py $R/etc/alnasl/hotspot-dnsmasq.conf
+# v7.3: the hotspot file's template, for when someone deletes it from the card (alnasl-hotspot re-creates it).
+install -D -m 0644 $W/overlay/boot-efi/alnasl-hotspot.txt $R/usr/share/alnasl/defaults/boot-efi/alnasl-hotspot.txt
 chmod 0755 $R/usr/local/bin/espeak-ng
 chmod 0600 $R/etc/wpa_supplicant/wpa_supplicant-wlan0.conf
 # Console keyboard: Belgian by default (the setup pages change it later).
@@ -355,6 +365,10 @@ chroot $R /bin/bash -e <<'IN'
 systemctl disable iptables.service || true
 # v7: CUPS is Polis's, and alnasl-mode enables it only on a Polis box.
 systemctl disable cups.service >/dev/null 2>&1 || true
+# v7.3: dnsmasq runs only as alnasl-hotspot-dns, on the hotspot, while it is up. The stock unit would
+# answer DNS on every interface, Ethernet included; it does not get the chance.
+systemctl disable dnsmasq.service >/dev/null 2>&1 || true
+systemctl mask dnsmasq.service
 [ "$(systemctl is-enabled cups.service 2>/dev/null)" != enabled ] || { echo "cups.service is still enabled"; exit 1; }
 systemctl mask systemd-networkd-wait-online.service
 rm -f /etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service
@@ -366,7 +380,7 @@ systemctl enable alnasl-firewall.service alnasl-firstboot.service alnasl-wifi.se
   alnasl-splash.service alnasl-splash-reboot.service alnasl-splash-poweroff.service \
   alnasl-os-update.timer alnasl-reset-boot.service \
   alnasl-data.service alnasl-slot-check.service alnasl-upgrade-boot.service alnasl-mode.service \
-  alnasl-system-update-check.timer
+  alnasl-system-update-check.timer alnasl-hotspot.service
 # v6 A/B: Photon's first-boot resizefs grows / to 90 % of the card and adds a swap partition; both
 # would wreck the slot/data layout. The data partition grows instead (alnasl-data).
 systemctl mask resizefs.service
@@ -407,6 +421,8 @@ ls -la $R/var/lib/alnasl-image/
 
 # --- 11. the boot (FAT) partition: templates + a note ------------------------------------
 cp $W/overlay/boot-efi/* $B/
+# v7.3: the hotspot file is for Notepad, so CRLF (the build stripped it with everything else).
+sed -i 's/\r*$/\r/' $B/alnasl-hotspot.txt
 # v6 A/B: grub's config on this partition chooses the slot (scripts/grub-ab.cfg; no slot's own
 # grub.cfg is read any more). Its environment block, 1024 bytes written in place by grub's save_env
 # and by alnasl-system-update, starts on slot A.

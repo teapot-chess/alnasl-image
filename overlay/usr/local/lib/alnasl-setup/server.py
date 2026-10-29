@@ -402,6 +402,8 @@ def parse_iw_scan(out):
 def wifi_scan():
     """Scan for networks. Never returns a bare empty list: when nothing was found
     the answer carries a reason code and the raw outputs, which the UI shows."""
+    if hotspot_active():  # hostapd has the radio: restarting the supplicant now would take it away
+        return hotspot_scan()
     t0 = time.time()
     raw = []
     info = ensure_wifi()
@@ -492,14 +494,23 @@ def wlan_ip():
         return None
 
 
-def wifi_connect(ssid, passphrase, hidden, country):
+def validate_wifi(ssid, passphrase, country):
     if not ssid or len(ssid.encode()) > 32:
         raise ValueError("The network name must be 1 to 32 bytes.")
     if passphrase and not 8 <= len(passphrase) <= 63:
         raise ValueError("The passphrase must be 8 to 63 characters.")
     if not re.fullmatch(r"[A-Za-z]{2}", country or "BE"):
         raise ValueError("The country must be two letters.")
-    country = (country or "BE").upper()
+    return (country or "BE").upper()
+
+
+def wifi_connect(ssid, passphrase, hidden, country):
+    country = validate_wifi(ssid, passphrase, country)
+    if hotspot_active():
+        # The radio is the setup hotspot's. The hotspot daemon lets go of it and tries this network
+        # (with this very function, once wlan0 is a client again); the answer comes on the next page load.
+        hotspot_join_request(ssid, passphrase, hidden, country)
+        return {"ok": False, "reason": "hotspot_handover", "pending": True}
     if not ensure_wifi_running():
         return {"ok": False, "reason": "supplicant_failed"}
     old_text = read(WPA_CONF)
@@ -1486,6 +1497,226 @@ def factory_reset(confirm):
     return {"ok": True}
 
 
+# ------------------------------------------------------ setup hotspot/portal --
+# docs/captive-portal.md. hotspot.py (alnasl-hotspot.service) owns wlan0 while the hotspot is on and
+# writes what it is doing to /run/alnasl-hotspot/status.json; this server answers the page that phones
+# see on the hotspot (portal.py, 10.42.0.1:80, which passes ONLY the /api/portal calls on to here) and the
+# box's own screen (/api/hotspot, loopback, which is the one place the password is shown). Nothing here
+# erases, updates or re-roles the box: the portal's calls are Wi-Fi, the Arkab PIN and Arkab's join link.
+HOTSPOT_RUN = "/run/alnasl-hotspot"
+HOTSPOT_ACTIVE = HOTSPOT_RUN + "/active"
+HOTSPOT_STATUS = HOTSPOT_RUN + "/status.json"
+HOTSPOT_JOIN = HOTSPOT_RUN + "/join.json"
+HOTSPOT_SCAN = HOTSPOT_RUN + "/scan.json"
+HOTSPOT_FILE = "/boot/efi/alnasl-hotspot.txt"
+HOTSPOT_NET = ipaddress.ip_network("10.42.0.0/24")
+ARKAB_DATA = "/var/lib/arkab"
+ARKAB_PENDING = STATE_DIR + "/arkab-join.pending"
+ARKAB_RESULT = STATE_DIR + "/arkab-join.result"
+ARKAB_PENDING_MAX = 900                  # a join code is good for 15 minutes on the server's side
+
+
+def hotspot_active():
+    return os.path.exists(HOTSPOT_ACTIVE)
+
+
+def hotspot_status():
+    try:
+        s = json.loads(read(HOTSPOT_STATUS, "{}"))
+        return s if isinstance(s, dict) else {}
+    except ValueError:
+        return {}
+
+
+def hotspot_screen():
+    """GET /api/hotspot, for the box's own screen: the hotspot's name and password while it is on."""
+    s = hotspot_status()
+    out = {"active": hotspot_active(), "ssid": s.get("ssid"), "portal": "http://10.42.0.1/", "reason": s.get("reason")}
+    if out["active"]:
+        import hotspot
+        pw = hotspot.parse_file(read(HOTSPOT_FILE)).get("password") or ""
+        out["password"] = pw if hotspot.valid_password(pw) else None
+    return out
+
+
+def hotspot_join_request(ssid, passphrase, hidden, country):
+    """Hands a network to the hotspot daemon. 0600 in a root-only /run directory; it reads and deletes
+    it within a few seconds. Not logged, not kept."""
+    os.makedirs(HOTSPOT_RUN, mode=0o700, exist_ok=True)
+    tmp = HOTSPOT_JOIN + ".new"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump({"ssid": ssid, "passphrase": passphrase or "", "hidden": bool(hidden), "country": country}, f)
+    os.replace(tmp, HOTSPOT_JOIN)
+    log("a Wi-Fi network was handed to the hotspot daemon to try")
+
+
+def hotspot_scan():
+    """While the AP is up: a scan in AP mode if the chip allows it (brcmfmac often does not), otherwise
+    the list the hotspot daemon saved just before it took the radio."""
+    nets, source, age = [], "iw-ap", 0
+    if diag.have("iw"):
+        rc, out = diag.runo(["iw", "dev", "wlan0", "scan", "ap-force"], 15)
+        if rc == 0:
+            nets = [n for n in parse_iw_scan(out) if not n["ssid"].startswith("Alnasl-setup-")]
+    if not nets:
+        try:
+            c = json.loads(read(HOTSPOT_SCAN, "{}"))
+            nets, source, age = c.get("networks") or [], "cached", int(time.time() - float(c.get("t", 0)))
+        except (ValueError, TypeError):
+            nets = []
+    nets = [n for n in nets if isinstance(n, dict) and isinstance(n.get("ssid"), str)]
+    nets.sort(key=lambda n: -int(n.get("signal", -100)))
+    saved = {bytes.fromhex(n["ssid"]).decode("utf-8", "replace") for n in parse_wpa()[1]}
+    for n in nets:
+        n["saved"] = n["ssid"] in saved
+    res = {"available": True, "networks": nets, "source": source, "age": age, "hotspot": True}
+    if not nets:
+        res["reason"] = "no_results"
+    return res
+
+
+def box_addresses():
+    """The box's IPv4 addresses on the hall's side (never the hotspot's own)."""
+    out = []
+    for iface in ("eth0", "wlan0"):
+        for a in ipv4_info(iface):
+            ip = a.split("/")[0]
+            try:
+                if ipaddress.ip_address(ip) not in HOTSPOT_NET:
+                    out.append({"iface": iface, "ip": ip})
+            except ValueError:
+                pass
+    return out
+
+
+def where_next(role=None):
+    """Where the box can be reached once it is on the hall's network: its name, and its page if it has one."""
+    role = role or running_role()
+    host = socket.gethostname()
+    port = {"alnasl": ALNASL_PORT, "arkab": ROLE_PORT["arkab"]}.get(role)
+    return {"host": host, "mdns": host + ".local", "port": port,
+            "url": ("http://%s.local:%d/" % (host, port)) if port else None}
+
+
+def read_json(path):
+    try:
+        v = json.loads(read(path, "null"))
+        return v if isinstance(v, dict) else None
+    except ValueError:
+        return None
+
+
+def write_json_private(path, obj):
+    write_atomic(path, json.dumps(obj) + "\n", 0o600)
+
+
+def portal_info():
+    """GET /api/portal: everything the setup page on the hotspot shows. No secrets."""
+    role = running_role()
+    s = hotspot_status()
+    out = {"role": role, "hostname": socket.gethostname(), "addresses": box_addresses(), "next": where_next(role),
+           "hotspot": {"active": hotspot_active(), "ssid": s.get("ssid"), "reason": s.get("reason")},
+           "last_join": s.get("last_join"), "country": parse_wpa()[0], "lang": get_state().get("lang", "en"),
+           "saved": wifi_saved()["saved"]}
+    if role == "arkab":
+        pend = read_json(ARKAB_PENDING)
+        out["arkab"] = {"up": role_up("arkab"), "pending": bool(pend), "last": read_json(ARKAB_RESULT)}
+    return out
+
+
+def portal_join(b):
+    ssid, pw = str(b.get("ssid") or ""), str(b.get("passphrase") or "")
+    country = validate_wifi(ssid, pw, str(b.get("country") or "BE"))
+    if not hotspot_active():  # the portal page only exists while the hotspot is on; this is the odd race
+        return wifi_connect(ssid, pw, b.get("hidden"), country)
+    hotspot_join_request(ssid, pw, b.get("hidden"), country)
+    return {"ok": True, "switching": True, "ssid": ssid, "hotspot": hotspot_status().get("ssid"), "next": where_next()}
+
+
+def arkab_pin_check(pin):
+    """The SD-card file's rules (alnasl-arkab-pin): 4 to 64 characters, no space or quote at either end, no
+    control characters; and not the two words that mean "remove" there."""
+    if not isinstance(pin, str) or not 4 <= len(pin) <= 64:
+        raise ValueError("pin_length")
+    if pin != pin.strip(" ") or pin[0] in "\"'" or pin[-1] in "\"'":
+        raise ValueError("pin_edges")
+    if any(ord(c) < 32 or ord(c) == 127 for c in pin):
+        raise ValueError("pin_control")
+    if pin.lower() in ("remove", "verwijderen"):
+        raise ValueError("pin_word")
+    return pin
+
+
+def portal_arkab_pin(b):
+    """Arkab's remote PIN, the way the SD card hands it over: a request file in Arkab's data directory
+    (0600, owner arkab) that Arkab applies when it starts (Arkab.PinRequest), then a restart of Arkab."""
+    if running_role() != "arkab":
+        raise ValueError("not_arkab")
+    pin = arkab_pin_check(b.get("pin"))
+    import pwd
+    try:
+        pw = pwd.getpwnam("arkab")
+    except KeyError:
+        raise ValueError("arkab_missing")
+    if not os.path.isdir(ARKAB_DATA):
+        raise ValueError("arkab_missing")
+    req = ARKAB_DATA + "/pin-request"
+    tmp = req + ".new"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write("set\n%s\n" % pin)
+    os.chown(tmp, pw.pw_uid, pw.pw_gid)
+    os.replace(tmp, req)
+    log("an Arkab remote PIN was handed to Arkab from the setup page; Arkab restarts to apply it")
+    later(1.0, sysctl, "restart", "--no-block", "arkab.service")
+    return {"ok": True}
+
+
+def _arkab_join_now(link):
+    import arkab_live
+    ok, reason = arkab_live.join(link)
+    write_json_private(ARKAB_RESULT, {"ok": ok, "reason": reason, "at": time.time()})
+    log("Arkab join from the setup page: %s" % reason)
+    return ok, reason
+
+
+def portal_arkab_join(b):
+    """Arkab's join link. With a network now (Ethernet beside the hotspot), Arkab is asked at once over
+    loopback; without one (the usual case: the box is on the hotspot because it has no network), the link
+    waits here and the hotspot daemon hands it over as soon as the Wi-Fi works."""
+    if running_role() != "arkab":
+        raise ValueError("not_arkab")
+    import arkab_live
+    link = arkab_live.valid_link(str(b.get("link") or ""))
+    if not link:
+        raise ValueError("not_a_link")
+    if box_addresses() and role_up("arkab"):
+        ok, reason = _arkab_join_now(link)
+        return {"ok": ok, "reason": reason, "pending": False}
+    write_json_private(ARKAB_PENDING, {"link": link, "t": time.time()})
+    try:
+        os.remove(ARKAB_RESULT)
+    except OSError:
+        pass
+    return {"ok": True, "pending": True}
+
+
+def arkab_join_pending():
+    """Called by the hotspot daemon once the box has a network: the waiting join link, if any."""
+    pend = read_json(ARKAB_PENDING)
+    if not pend:
+        return None
+    if time.time() - float(pend.get("t", 0)) > ARKAB_PENDING_MAX:
+        os.remove(ARKAB_PENDING)
+        write_json_private(ARKAB_RESULT, {"ok": False, "reason": "expired", "at": time.time()})
+        return "expired"
+    if running_role() != "arkab" or not box_addresses() or not role_up("arkab"):
+        return None
+    os.remove(ARKAB_PENDING)
+    return _arkab_join_now(str(pend.get("link") or ""))[1]
+
+
 # ---------------------------------------------------------------------- HTTP --
 
 def api_get(path, q):
@@ -1537,6 +1768,12 @@ def api_get(path, q):
         return printers_usb()
     if path == "/api/sound":
         return sound_status()
+    if path == "/api/hotspot":  # the box's own screen only: portal.py never passes this one on
+        return hotspot_screen()
+    if path == "/api/portal":
+        return portal_info()
+    if path == "/api/portal/scan":
+        return wifi_scan()
     if path == "/healthz":
         return {"ok": True}
     return None
@@ -1640,6 +1877,13 @@ def api_post(path, b):
         return system_request("upgrade", train=str(b.get("train", "")), by=b.get("by", "menu"))
     if path == "/api/system/url":  # "" puts the default back
         return system_url(str(b.get("url", "")))
+    # The setup page on the hotspot (portal.py passes these three on, and nothing else that changes anything).
+    if path == "/api/portal/join":
+        return portal_join(b)
+    if path == "/api/portal/arkab-pin":
+        return portal_arkab_pin(b)
+    if path == "/api/portal/arkab-join":
+        return portal_arkab_join(b)
     return None
 
 

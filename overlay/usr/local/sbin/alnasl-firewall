@@ -20,6 +20,10 @@
 #   arkab   4050 (Arkab's status page)
 #   polis, nunki  no port at all: they dial out, and their pages are for this box's own screen
 # plus mDNS, DHCP replies and ICMP. Nothing else: no ssh (22), no Tailscale (41641, tailscale0).
+# The setup hotspot (docs/captive-portal.md), while it is up (/run/alnasl-hotspot/active, which
+# alnasl-hotspot writes before it reloads this): DNS (53), DHCP (67) and the setup page (80), on wlan0
+# and on the hotspot's address only, never on Ethernet; and the hotspot's phones get nothing else, not
+# even the role's port. alnasl-hotspot reloads this when the hotspot goes, and the rules go with it.
 # verify.sh fails the build if either comes back. The role is /run/alnasl-mode/role (alnasl-mode runs
 # first); no role file means alnasl, as everywhere.
 #
@@ -33,6 +37,20 @@ case "$ROLE" in
   polis | nunki) PORT="" ;;
   *) ROLE=alnasl; PORT=4040 ;;
 esac
+HS_FLAG=/run/alnasl-hotspot/active
+HS_IF=wlan0
+HS_ADDR=10.42.0.1
+HS_NET=10.42.0.0/24
+hotspot_v4() {
+  [ -e "$HS_FLAG" ] || return 0
+  echo "-A $CHAIN -i $HS_IF -d $HS_ADDR/32 -p udp --dport 53 -j ACCEPT"
+  echo "-A $CHAIN -i $HS_IF -d $HS_ADDR/32 -p tcp --dport 53 -j ACCEPT"
+  echo "-A $CHAIN -i $HS_IF -p udp --sport 68 --dport 67 -j ACCEPT"
+  echo "-A $CHAIN -i $HS_IF -d $HS_ADDR/32 -p tcp --dport 80 -j ACCEPT"
+  echo "-A $CHAIN -i $HS_IF -s $HS_NET -p icmp -j ACCEPT"
+  echo "-A $CHAIN -i $HS_IF -j DROP"
+}
+hotspot_v6() { [ -e "$HS_FLAG" ] && echo "-A $CHAIN -i $HS_IF -j DROP"; return 0; }
 app_rule() { [ -n "$PORT" ] && echo "-A $CHAIN -p tcp --dport $PORT -j ACCEPT"; }
 
 unhook() { # tool
@@ -56,6 +74,7 @@ rules_v4() {
 :$CHAIN - [0:0]
 -A $CHAIN -i lo -j ACCEPT
 -A $CHAIN -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+$(hotspot_v4)
 $(app_rule)
 -A $CHAIN -p icmp -j ACCEPT
 -A $CHAIN -p udp --sport 67 --dport 68 -j ACCEPT
@@ -71,6 +90,7 @@ rules_v6() {
 :$CHAIN - [0:0]
 -A $CHAIN -i lo -j ACCEPT
 -A $CHAIN -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+$(hotspot_v6)
 $(app_rule)
 -A $CHAIN -p ipv6-icmp -j ACCEPT
 -A $CHAIN -p udp --dport 546 -j ACCEPT
@@ -109,7 +129,7 @@ apply() { # tool rules-function
     open_everything "$t"
     return 1
   fi
-  log "$t: ruleset active for $ROLE (${PORT:-no app port}, DHCP, mDNS, ICMP; everything else dropped)"
+  log "$t: ruleset active for $ROLE (${PORT:-no app port}, DHCP, mDNS, ICMP$([ -e "$HS_FLAG" ] && echo "; setup hotspot on $HS_IF: DNS, DHCP, page"); everything else dropped)"
   return 0
 }
 

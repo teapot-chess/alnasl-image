@@ -1,0 +1,11 @@
+[Unit]
+Description=Alnasl setup hotspot: the access point (hostapd, WPA2)
+# Started and stopped by alnasl-hotspot.service only (no [Install]); goes with it.
+PartOf=alnasl-hotspot.service
+After=alnasl-hotspot.service
+ConditionPathExists=/run/alnasl-hotspot/hostapd.conf
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/hostapd /run/alnasl-hotspot/hostapd.conf
+Restart=no

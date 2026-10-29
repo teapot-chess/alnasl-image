@@ -1,0 +1,21 @@
+[Unit]
+Description=Alnasl setup hotspot (Wi-Fi of its own when the box has no network; docs/captive-portal.md)
+Documentation=file:///usr/local/lib/alnasl-setup/hotspot.py
+# The role and the data partition first (the QR stamp lives there), the boot partition for the password
+# file, the firewall before it is asked to open anything, the network daemons and the Wi-Fi client before
+# this decides whether to take wlan0 away from them, and the setup server whose functions it shares.
+RequiresMountsFor=/boot/efi
+After=alnasl-mode.service alnasl-data.service alnasl-firewall.service alnasl-firstboot.service
+After=systemd-networkd.service systemd-resolved.service wpa_supplicant@wlan0.service alnasl-wifi.service alnasl-setup.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/lib/alnasl-setup/hotspot.py
+# Whatever happened, wlan0 goes back to being a Wi-Fi client when this stops.
+ExecStopPost=/usr/bin/python3 /usr/local/lib/alnasl-setup/hotspot.py --stop
+Restart=always
+RestartSec=10
+PrivateTmp=no
+
+[Install]
+WantedBy=multi-user.target

@@ -745,6 +745,92 @@ grep -q 'ConditionResult' $D && ok "diagnostics: every role's units, with whethe
 dg=$(chroot $R /usr/bin/python3 -c 'import sys; sys.path.insert(0,"/usr/local/lib/alnasl-setup"); import diag; print("ROLE" if "chosen" in diag.role_text() else "NOROLE")' 2>&1 | tail -1)
 [ "$dg" = ROLE ] && ok "diag.role_text() runs in the image" || bad "diag.role_text(): $dg"
 
+echo "== v7.3: the setup hotspot and its captive portal (docs/captive-portal.md; qemu has no Wi-Fi, so no radio here)"
+L=$R/usr/local/lib/alnasl-setup; SU=$R/etc/systemd/system; WWWD=$R/usr/local/share/alnasl-setup/www
+for f in usr/local/lib/alnasl-setup/hotspot.py usr/local/lib/alnasl-setup/portal.py usr/local/lib/alnasl-setup/alnasl_qr.py usr/local/lib/alnasl-setup/arkab_live.py \
+         usr/local/share/alnasl-setup/www/portal.html usr/local/share/alnasl-setup/www/portal.js etc/alnasl/hotspot-dnsmasq.conf \
+         usr/share/alnasl/defaults/boot-efi/alnasl-hotspot.txt usr/sbin/hostapd usr/sbin/hostapd_cli usr/sbin/dnsmasq; do
+  [ -e $R/$f ] && ok "present: /$f" || bad "missing: /$f"
+done
+[ -x $L/hotspot.py ] && [ -x $L/portal.py ] && ok "hotspot.py and portal.py are executable" || bad "hotspot.py/portal.py modes"
+for m in hotspot portal alnasl_qr arkab_live; do
+  chroot $R python3 -c "compile(open('/usr/local/lib/alnasl-setup/$m.py').read(), '$m.py', 'exec')" && ok "$m.py compiles with the image's python" || bad "$m.py does not compile"
+done
+for b in /usr/sbin/hostapd /usr/sbin/hostapd_cli /usr/sbin/dnsmasq; do
+  ! chroot $R ldd $b 2>&1 | grep -q 'not found' && ok "$b: every library is there" || bad "$b: a library is missing"
+done
+echo "       $(chroot $R /usr/sbin/hostapd -v 2>&1 | head -1); $(chroot $R /usr/sbin/dnsmasq --version 2>&1 | head -1)"
+chroot $R /usr/sbin/dnsmasq --test --conf-file=/etc/alnasl/hotspot-dnsmasq.conf >/dev/null 2>&1 && ok "dnsmasq accepts hotspot-dnsmasq.conf" || bad "dnsmasq --test refuses hotspot-dnsmasq.conf"
+DC=$R/etc/alnasl/hotspot-dnsmasq.conf
+grep -q '^interface=wlan0$' $DC && grep -q '^bind-interfaces$' $DC && grep -q '^listen-address=10.42.0.1$' $DC && ! grep -q -E '^(interface|listen-address)=.*(eth|0\.0\.0\.0)' $DC \
+  && grep -q '^address=/#/10.42.0.1$' $DC && grep -q '^dhcp-option=114,"http://10.42.0.1/api/captive"$' $DC && grep -q '^no-resolv$' $DC && ! grep -q '^server=' $DC \
+  && ok "dnsmasq: wlan0 and 10.42.0.1 only, every name is the box, option 114, no upstream" || bad "hotspot-dnsmasq.conf"
+# Units: the daemon is enabled and ordered; the three it drives have no [Install] (nothing else starts them); stock dnsmasq never runs.
+s=$(chroot $R systemctl is-enabled alnasl-hotspot.service 2>&1 | tail -1); [ "$s" = enabled ] && ok "alnasl-hotspot enabled" || bad "alnasl-hotspot: $s"
+for u in alnasl-hotspot-ap alnasl-hotspot-dns alnasl-portal; do
+  [ -f $SU/$u.service ] && ! grep -q '^\[Install\]' $SU/$u.service && grep -q '^PartOf=alnasl-hotspot.service' $SU/$u.service && ok "$u: no [Install], part of alnasl-hotspot" || bad "$u unit"
+done
+s=$(chroot $R systemctl is-enabled dnsmasq.service 2>&1 | tail -1); [ "$s" = masked ] && ok "stock dnsmasq.service masked (it would answer on Ethernet)" || bad "dnsmasq.service: $s"
+H=$SU/alnasl-hotspot.service
+grep -q '^RequiresMountsFor=/boot/efi' $H && grep -q '^After=.*alnasl-firewall.service' $H && grep -q '^After=.*alnasl-data.service' $H && grep -q '^After=.*wpa_supplicant@wlan0.service' $H \
+  && grep -q '^After=.*systemd-networkd.service' $H && grep -q '^ExecStopPost=.*hotspot.py --stop' $H && ok "alnasl-hotspot: after the boot partition, data, firewall, networkd and the supplicant; gives wlan0 back when it stops" || bad "alnasl-hotspot.service ordering"
+grep -q '^After=alnasl-hotspot-ap.service' $SU/alnasl-hotspot-dns.service && grep -q '^Requires=alnasl-hotspot-ap.service' $SU/alnasl-hotspot-dns.service \
+  && grep -q '^After=alnasl-hotspot-ap.service' $SU/alnasl-portal.service && ok "DNS/DHCP and the page come after (and need) the access point" || bad "hotspot unit order"
+P=$SU/alnasl-portal.service
+grep -q '^DynamicUser=yes' $P && grep -q '^CapabilityBoundingSet=CAP_NET_BIND_SERVICE$' $P && grep -q '^NoNewPrivileges=yes' $P && grep -q '^ProtectSystem=strict' $P \
+  && ok "the portal runs as a throwaway user with nothing but port 80" || bad "alnasl-portal.service hardening"
+# The firewall: 53/67/80 only with the hotspot flag, only on wlan0, never on Ethernet; the hotspot's phones get nothing else.
+fwhs() { # role flag(1/0) -> both rulesets
+  local d; d=$(mktemp -d); echo "$1" > $d/role; [ "$2" = 1 ] && touch $d/active
+  bash -c "source <(sed -n '/^CHAIN=/p;/^log()/p;/^ROLE=/,/^app_rule()/p;/^rules_v4()/,/^}/p;/^rules_v6()/,/^}/p' $R/usr/local/sbin/alnasl-firewall | sed 's#/run/alnasl-mode/role#$d/role#;s#/run/alnasl-hotspot/active#$d/active#'); rules_v4; rules_v6"
+  rm -rf $d
+}
+for r in alnasl arkab polis nunki; do
+  on=$(fwhs $r 1); off=$(fwhs $r 0)
+  ! grep -q -E -- '--dport (53|67|80)( |$)' <<<"$off" && ok "firewall, $r, no hotspot: 53/67/80 closed" || bad "firewall, $r: 53/67/80 open without the hotspot"
+  [ "$(grep -E -- '--dport (53|67|80)( |$)' <<<"$on" | grep -c -v -- '-i wlan0 ')" = 0 ] && [ "$(grep -c -E -- '--dport (53|67|80)( |$)' <<<"$on")" = 4 ] \
+    && ok "firewall, $r, hotspot: DNS (udp+tcp), DHCP, page; every one -i wlan0" || bad "firewall, $r: a hotspot port without -i wlan0"
+  ! grep -q -E -- '-i (eth|en|docker)' <<<"$on" && ok "firewall, $r, hotspot: nothing opened on Ethernet" || bad "firewall, $r: an Ethernet rule"
+  v4=$(awk '/^\*filter/{n++} n==1' <<<"$on")
+  a=$(grep -n -- '-i wlan0 -j DROP' <<<"$v4" | cut -d: -f1); b=$(grep -n -E -- '--dport (4040|4050) -j ACCEPT|-p icmp -j ACCEPT$|--dport 5353' <<<"$v4" | grep -v -- '-i wlan0' | head -1 | cut -d: -f1)
+  [ -n "$a" ] && [ "$a" -lt "${b:-999}" ] && [ "$(grep -c -- '-i wlan0 -j DROP' <<<"$on")" = 2 ] && ok "firewall, $r, hotspot: the phones get nothing else (wlan0 DROP before the role's rules, IPv6 too)" || bad "firewall, $r: hotspot DROP missing or late"
+  [ "$(grep -c -- '^-A ALNASL-IN -j DROP$' <<<"$on")" = 2 ] && [ "$(grep -c '^$' <<<"$on")" = 0 ] || bad "firewall, $r, hotspot: no final DROP or blank lines"
+done
+if command -v iptables-restore >/dev/null; then
+  for r in alnasl arkab; do
+    fwhs $r 1 | awk '/^\*filter/{n++} n==1' | iptables-restore --noflush --test && ok "iptables-restore --test accepts the $r IPv4 ruleset with the hotspot" || bad "iptables-restore --test refuses the $r hotspot ruleset"
+  done
+fi
+grep -q 'start | reload)' $R/usr/local/sbin/alnasl-firewall && grep -q 'alnasl-firewall", "reload"' $L/hotspot.py && ok "alnasl-hotspot reloads the firewall as it goes up and down" || bad "firewall reload"
+# WPA2 only, never open; the password only as the derived key, and never in a log line.
+grep -q '"wpa=2"' $L/hotspot.py && grep -q '"wpa_psk=" + psk_hex' $L/hotspot.py && ! grep -q -E 'wpa_passphrase|wpa=[013]"|key_mgmt=NONE|auth_algs=[23]' $L/hotspot.py \
+  && ok "hostapd: WPA2-PSK with the derived key only; no open or WEP mode in the code" || bad "hostapd configuration in hotspot.py"
+grep -q 'raise ValueError("no valid password' $L/hotspot.py && ok "no valid password, no hotspot (rather than an open one)" || bad "hostapd_conf does not refuse an empty password"
+lk=$(grep -n -E '(^|[^a-z_])(log|print)\([^#]*(self\.password|passphrase|[^a-z_]pw[^a-z_0-9]|pw\)|password\))' $L/hotspot.py $L/portal.py $L/arkab_live.py; \
+     sed -n '/setup hotspot\/portal --/,/^# ---.*HTTP --/p' $L/server.py | grep -n -E '(^|[^a-z_])(log|print)\([^#]*(passphrase|password|[^a-z_]pw[^a-z_0-9]|pin\))')
+[ -z "$lk" ] && ok "no log line carries the hotspot password, a Wi-Fi passphrase or a PIN" || bad "a log line may show a secret: $lk"
+grep -q 'def log_message' $L/portal.py && grep -q 'never a query or a body' $L/portal.py && ok "the portal logs method, path and status only" || bad "portal logging"
+! grep -q -E '(src|href)="https?://' $WWWD/portal.html && [ -z "$(grep -E '(fetch|src|href)[:(= ]*["'"'"'`]https?://' $WWWD/portal.js | grep -v 'https\?://10\.42\.0\.1/')" ] && ok "the portal page loads nothing from outside (there is no outside)" || bad "portal page refers to an outside URL"
+# The boot partition: the file is there, CRLF, with its English and Dutch header and an empty PASSWORD= (generated at first boot).
+F=$B/alnasl-hotspot.txt
+[ -f $F ] && grep -q 'ALNASL SETUP HOTSPOT' $F && grep -q 'ALNASL-INSTALLATIEHOTSPOT' $F && grep -q '8 to 63' $F && grep -q '8 tot' $F && grep -q 'WPA2' $F \
+  && grep -q 'alnasl-hotspot-qr.png' $F && grep -q 'stick it on the case' $F && grep -q 'plak hem op de' $F && grep -q 'serial number' $F && grep -q 'serienummer' $F \
+  && ok "boot partition: alnasl-hotspot.txt with its English and Dutch header (password rules, QR sticker, no serial number)" || bad "boot partition alnasl-hotspot.txt or its header"
+[ "$(tr -d '\r' < $F | grep -c '^PASSWORD=.')" = 0 ] && [ "$(tr -d '\r' < $F | grep -c '^SSID=.')" = 0 ] && tr -d '\r' < $F | grep -q '^PASSWORD=$' \
+  && ok "boot partition: PASSWORD= and SSID= ship empty (each box makes its own)" || bad "the shipped alnasl-hotspot.txt has a password or SSID in it"
+[ "$(grep -a -c -v $'\r$' $F)" = 0 ] && ok "alnasl-hotspot.txt is CRLF (Notepad)" || bad "alnasl-hotspot.txt has LF-only lines"
+[ ! -e $B/alnasl-hotspot-qr.png ] && ok "no QR code shipped (it is per box)" || bad "a QR code is on the image's boot partition"
+cmp -s <(tr -d '\r' < $F) <(tr -d '\r' < $R/usr/share/alnasl/defaults/boot-efi/alnasl-hotspot.txt) && ok "the image keeps a copy to re-create it from" || bad "the template copy differs from the boot file"
+grep -q 'alnasl-hotspot.txt' $B/README-ALNASL.txt && grep -q 'alnasl-hotspot-qr.png' $B/README-ALNASL.txt && grep -q -i 'stick it on the case' $B/README-ALNASL.txt && ok "README-ALNASL.txt: the hotspot file and the QR sticker" || bad "README-ALNASL.txt does not mention the hotspot"
+# The logic and the QR code, on the image's own Python: decide(), the file, hostapd, the portal's routes, PIN and link checks; the QR decoded.
+install -m 0644 $W/test-hotspot.py $R/tmp/test-hotspot.py; install -m 0644 $W/test-qr.py $R/tmp/test-qr.py
+out=$(chroot $R python3 -I /tmp/test-hotspot.py /usr/local/lib/alnasl-setup 2>&1); echo "$out" | grep -v '^ok ' | sed 's/^/       /'
+echo "$out" | grep -q 'RESULT: all hotspot checks passed' && ok "test-hotspot.py: $(echo "$out" | grep -c '^ok ') checks in the image" || bad "test-hotspot.py failed in the image"
+out=$(chroot $R python3 -I /tmp/test-qr.py /usr/local/lib/alnasl-setup/alnasl_qr.py 2>&1); echo "$out" | tail -1 | sed 's/^/       /'
+echo "$out" | grep -q 'test-qr: 0 failure' && ok "test-qr.py: the QR encoder's symbols decode (image python)" || bad "test-qr.py failed in the image"
+rm -f $R/tmp/test-hotspot.py $R/tmp/test-qr.py
+find $R/usr/local/lib/alnasl-setup -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
+
 echo "== sizes"
 df -h $R | tail -1
 echo "== result: $([ $fail = 0 ] && echo ALL CHECKS PASSED || echo SOME CHECKS FAILED)"

@@ -93,6 +93,8 @@ const TX = {
     scan_why_rejected: "The Wi-Fi program refused to scan. See the details below.",
     scan_why_nointerface: "There is no Wi-Fi interface (wlan0). The details below show what the kernel says.",
     err_supp: "The Wi-Fi program could not be started. Open Diagnostics for the reason.",
+    hs_title: "Set up from a phone", hs_d: "This box has its own setup Wi-Fi on right now. Join it with a phone and its setup page opens by itself.",
+    hs_ssid: "Wi-Fi", hs_pw: "Password", hs_handover: "The box leaves its setup hotspot to try this network. If it works the hotspot stays off; if not, it comes back within a minute.",
     console_title: "Console", console_d: "With a keyboard on the box: Ctrl+Alt+F2 or F3 opens a text console (log in as root), Ctrl+Alt+F1 returns to the screen.",
     console_show: "Show the console now", console_back: "Press Ctrl+Alt+F1 on the keyboard to return to this screen.",
     console_stop: "Stop the screen", console_stop_q: "Stop the screen until the next boot?",
@@ -214,6 +216,8 @@ const TX = {
     scan_why_rejected: "Het wifi-programma weigerde te scannen. Zie de details hieronder.",
     scan_why_nointerface: "Er is geen wifi-interface (wlan0). De details hieronder tonen wat de kernel zegt.",
     err_supp: "Het wifi-programma kon niet gestart worden. Open Diagnose voor de reden.",
+    hs_title: "Instellen met je telefoon", hs_d: "Deze kast heeft nu zijn eigen installatiewifi aan. Maak er verbinding mee met je telefoon en de installatiepagina gaat vanzelf open.",
+    hs_ssid: "Wifi", hs_pw: "Wachtwoord", hs_handover: "De kast verlaat zijn installatiehotspot om dit netwerk te proberen. Lukt het, dan blijft de hotspot uit; lukt het niet, dan komt hij binnen een minuut terug.",
     console_title: "Console", console_d: "Met een toetsenbord op de box: Ctrl+Alt+F2 of F3 opent een tekstconsole (log in als root), Ctrl+Alt+F1 brengt je terug naar het scherm.",
     console_show: "Console nu tonen", console_back: "Druk op het toetsenbord op Ctrl+Alt+F1 om terug te keren naar dit scherm.",
     console_stop: "Scherm stoppen", console_stop_q: "Het scherm stoppen tot de volgende start?",
@@ -397,6 +401,18 @@ async function route() {
   return menu();
 }
 
+/* ------------------------------------------------- setup hotspot card -- */
+// docs/captive-portal.md: while the box has its setup hotspot on, its screen says how to join it.
+function hotspotCard() {
+  const holder = h("div", { id: "hotspot-card" });
+  api("/api/hotspot").then((s) => {
+    if (!s.active || !s.ssid || !s.password) return;
+    holder.replaceChildren(h("div", { class: "card" }, h("h2", {}, t("hs_title")), h("p", { class: "dim small" }, t("hs_d")),
+      h("dl", { class: "kv" }, h("dt", {}, t("hs_ssid")), h("dd", {}, s.ssid), h("dt", {}, t("hs_pw")), h("dd", {}, s.password))));
+  }).catch(() => 0);
+  return holder;
+}
+
 /* -------------------------------------------------------------- menu ---- */
 function tile(title, desc, fn) {
   return h("button", { class: "tile", onclick: fn }, h("div", { class: "t" }, title), h("div", { class: "d" }, desc));
@@ -419,14 +435,14 @@ async function openAlnasl() {
 const errText = (e) => (TX.en[e.message] ? t(e.message) : e.message);
 function menu() {
   const r = roleNow();
-  shell(t("menu"), h("div", { class: "grid" },
+  shell(t("menu"), [hotspotCard(), h("div", { class: "grid" },
     tile(ROLE_NAME[r], t(r === "alnasl" ? "m_alnasl_d" : "m_" + r + "_d"), openAlnasl),
     tile(t("m_settings"), t("m_settings_d"), () => go("/settings")),
     tile(t("m_info"), t("m_info_d"), () => go("/info")),
     tile(t("m_help"), t("m_help_d"), () => go("/help")),
     tile(t("m_diag"), t("m_diag_d"), () => go("/diag")),
     tile(t("m_console"), t("m_console_d"), consoleDialog),
-    tile(t("m_power"), t("m_power_d"), powerDialog)));
+    tile(t("m_power"), t("m_power_d"), powerDialog))]);
 }
 function consoleDialog() {
   const out = h("div", {});
@@ -965,6 +981,7 @@ async function tabWifi(redraw) {
       try {
         const r = await api("/api/wifi/connect", { ssid: name.input.value, passphrase: secured || hidden ? pw.input.value : "", hidden: hid.checked, country: country.input.value || "BE" });
         if (r.ok) { out.replaceChildren(msg("ok", r.ip ? t("connected_to") + " " + name.input.value + " (" + r.ip + ")" : t("wifi_ok_noip"))); closeOsk(); setTimeout(redraw, 2500); }
+        else if (r.reason === "hotspot_handover") { out.replaceChildren(msg("warn", t("hs_handover"))); closeOsk(); }
         else { out.replaceChildren(msg("bad", { wrong_passphrase: t("err_wrong"), rejected: t("err_rejected"), not_found: t("err_nf"), supplicant_failed: t("err_supp") }[r.reason] || t("error"))); go1.disabled = false; }
       } catch (e) { out.replaceChildren(msg("bad", e.message)); go1.disabled = false; }
     } }, t("connect"));
@@ -1030,7 +1047,7 @@ function wizard(step) {
     h("button", { class: "btn primary", onclick: async () => { if (onNext && !(await onNext())) return; next(); } }, nextLabel));
   let body;
   if (name === "welcome") {
-    body = [h("h1", {}, t("welcome")), h("p", { class: "dim" }, t("welcome_d")), h("h2", { style: "margin-top:24px" }, t("language")),
+    body = [h("h1", {}, t("welcome")), h("p", { class: "dim" }, t("welcome_d")), hotspotCard(), h("h2", { style: "margin-top:24px" }, t("language")),
       h("div", { class: "row" }, ["en", "nl"].map((l) => h("button", { class: "btn" + (LANG === l ? " primary" : ""), onclick: async () => { LANG = l; await api("/api/lang", { lang: l }).catch(() => 0); wizard(step); } }, l === "en" ? "English" : "Nederlands"))),
       nav(() => wizard(stepAfter(step)), t("next"))];
   } else if (name === "mode") {

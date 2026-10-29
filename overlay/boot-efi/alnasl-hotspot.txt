@@ -1,0 +1,65 @@
+# ALNASL SETUP HOTSPOT
+#
+# A box with no network (no cable, no Wi-Fi it knows) opens its own Wi-Fi after a
+# minute: "Alnasl-setup-XXXX" (the SSID= line below shows this box's name once it
+# has booted). Join it with a phone or a laptop and the box's setup page opens by
+# itself: choose the hall's Wi-Fi there, and on an Arkab box set its remote PIN
+# and paste its join link. On Ethernet the hotspot is also there for the first
+# 10 minutes after the box starts. A box that is on the hall's Wi-Fi has none.
+#
+# The hotspot always has a password (WPA2), never an open network. It is the
+# PASSWORD= line below:
+#   - Leave it empty and the box makes one at its first boot (10 characters,
+#     no 0/O or 1/l to confuse) and writes it here. Put the card in a PC to read it.
+#   - Or type your own after "PASSWORD=" before the first boot: 8 to 63
+#     characters (WPA2's rule), plain keyboard characters, no quotes needed.
+#     A Raspberry Pi has no serial number printed on it, so if you want one
+#     password for all your boxes, write the same one on every card.
+#   - You can change it later the same way; it is used from the next boot on.
+#
+# Next to this file the box writes alnasl-hotspot-qr.png: a QR code that joins
+# the hotspot without typing (phone camera). Print it and stick it on the case.
+# Whoever can read the password or the QR code can open the setup page, and the
+# setup page can change the box's Wi-Fi: keep the sticker where the box is.
+#
+# HOTSPOT=off switches the hotspot off altogether (HOTSPOT=auto is the default).
+# The line starting "# Box:" at the end is what the box last did with this file.
+#
+# -----------------------------------------------------------------------------
+#
+# ALNASL-INSTALLATIEHOTSPOT
+#
+# Een kast zonder netwerk (geen kabel, geen wifi die hij kent) zet na een minuut
+# zijn eigen wifi aan: "Alnasl-setup-XXXX" (de regel SSID= hieronder toont de
+# naam van deze kast zodra hij eenmaal opgestart is). Maak er verbinding mee met
+# je telefoon of laptop en de installatiepagina van de kast gaat vanzelf open:
+# kies daar de wifi van de zaal, en op een Arkab-kast stel je er de pincode voor
+# op afstand in en plak je de koppellink. Met een netwerkkabel is de hotspot er
+# ook de eerste 10 minuten na het starten. Een kast op de wifi van de zaal heeft
+# er geen.
+#
+# De hotspot heeft altijd een wachtwoord (WPA2), nooit een open netwerk. Het is
+# de regel PASSWORD= hieronder:
+#   - Laat je hem leeg, dan maakt de kast er bij de eerste start zelf een (10
+#     tekens, zonder 0/O of 1/l om te verwarren) en schrijft hem hier. Stop de
+#     kaart in een pc om hem te lezen.
+#   - Of typ je eigen wachtwoord achter "PASSWORD=" voor de eerste start: 8 tot
+#     63 tekens (de regel van WPA2), gewone toetsenbordtekens, zonder aanhalingstekens.
+#     Op een Raspberry Pi staat geen serienummer gedrukt; wil je voor al je kasten
+#     een en hetzelfde wachtwoord, schrijf dan op elke kaart hetzelfde.
+#   - Later wijzigen kan op dezelfde manier; het geldt vanaf de volgende start.
+#
+# Naast dit bestand schrijft de kast alnasl-hotspot-qr.png: een QR-code waarmee
+# je telefooncamera zonder typen verbinding maakt. Druk hem af en plak hem op de
+# kast. Wie het wachtwoord of de QR-code kan lezen, kan de installatiepagina
+# openen, en die kan de wifi van de kast wijzigen: hou de sticker bij de kast.
+#
+# HOTSPOT=off zet de hotspot helemaal uit (HOTSPOT=auto is de standaard).
+# De regel "# Box:" onderaan zegt wat de kast het laatst met dit bestand deed.
+#
+# -----------------------------------------------------------------------------
+
+PASSWORD=
+HOTSPOT=auto
+# Written by the box, changing it here does nothing / Geschreven door de kast:
+SSID=

@@ -23,6 +23,10 @@
   #log { position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; opacity: 0; pointer-events: none; image-rendering: pixelated; }
   #log.on { opacity: 1; }
   #log.fade { transition: opacity .4s ease; }
+  /* The setup hotspot, while it is on: its name and password, for whoever has a phone and no keyboard. */
+  #hs { position: fixed; left: 3vh; bottom: 3vh; padding: 1.6vh 2.4vh; border-radius: 1.4vh; background: #202329ee;
+    color: #e8e9ec; font: 2.4vh/1.45 "DejaVu Sans", sans-serif; opacity: 0; transition: opacity .4s ease; pointer-events: none; }
+  #hs.on { opacity: 1; } #hs b { font-family: "DejaVu Sans Mono", monospace; color: #e2a08c; }
 </style>
 </head>
 <body>
@@ -31,9 +35,11 @@
 <div class="ov" id="val"></div>
 <div class="ov" id="bar" style="background: #55565a"><i></i></div>
 <canvas id="log"></canvas>
+<div id="hs"></div>
 <script>
 (function () {
   var BOOT = location.pathname === "/boot";
+  var LANGNOW = "en";
   var PLAIN = "/splash/alnasl-splash.png";
   var LOG_STATES = ["", "boot", "waiting", "firstboot-1", "firstboot-2", "firstboot-3"];
   var front = document.getElementById("a"), back = document.getElementById("b");
@@ -198,6 +204,7 @@
       .then(function (r) { return r.json(); })
       .then(function (s) {
         var lang = s.lang === "nl" ? "nl" : "en";
+        LANGNOW = lang;
         var withLog = LOG_STATES.indexOf(s.state || "") >= 0;
         overlay(s.state ? s : {});
         if (s.state) {
@@ -217,6 +224,28 @@
       .catch(function () { setTimeout(tick, 1000); });  // the menu server restarting, or the box going down
   }
   tick();
+
+  // The setup hotspot (docs/captive-portal.md): shown while it is on, gone when it is off.
+  function hsTick() {
+    fetch("/api/hotspot", { cache: "no-store" })
+      .then(function (r) { return r.json(); })
+      .then(function (s) {
+        var el = document.getElementById("hs");
+        if (s.active && s.ssid && s.password) {
+          var nl = LANGNOW === "nl";
+          el.textContent = "";
+          var add = function (label, val) { el.appendChild(document.createTextNode(label)); var b = document.createElement("b"); b.textContent = val; el.appendChild(b); el.appendChild(document.createElement("br")); };
+          add(nl ? "Instellen met je telefoon - wifi: " : "Set up from a phone - Wi-Fi: ", s.ssid);
+          add(nl ? "Wachtwoord: " : "Password: ", s.password);
+          el.className = "on";
+        } else {
+          el.className = "";
+        }
+        setTimeout(hsTick, 5000);
+      })
+      .catch(function () { setTimeout(hsTick, 5000); });
+  }
+  hsTick();
 })();
 </script>
 </body>

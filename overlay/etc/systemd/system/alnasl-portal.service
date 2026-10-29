@@ -1,0 +1,22 @@
+[Unit]
+Description=Alnasl setup hotspot: the setup page (10.42.0.1:80 only)
+PartOf=alnasl-hotspot.service
+After=alnasl-hotspot-ap.service alnasl-setup.service
+Requires=alnasl-hotspot-ap.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/lib/alnasl-setup/portal.py
+Restart=on-failure
+RestartSec=3
+# It holds nothing and changes nothing itself (it passes a short list of calls to the setup server on
+# loopback), so it gets nothing: a throwaway user, port 80 and no other privilege.
+DynamicUser=yes
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_INET AF_UNIX

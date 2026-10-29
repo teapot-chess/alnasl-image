@@ -1,0 +1,11 @@
+[Unit]
+Description=Alnasl setup hotspot: DHCP and DNS on wlan0 (every name is 10.42.0.1)
+PartOf=alnasl-hotspot.service
+After=alnasl-hotspot-ap.service
+Requires=alnasl-hotspot-ap.service
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/dnsmasq --keep-in-foreground --conf-file=/etc/alnasl/hotspot-dnsmasq.conf
+Restart=on-failure
+RestartSec=3
