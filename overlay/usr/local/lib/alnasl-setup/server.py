@@ -614,10 +614,29 @@ def net_status():
         sig = dict(l.split("=", 1) for l in wpa("signal_poll")[1].splitlines() if "=" in l)
         res["wlan0"]["ssid"] = wpa_unescape(st.get("ssid", ""))
         res["wlan0"]["rssi"] = sig.get("RSSI")
+    if res["wlan0"]["present"] and hotspot_active():
+        # wlan0 is the box's own setup hotspot, not a way onto the hall's network: say that, and keep
+        # 10.42.0.1 out of the box's addresses, where it looked like a connection and fooled a human.
+        res["wlan0"]["hotspot"] = hotspot_status().get("ssid") or "Alnasl-setup"
+        res["wlan0"]["addresses"] = hall_side(res["wlan0"]["addresses"])
+        res["wlan0"]["gateway"] = None
     rc, out = run(["resolvectl", "dns"])
     res["dns"] = sorted(set(re.findall(r"\b\d+\.\d+\.\d+\.\d+\b", out)))
     res["hostname"] = socket.gethostname()
     return res
+
+
+
+def hall_side(addresses):
+    """The addresses (a.b.c.d/n) that are not the setup hotspot's own."""
+    out = []
+    for a in addresses:
+        try:
+            if ipaddress.ip_interface(a).ip not in HOTSPOT_NET:
+                out.append(a)
+        except ValueError:
+            pass
+    return out
 
 
 def validate_static(cfg):
@@ -895,7 +914,7 @@ def sysinfo():
         "disk_total": du.total, "disk_free": du.free,
         "temp_c": round(int(temp) / 1000, 1) if temp.isdigit() else None,
         "display": read(KIOSK_STATE).strip() or "unknown",
-        "net": {i: ipv4_info(i) for i in ("eth0", "wlan0") if os.path.exists("/sys/class/net/" + i)},
+        "net": {i: hall_side(ipv4_info(i)) for i in ("eth0", "wlan0") if os.path.exists("/sys/class/net/" + i)},
     }
 
 

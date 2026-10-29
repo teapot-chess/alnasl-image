@@ -259,6 +259,11 @@ if server:
         except ValueError:
             check(not ok, "Wi-Fi %r refused" % (args[0][:10],))
 
+if server is not None:
+    # The box's own status tab showed "connected 10.42.0.1/24" for the hotspot. The hotspot is not the hall.
+    check(server.hall_side(["10.42.0.1/24", "192.168.1.50/24"]) == ["192.168.1.50/24"], "status: the hotspot's address is not the box's")
+    check(server.hall_side(["10.42.0.1/24"]) == [], "status: a box on its hotspot only has no hall address")
+
 # The page's script is a classic script: a top-level name the window already owns (top, name, status...)
 # makes the browser refuse the whole file, and the phone shows an empty grey page. It did, once.
 WWW = os.path.join(os.path.dirname(LIB.rstrip("/\\")), "..", "share", "alnasl-setup", "www")

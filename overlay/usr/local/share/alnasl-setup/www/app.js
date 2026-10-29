@@ -10,7 +10,7 @@ const TX = {
     keyboard: "Keyboard layout", keyboard_d: "Used by the screen and by a keyboard plugged into the box.", kbd_test: "Try it here",
     kbd_saved: "Saved. The display restarts to apply it.", kbd_saved_w: "Saved.",
     network: "Network", status: "Status", wifi: "Wi-Fi", ip_settings: "IP settings", ethernet: "Ethernet",
-    link_up: "connected", link_down: "no cable", not_present: "not present", no_ip: "no address yet",
+    link_up: "connected", link_down: "no cable", hotspot_on: "setup hotspot", not_present: "not present", no_ip: "no address yet",
     address: "Address", gateway: "Gateway", dns: "DNS servers", hostname: "Name of this box",
     hostname_note: "Letters, digits and hyphens. Applies fully after a restart.",
     scan: "Scan for networks", scanning: "Scanning...", hidden_net: "Hidden network",
@@ -133,7 +133,7 @@ const TX = {
     keyboard: "Toetsenbordindeling", keyboard_d: "Geldt voor het scherm en voor een toetsenbord dat je op de box aansluit.", kbd_test: "Probeer het hier",
     kbd_saved: "Opgeslagen. Het scherm herstart om het toe te passen.", kbd_saved_w: "Opgeslagen.",
     network: "Netwerk", status: "Status", wifi: "Wifi", ip_settings: "IP-instellingen", ethernet: "Ethernet",
-    link_up: "verbonden", link_down: "geen kabel", not_present: "niet aanwezig", no_ip: "nog geen adres",
+    link_up: "verbonden", link_down: "geen kabel", hotspot_on: "installatiehotspot", not_present: "niet aanwezig", no_ip: "nog geen adres",
     address: "Adres", gateway: "Gateway", dns: "DNS-servers", hostname: "Naam van deze box",
     hostname_note: "Letters, cijfers en koppeltekens. Volledig actief na een herstart.",
     scan: "Netwerken zoeken", scanning: "Zoeken...", hidden_net: "Verborgen netwerk",
@@ -928,6 +928,7 @@ function netPage(wiz) {
 }
 function ifaceLine(name, d) {
   if (!d.present) return [name, t("not_present")];
+  if (d.hotspot) return [name, [h("span", { class: "pill warn" }, t("hotspot_on")), " " + d.hotspot]];
   const parts = [];
   parts.push(h("span", { class: "pill " + (d.link ? "ok" : "bad") }, d.link ? t("link_up") : t("link_down")));
   parts.push(" " + (d.addresses.join(", ") || t("no_ip")));
