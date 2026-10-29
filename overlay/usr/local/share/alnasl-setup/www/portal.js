@@ -87,7 +87,11 @@ function h(tag, attrs, ...kids) {
 }
 async function api(path, body) {
   const opt = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json", "X-Alnasl-Setup": "1" }, body: JSON.stringify(body) };
-  const r = await fetch(path, opt);
+  // A sign-in sheet waits for ever on a request nobody answers; this one gives up and says so.
+  const ctl = typeof AbortController === "function" ? new AbortController() : null;
+  if (ctl) { opt.signal = ctl.signal; setTimeout(() => ctl.abort(), path === "/api/portal/scan" ? 40000 : 20000); }
+  let r;
+  try { r = await fetch(path, opt); } catch (e) { throw new Error("box_busy"); }
   let j = {};
   try { j = await r.json(); } catch (e) { /* empty */ }
   if (!r.ok) throw new Error(j.error || "error");

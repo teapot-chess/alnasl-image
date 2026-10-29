@@ -43,6 +43,11 @@ JOURNAL_UNITS = [
     ("alnasl-os-update.service", []),
     ("alnasl-splash.service", []),
     ("alnasl-reset.service", []),
+    # v7.2: the setup hotspot; a grey sign-in sheet is otherwise a mystery from here
+    ("alnasl-hotspot.service", []),
+    ("alnasl-hotspot-ap.service", []),
+    ("alnasl-hotspot-dns.service", []),
+    ("alnasl-portal.service", []),
 ]
 SERVICE_UNITS = ["alnasl.service", "alnasl-kiosk.service", "alnasl-setup.service", "wpa_supplicant@wlan0.service",
                  "systemd-networkd.service", "systemd-resolved.service", "docker.service", "alnasl-firewall.service",
@@ -51,7 +56,8 @@ SERVICE_UNITS = ["alnasl.service", "alnasl-kiosk.service", "alnasl-setup.service
                  # v7: every role's units, not only Alnasl's: a box that is the wrong thing, or no thing, shows here
                  "alnasl-mode.service", "alnasl-update.path", "arkab.service", "arkab-update.path",
                  "polis.service", "polis-update.path", "cups.service", "nunki.service", "nunki-update.path",
-                 "alnasl-sound.service", "containerd.service", "alnasl-kiosk-load.service", "alnasl-slot-check.service"]
+                 "alnasl-sound.service", "containerd.service", "alnasl-kiosk-load.service", "alnasl-slot-check.service",
+                 "alnasl-hotspot.service", "alnasl-hotspot-ap.service", "alnasl-hotspot-dns.service", "alnasl-portal.service"]
 ROLE_FILE = "/var/lib/alnasl-setup/mode"   # the role as chosen (data partition; v6 wrote master/slave)
 ROLE_RUN = "/run/alnasl-mode"               # what alnasl-mode made of it this boot
 ROLE_APPLIED = "/etc/alnasl/role-applied"   # the role whose units this slot last switched on

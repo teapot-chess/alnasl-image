@@ -19,7 +19,17 @@
 </style>
 </head>
 <body>
-<div id="app"></div>
+<div id="app"><div class="top"><div class="brand">Alnasl</div></div>
+<div class="page"><h1>Alnasl setup</h1><p id="portal-loading">Loading... / Laden...</p>
+<noscript><p>This page needs JavaScript. Open http://10.42.0.1/ in your browser. / Deze pagina heeft JavaScript nodig. Open http://10.42.0.1/ in je browser.</p></noscript>
+<p class="dim small">If this stays here, open <a href="http://10.42.0.1/">http://10.42.0.1/</a> in your browser while on this Wi-Fi. / Blijft dit staan, open dan <a href="http://10.42.0.1/">http://10.42.0.1/</a> in je browser terwijl je op deze wifi zit.</p></div></div>
+<script>
+  // Before portal.js: if it dies on an old or odd browser, say so on the page instead of showing nothing.
+  window.onerror = function (m, src, line) {
+    var p = document.getElementById("portal-loading") || document.body.appendChild(document.createElement("p"));
+    p.textContent = "Error / Fout: " + m + " (" + (line || "?") + ")";
+  };
+</script>
 <script src="/portal.js"></script>
 </body>
 </html>
