@@ -94,9 +94,13 @@ owner() { getent passwd "$1" >/dev/null 2>&1 && echo "$1:$1" || echo root:root; 
 dir /var/lib/alnasl "$(owner alnasl)" 0750
 dir /var/lib/alnasl/update "$(owner alnasl)" 0750
 dir /var/lib/arkab "$(owner arkab)" 0750
+# Where its status page leaves an update request; without it the app tells you to update by hand.
+dir /var/lib/arkab/update "$(owner arkab)" 0750
 dir /var/lib/polis "$(owner polis)" 0750
+dir /var/lib/polis/update "$(owner polis)" 0750
 dir /var/lib/polis-update root:root 0755
 dir /var/lib/nunki "$(owner nunki)" 0750
+dir /var/lib/nunki/update "$(owner nunki)" 0750
 dir /var/lib/nunki-update root:root 0755
 dir /etc/cups root:root 0755
 dir /var/lib/alnasl-setup root:root 0700

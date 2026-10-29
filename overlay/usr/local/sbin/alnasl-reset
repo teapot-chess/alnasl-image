@@ -70,7 +70,8 @@ else
     install -d -m 0750 -o alnasl -g alnasl /var/lib/alnasl/update
   fi
   for u in arkab polis nunki; do
-    [ -d /var/lib/$u ] && id $u >/dev/null 2>&1 && chown $u:$u /var/lib/$u
+    [ -d /var/lib/$u ] && id $u >/dev/null 2>&1 && chown $u:$u /var/lib/$u &&
+      install -d -m 0750 -o $u -g $u /var/lib/$u/update
   done
   step 3 "erasing settings, Wi-Fi and logs"
   rm -rf /var/lib/alnasl-setup /var/lib/alnasl-os-update /var/lib/alnasl-firstboot.done

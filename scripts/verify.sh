@@ -550,6 +550,9 @@ for f in keyboard.conf kiosk.conf; do [ "$(readlink $R/etc/alnasl/$f)" = /data/e
 for d in var/lib/arkab var/lib/polis var/lib/polis-update var/lib/nunki var/lib/nunki-update etc/cups var/lib/alnasl-setup var/lib/alnasl-os-update var/lib/docker var/log/journal etc/wpa_supplicant etc/systemd/network/10-wired.network.d; do
   grep -q "$d" $R/usr/local/sbin/alnasl-data && ok "alnasl-data binds /$d" || bad "alnasl-data does not keep /$d"
 done
+for a in alnasl arkab polis nunki; do
+  grep -q "^dir /var/lib/$a/update \"\$(owner $a)\" 0750" $R/usr/local/sbin/alnasl-data && ok "alnasl-data makes /var/lib/$a/update (the app's update button works)" || bad "alnasl-data does not make /var/lib/$a/update: $a would ask for a manual update"
+done
 grep -q '.alnasl-wipe' $R/usr/local/sbin/alnasl-data && grep -q '.alnasl-wipe' $R/usr/local/sbin/alnasl-reset && ok "reset = flag on the data partition, formatted by alnasl-data at the next boot" || bad "reset/data wipe flag"
 grep -q 'DefaultDependencies=no' $R/etc/systemd/system/alnasl-data.service && grep -q 'Before=.*local-fs.target' $R/etc/systemd/system/alnasl-data.service && ok "alnasl-data runs before local-fs.target" || bad "alnasl-data.service ordering"
 for u in systemd-networkd docker containerd; do grep -q 'After=alnasl-data.service' $R/etc/systemd/system/$u.service.d/alnasl-data.conf 2>/dev/null && ok "$u waits for the data partition" || bad "$u.service.d/alnasl-data.conf"; done
