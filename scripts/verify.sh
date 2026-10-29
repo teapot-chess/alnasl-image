@@ -827,7 +827,7 @@ lk=$(grep -n -E '(^|[^a-z_])(log|print)\([^#]*(self\.password|passphrase|[^a-z_]
      sed -n '/setup hotspot\/portal --/,/^# ---.*HTTP --/p' $L/server.py | grep -n -E '(^|[^a-z_])(log|print)\([^#]*(passphrase|password|[^a-z_]pw[^a-z_0-9]|pin\))')
 [ -z "$lk" ] && ok "no log line carries the hotspot password, a Wi-Fi passphrase or a PIN" || bad "a log line may show a secret: $lk"
 grep -q 'def log_message' $L/portal.py && grep -q 'never a query or a body' $L/portal.py && ok "the portal logs method, path and status only" || bad "portal logging"
-! grep -q -E '(src|href)="https?://' $WWWD/portal.html && [ -z "$(grep -E '(fetch|src|href)[:(= ]*["'"'"'`]https?://' $WWWD/portal.js | grep -v 'https\?://10\.42\.0\.1/')" ] && ok "the portal page loads nothing from outside (there is no outside)" || bad "portal page refers to an outside URL"
+[ -z "$(grep -o -E '(src|href)="https?://[^"]*' $WWWD/portal.html | grep -v 'https\?://10\.42\.0\.1/')" ] && [ -z "$(grep -E '(fetch|src|href)[:(= ]*["'"'"'`]https?://' $WWWD/portal.js | grep -v 'https\?://10\.42\.0\.1/')" ] && ok "the portal page loads nothing from outside (there is no outside)" || bad "portal page refers to an outside URL"
 # The boot partition: the file is there, CRLF, with its English and Dutch header and an empty PASSWORD= (generated at first boot).
 F=$B/alnasl-hotspot.txt
 [ -f $F ] && grep -q 'ALNASL SETUP HOTSPOT' $F && grep -q 'ALNASL-INSTALLATIEHOTSPOT' $F && grep -q '8 to 63' $F && grep -q '8 tot' $F && grep -q 'WPA2' $F \
