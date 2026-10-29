@@ -56,6 +56,7 @@ GRUBENV = "/boot/efi/alnasl/grubenv"
 BOOT_FILE = "/boot/efi/alnasl-upgrade.txt"
 SPLASH = "/usr/local/sbin/alnasl-splash"
 LOCK = "/run/alnasl-system-update.lock"
+STATUS_LOCK = "/run/alnasl-system-update.status.lock"
 PAINTED = "/run/alnasl-kiosk/painted"
 NEWSLOT = "/run/alnasl-newslot"
 DEFAULT_INDEX = "https://github.com/teapot-chess/alnasl-image/releases/download/index/index.json"
@@ -98,7 +99,10 @@ def read(path, default=""):
 
 def write_atomic(path, text, mode=0o644):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".new"
+    # v7.1: one temporary name per process. With one shared ".new", the boot check and the after-boot
+    # --check wrote the same file at once, one renamed it from under the other, and the boot check of a
+    # trial boot died on its first line (FileNotFoundError; seen in qemu on 6.2 and 7.1).
+    tmp = "%s.new.%d" % (path, os.getpid())
     with open(tmp, "w") as f:
         f.write(text)
         f.flush()
@@ -255,11 +259,23 @@ def load_json(path, default=None):
 
 
 def save_status(**kw):
-    s = load_json(STATUS)
-    s.update(kw)
-    s["updated_at"] = now()
-    write_atomic(STATUS, json.dumps(s, indent=1, sort_keys=True) + "\n")
-    return s
+    # Read, change, write under a lock of its own: two processes at once must not lose each other's fields.
+    fd = None
+    try:
+        os.makedirs(os.path.dirname(STATUS_LOCK), exist_ok=True)
+        fd = os.open(STATUS_LOCK, os.O_CREAT | os.O_RDWR, 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+    except OSError:
+        pass  # no lock is better than no status
+    try:
+        s = load_json(STATUS)
+        s.update(kw)
+        s["updated_at"] = now()
+        write_atomic(STATUS, json.dumps(s, indent=1, sort_keys=True) + "\n")
+        return s
+    finally:
+        if fd is not None:
+            os.close(fd)
 
 
 def record(outcome, note, **extra):

@@ -728,6 +728,8 @@ grep -B1 -A3 '"--progress", str(pct)' $R/usr/local/sbin/alnasl-kiosk-load | grep
 grep -q 'systemctl start --no-block alnasl-kiosk-load.service' $R/usr/local/sbin/alnasl-kiosk && ok "alnasl-kiosk asks for the image again when nothing is loading it" || bad "alnasl-kiosk never asks for the image again"
 cdd=$(cat $R/etc/systemd/system/containerd.service.d/*.conf 2>/dev/null)
 grep -q '^TimeoutStartSec=300$' <<<"$cdd" && grep -q '^Restart=on-failure$' <<<"$cdd" && ok "containerd: 5 min to start, and another try (drop-in)" || bad "containerd start timeout/restart drop-in missing"
+grep -q 'tmp = "%s.new.%d" % (path, os.getpid())' $U && grep -q 'STATUS_LOCK' $U && ok "system update: one temporary file per process, status writes locked (the boot check cannot be raced by --check)" || bad "system update: a shared temporary file (boot check vs --check race)"
+grep -q 'activating|reloading' $R/usr/local/sbin/alnasl-kiosk && ok "alnasl-kiosk leaves a running or retrying load alone" || bad "alnasl-kiosk restarts a load that is running"
 grep -q 'def kiosk_loading' $U && grep -q 'HEALTH_MAX_MINUTES = 60' $U && ok "a trial boot is not restarted while the kiosk image is still loading (up to 60 min)" || bad "the health check can reboot in the middle of the kiosk load"
 grep -q 'def trial_report' $U && grep -q 'trial_report(version' $U && ok "a trial boot that fails leaves its diagnostics on the boot partition" || bad "no diagnostics from a failed trial boot"
 D=$R/usr/local/lib/alnasl-setup/diag.py

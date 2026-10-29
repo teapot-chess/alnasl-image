@@ -72,6 +72,27 @@ this.
   `HEALTH_MAX_MINUTES` = 60 in all. A reboot in the middle of the load only throws away work.
 - **The load itself cannot be cut by its own progress bar** (below).
 
+## The boot check itself could die (found in the 6.2 → 7.1 qemu run)
+
+`alnasl-system-update --boot-check` (alnasl-slot-check) and `--check` (alnasl-system-update-check, the
+"look for updates after boot" since 6.2) start at about the same time, and both write `status.json`
+through the same temporary name `status.json.new`. When one renames it from under the other, the boot
+check dies on its very first line:
+
+```
+FileNotFoundError: [Errno 2] No such file or directory: '/var/lib/alnasl-os-update/system/status.json.new'
+```
+
+That happened in qemu on a 6.2 boot and on the 7.1 trial boot. On the VM host, two processes writing the
+status 300 times each crashed 55 times with the 7.0 code and 0 times with the fix.
+
+On a trial boot this is serious. A dead boot check never waits for health, never marks the slot good
+and never reboots for another try. The box sits on whatever the screen shows until someone pulls the
+power, and grub counts that as a used try. It may well be part of the maintainer's story ("about three
+reboots"), though the box's own history would have to confirm it.
+
+The fix (7.1): one temporary name per process, and status writes under a lock of their own.
+
 ## Other defects found on this path
 
 qemu showed one real chain that ends with no browser for good, on 6.2 and v7 alike:
