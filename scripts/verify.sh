@@ -647,6 +647,7 @@ grep -q 'alnasl_vol' $R/usr/local/sbin/alnasl-sound && grep -q 'vc4hdmi0' $R/usr
 P=$B/alnasl-arkab-pin.txt; PS=$R/usr/local/sbin/alnasl-arkab-pin
 [ -f $P ] && grep -q '4 to 64 characters' $P && grep -q '4 tot 64 tekens' $P && grep -q 'port\|4050' $P && grep -q 'plain HTTP' $P && grep -q 'gewoon HTTP' $P && grep -q 'EMPTIES' $P && grep -q 'LEEG' $P && grep -q -i 'remove' $P && grep -q -i 'verwijderen' $P && ok "boot partition: alnasl-arkab-pin.txt is there with its English and Dutch header" || bad "boot partition alnasl-arkab-pin.txt or its header"
 [ "$(grep -a -c '^PIN=.\+' $P)" = 0 ] && grep -a -q '^PIN=' $P && ok "boot partition: the shipped PIN line is empty" || bad "the shipped alnasl-arkab-pin.txt has a PIN in it"
+grep -q $'' $P && ok "boot partition: alnasl-arkab-pin.txt keeps its Windows line endings" || bad "alnasl-arkab-pin.txt lost its CRLF line endings"
 u=$R/etc/systemd/system/alnasl-arkab-pin.service
 grep -q '^Before=arkab.service' $u && grep -q '^After=.*alnasl-mode.service' $u && grep -q '^After=.*alnasl-data.service' $u && grep -q '^ConditionPathExists=/run/alnasl-mode/arkab' $u && grep -q '^Wants=alnasl-arkab-pin.service' $R/etc/systemd/system/arkab.service.d/alnasl-pin.conf && grep -q '^After=alnasl-arkab-pin.service' $R/etc/systemd/system/arkab.service.d/alnasl-pin.conf && ok "PIN reader: only on an Arkab box, after the role and the data partition, before arkab.service" || bad "alnasl-arkab-pin.service ordering"
 ! grep -n -E 'echo[^#]*\$pin|printf[^#]*\$pin[^#]*(>&2|logger)|logger[^#]*\$pin|set -x|\$\{?pin\}?[^#]*\| *(tee|logger)' $PS >/dev/null && [ "$(grep -c 'printf .set.n%s.n. "$pin"' $PS)" = 1 ] && ok "PIN reader: the PIN goes only into the request file, never to a log or the screen" || bad "alnasl-arkab-pin may show the PIN"
@@ -657,7 +658,7 @@ pinrun 4821; [ "$(tr '\n' '|' < $T/d/pin-request)" = 'set|4821|' ] && [ "$(stat 
 pinrun 123; [ ! -e $T/d/pin-request ] && grep -a -q 'Last result: refused, too short' $T/f.txt && ok "PIN reader: a 3-character PIN is refused and says so" || bad "PIN reader, a short PIN"
 pinrun remove; [ "$(tr '\n' '|' < $T/d/pin-request)" = 'remove|' ] && ok "PIN reader: PIN=remove becomes a remove request" || bad "PIN reader, remove"
 pinrun 9999 $T/noflag; [ ! -e $T/d/pin-request ] && grep -a -q '^PIN=9999' $T/f.txt && ok "PIN reader: a box that is not Arkab leaves the file alone" || bad "PIN reader on a non-Arkab box"
-pinrun ''; [ ! -e $T/d/pin-request ] && cmp -s $P $T/f.txt && ok "PIN reader: an empty PIN line changes nothing" || bad "PIN reader, empty line"
+pinrun ''; [ ! -e $T/d/pin-request ] && same $P $T/f.txt && ok "PIN reader: an empty PIN line changes nothing" || bad "PIN reader, empty line"
 rm -rf $T
 grep -q '/api/mode' $S && grep -q '"SWITCH"' $S && ok "setup server: GET/POST /api/mode (SWITCH), as Arkab's page calls it" || bad "setup server mode API"
 grep -q '"/api/bootlog"' $S && grep -q '/api/printers' $S && grep -q '/api/sound' $S && ok "setup server: /api/bootlog, /api/printers, /api/sound" || bad "setup server v7 routes"
@@ -836,7 +837,7 @@ F=$B/alnasl-hotspot.txt
   && ok "boot partition: PASSWORD= and SSID= ship empty (each box makes its own)" || bad "the shipped alnasl-hotspot.txt has a password or SSID in it"
 [ "$(grep -a -c -v $'\r$' $F)" = 0 ] && ok "alnasl-hotspot.txt is CRLF (Notepad)" || bad "alnasl-hotspot.txt has LF-only lines"
 [ ! -e $B/alnasl-hotspot-qr.png ] && ok "no QR code shipped (it is per box)" || bad "a QR code is on the image's boot partition"
-cmp -s <(tr -d '\r' < $F) <(tr -d '\r' < $R/usr/share/alnasl/defaults/boot-efi/alnasl-hotspot.txt) && ok "the image keeps a copy to re-create it from" || bad "the template copy differs from the boot file"
+[ "$(tr -d '\r' < $F | sha256sum)" = "$(tr -d '\r' < $R/usr/share/alnasl/defaults/boot-efi/alnasl-hotspot.txt | sha256sum)" ] && ok "the image keeps a copy to re-create it from" || bad "the template copy differs from the boot file"
 grep -q 'alnasl-hotspot.txt' $B/README-ALNASL.txt && grep -q 'alnasl-hotspot-qr.png' $B/README-ALNASL.txt && grep -q -i 'stick it on the case' $B/README-ALNASL.txt && ok "README-ALNASL.txt: the hotspot file and the QR sticker" || bad "README-ALNASL.txt does not mention the hotspot"
 # The logic and the QR code, on the image's own Python: decide(), the file, hostapd, the portal's routes, PIN and link checks; the QR decoded.
 install -m 0644 $W/test-hotspot.py $R/tmp/test-hotspot.py; install -m 0644 $W/test-qr.py $R/tmp/test-qr.py

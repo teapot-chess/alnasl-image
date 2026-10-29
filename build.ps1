@@ -79,7 +79,7 @@ Vm-Run "rm -rf $W/kiosk/ext"
 & scp @ssh (Join-Path $here "module\Makefile") "$Vm`:$W/module-Makefile"
 Vm-Run "rm -rf $W/overlay"
 & scp -r @ssh (Join-Path $here "overlay") "$Vm`:$W/"
-Vm-Run "cd $W && sed -i 's/\r$//' *.sh test-diag.py test-res.py bootscreen.py test-splash.py test-update.py test-bootlog.py test-hotspot.py test-qr.py grub-ab.cfg kiosk/kiosk.sh kiosk/kiosk-res.sh module-Makefile && find overlay -type f ! -name '*.png' ! -name '*.pgm' ! -name '*.ttf' -exec sed -i 's/\r$//' {} +"
+Vm-Run "cd $W && sed -i 's/\r$//' *.sh test-diag.py test-res.py bootscreen.py test-splash.py test-update.py test-bootlog.py test-hotspot.py test-qr.py grub-ab.cfg kiosk/kiosk.sh kiosk/kiosk-res.sh module-Makefile && find overlay -type f ! -name '*.png' ! -name '*.pgm' ! -name '*.ttf' ! -name alnasl-arkab-pin.txt -exec sed -i 's/\r$//' {} +"
 
 Write-Host "== base image + binfmt"
 Vm-Run "bash $W/prepare-base.sh"
