@@ -118,8 +118,8 @@ function reachText(next, role) {
 }
 
 async function draw() {
-  app.replaceChildren(top(), h("div", { class: "page" }, busy("...")));
-  try { P = await api("/api/portal"); } catch (e) { app.replaceChildren(top(), h("div", { class: "page" }, msg("bad", t("box_busy")), h("button", { class: "btn", onclick: draw }, t("retry")))); return; }
+  app.replaceChildren(topBar(), h("div", { class: "page" }, busy("...")));
+  try { P = await api("/api/portal"); } catch (e) { app.replaceChildren(topBar(), h("div", { class: "page" }, msg("bad", t("box_busy")), h("button", { class: "btn", onclick: draw }, t("retry")))); return; }
   if (!LANG) LANG = P.lang === "nl" ? "nl" : (navigator.language || "").toLowerCase().startsWith("nl") ? "nl" : "en";
   const page = h("div", { class: "page" }, h("h1", {}, t("title")), h("p", { class: "dim" }, t("intro")));
   const lj = P.last_join;
@@ -128,9 +128,10 @@ async function draw() {
   if (P.role === "arkab") page.append(arkabCard());
   page.append(h("div", { class: "card" }, h("h2", {}, t("browser")), h("p", { class: "dim small" }, t("browser_d")),
     h("p", { class: "mono" }, h("a", { href: "http://10.42.0.1/", id: "portal-url" }, "http://10.42.0.1/"))));
-  app.replaceChildren(top(), page);
+  app.replaceChildren(topBar(), page);
 }
-function top() {
+// Not "top": that name is the browser's own (window.top), and a script that takes it does not run at all.
+function topBar() {
   return h("div", { class: "top" }, h("div", { class: "brand" }, "Alnasl"), h("div", { class: "dim" }, P && P.hotspot ? P.hotspot.ssid || "" : ""),
     h("div", { class: "sp" }),
     h("div", { class: "row" }, ["en", "nl"].map((l) => h("button", { class: "btn sm" + (LANG === l ? " primary" : ""), onclick: () => {

@@ -259,5 +259,19 @@ if server:
         except ValueError:
             check(not ok, "Wi-Fi %r refused" % (args[0][:10],))
 
+# The page's script is a classic script: a top-level name the window already owns (top, name, status...)
+# makes the browser refuse the whole file, and the phone shows an empty grey page. It did, once.
+WWW = os.path.join(os.path.dirname(LIB.rstrip("/\\")), "..", "share", "alnasl-setup", "www")
+if not os.path.isdir(WWW):
+    WWW = "/usr/local/share/alnasl-setup/www"
+with open(os.path.join(WWW, "portal.js"), encoding="utf-8") as f:
+    js = f.read()
+import re  # noqa: E402
+taken = {"top", "name", "parent", "self", "status", "length", "origin", "frames", "history", "location", "opener",
+         "closed", "screen", "event", "external", "navigator", "document", "window", "close", "open", "print", "stop",
+         "focus", "blur", "scroll", "alert", "fetch", "find"}
+declared = set(re.findall(r"^(?:function\s+|const\s+|let\s+|class\s+)([A-Za-z_$][\w$]*)", js, re.M))
+check(not (declared & taken), "portal.js declares no name the window already has (%s)" % (", ".join(sorted(declared & taken)) or "none"))
+
 print("RESULT:", "FAILED (%d)" % fails if fails else "all hotspot checks passed")
 sys.exit(1 if fails else 0)

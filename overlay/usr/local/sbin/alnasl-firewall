@@ -48,6 +48,10 @@ hotspot_v4() {
   echo "-A $CHAIN -i $HS_IF -p udp --sport 68 --dport 67 -j ACCEPT"
   echo "-A $CHAIN -i $HS_IF -d $HS_ADDR/32 -p tcp --dport 80 -j ACCEPT"
   echo "-A $CHAIN -i $HS_IF -s $HS_NET -p icmp -j ACCEPT"
+  # A phone that tries https first (Safari does) should hear "no" at once and fall back to http,
+  # not wait on a dropped packet with a grey sheet in front of its owner.
+  echo "-A $CHAIN -i $HS_IF -d $HS_ADDR/32 -p tcp --dport 443 -j REJECT --reject-with tcp-reset"
+  echo "-A $CHAIN -i $HS_IF -d $HS_ADDR/32 -p udp --dport 443 -j REJECT --reject-with icmp-port-unreachable"
   echo "-A $CHAIN -i $HS_IF -j DROP"
 }
 hotspot_v6() { [ -e "$HS_FLAG" ] && echo "-A $CHAIN -i $HS_IF -j DROP"; return 0; }
