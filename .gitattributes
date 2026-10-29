@@ -4,3 +4,4 @@
 *.pgm binary
 *.ps1 text eol=crlf
 *.ttf binary
+overlay/boot-efi/alnasl-arkab-pin.txt -text

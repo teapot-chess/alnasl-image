@@ -1,0 +1,74 @@
+# ARKAB REMOTE PIN
+#
+# WHAT IT IS FOR
+# Arkab's status page (http://<this box>:4050) is read-only for everyone except
+# the box itself. With a PIN set, someone on another computer in the hall
+# (a phone, a laptop) can unlock it and press the buttons: join a server,
+# update, and so on. This box has no screen and no keyboard, so you set the
+# PIN here, on a PC.
+#
+# HOW
+# Type the PIN after "PIN=" below, save, put the card back in the box and boot.
+#   - 4 to 64 characters. Digits only is fine (4 to 8 digits is plenty).
+#     Letters and other characters are allowed too; keep to plain keyboard
+#     characters.
+#   - No spaces at the start or the end, and no quotes around it.
+#   - To REMOVE the PIN again, write PIN=remove (in Dutch: PIN=verwijderen).
+#     So "remove" itself cannot be your PIN. Nobody minds.
+#
+# WHAT HAPPENS
+# At boot the box gives the PIN to Arkab and then EMPTIES the PIN= line again,
+# so the PIN does not stay on the card. The file itself stays, so you can fill
+# it in again later. The last line of this file says what became of it
+# ("PIN set", or why it was refused). Changing or removing the PIN locks every
+# browser that was unlocked before.
+# Only a box whose role is Arkab reads this file; on any other role it is left
+# alone.
+#
+# MIND THE NETWORK
+# The page is plain HTTP, so the PIN crosses the hall's network in clear. It is
+# a lock against people in the hall, not against the internet.
+#
+# --------------------------------------------------------------------------
+#
+# ARKAB PINCODE VOOR OP AFSTAND
+#
+# WAT HET IS
+# De statuspagina van Arkab (http://<deze kast>:4050) is alleen te lezen voor
+# iedereen behalve de kast zelf. Met een pincode kan iemand op een andere
+# computer in de zaal (een telefoon, een laptop) de pagina ontgrendelen en de
+# knoppen gebruiken: een server toevoegen, bijwerken, enzovoort. Deze kast
+# heeft geen scherm en geen toetsenbord, dus de pincode stel je hier in, op
+# een pc.
+#
+# HOE
+# Typ de pincode achter "PIN=" hieronder, bewaar, stop de kaart terug in de
+# kast en start op.
+#   - 4 tot 64 tekens. Alleen cijfers is prima (4 tot 8 cijfers is ruim
+#     genoeg). Letters en andere tekens mogen ook; hou het bij gewone
+#     toetsenbordtekens.
+#   - Geen spaties aan het begin of het eind, en geen aanhalingstekens.
+#   - Een pincode WEGHALEN: schrijf PIN=verwijderen (of PIN=remove).
+#     "verwijderen" zelf kan dus geen pincode zijn.
+#
+# WAT ER GEBEURT
+# Bij het opstarten geeft de kast de pincode aan Arkab en maakt daarna de regel
+# PIN= weer LEEG, zodat de pincode niet op de kaart blijft staan. Het bestand
+# zelf blijft staan, zodat je het later opnieuw kunt invullen. De laatste regel
+# van dit bestand zegt wat ervan terechtkwam ("PIN set", of waarom hij is
+# geweigerd). Een pincode wijzigen of weghalen vergrendelt alle browsers die
+# eerder waren ontgrendeld.
+# Alleen een kast met de rol Arkab leest dit bestand; bij elke andere rol
+# blijft het ongemoeid.
+#
+# LET OP HET NETWERK
+# De pagina draait op gewoon HTTP, dus de pincode gaat onversleuteld over het
+# netwerk van de zaal. Het is een slot tegen mensen in de zaal, niet tegen
+# het internet.
+#
+# --------------------------------------------------------------------------
+# Fill in below. Lines starting with # are ignored.
+
+PIN=
+
+# Last result: nothing yet.
