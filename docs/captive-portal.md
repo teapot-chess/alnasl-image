@@ -50,7 +50,7 @@ wrong password, network not found, refused, or no address.
 |---|---|---|
 | `alnasl-hotspot.service` → `hotspot.py` | the decision, the mode switch, the file and the QR | the only thing that touches wlan0's mode |
 | `alnasl-hotspot-ap.service` → `/usr/sbin/hostapd` | the access point | Photon 5 has no hostapd package, and its wpa_supplicant is built without AP mode ("AP mode support not included in the build"). Taken from Debian bookworm arm64 like `iw` (`scripts/build-hostapd.sh`): same glibc 2.36, needs only libnl-3/genl/route and OpenSSL 3, which Photon ships; ldd-checked in the image |
-| `alnasl-hotspot-dns.service` → dnsmasq | DHCP 10.42.0.10-250/24, DNS answering every name with 10.42.0.1, option 114 | Photon's own `dnsmasq` package (release repo). The stock `dnsmasq.service` is masked |
+| `alnasl-hotspot-dns.service` → dnsmasq | DHCP 10.42.0.10-250/24, DNS answering every name with 10.42.0.1, no option 114 | Photon's own `dnsmasq` package (release repo). The stock `dnsmasq.service` is masked |
 | `alnasl-portal.service` → `portal.py` | HTTP on 10.42.0.1:80 | stdlib Python. DynamicUser, `CAP_NET_BIND_SERVICE` only, ProtectSystem=strict |
 | `alnasl_qr.py` | the QR code | no qrencode in Photon. Pure Python (byte mode, level M, versions 1-10), checked by an independent decoder in `scripts/test-qr.py` |
 | `arkab_live.py` | Arkab's join link | Arkab has no API for it (only its LiveView `join` event) and runs without distribution, so this is a small LiveView websocket client on loopback, which is what Arkab counts as "local" |
@@ -73,9 +73,9 @@ makes the OS show its sign-in sheet. Nothing ever returns `204` or `Success`.
 | Firefox | `http://detectportal.firefox.com/canonical.html`, `/success.txt` | `success` |
 | GNOME / NetworkManager | `http://nmcheck.gnome.org/check_network_status.txt` | `NetworkManager is online` |
 
-RFC 8908's API is at `http://10.42.0.1/api/captive` and RFC 8910's DHCP option 114 points to it. Clients
-only trust that over HTTPS, and a box with no certificate cannot offer HTTPS, so in practice the probes do
-the work. HTTPS probes fail outright (nothing listens on 443), which every OS also reads as "not online".
+RFC 8908's API answers at `http://10.42.0.1/api/captive`, but DHCP option 114 (RFC 8910) does not point to
+it: the option must name an HTTPS URL, a box with no certificate cannot offer one, and a client that reads
+the option and then refuses the URL may skip its probe and show nothing at all. The probes do the work. HTTPS probes fail outright (nothing listens on 443), which every OS also reads as "not online".
 
 ## The page
 

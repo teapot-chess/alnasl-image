@@ -780,8 +780,8 @@ echo "       $(chroot $R /usr/sbin/hostapd -v 2>&1 | head -1); $(chroot $R /usr/
 chroot $R /usr/sbin/dnsmasq --test --conf-file=/etc/alnasl/hotspot-dnsmasq.conf >/dev/null 2>&1 && ok "dnsmasq accepts hotspot-dnsmasq.conf" || bad "dnsmasq --test refuses hotspot-dnsmasq.conf"
 DC=$R/etc/alnasl/hotspot-dnsmasq.conf
 grep -q '^interface=wlan0$' $DC && grep -q '^bind-interfaces$' $DC && grep -q '^listen-address=10.42.0.1$' $DC && ! grep -q -E '^(interface|listen-address)=.*(eth|0\.0\.0\.0)' $DC \
-  && grep -q '^address=/#/10.42.0.1$' $DC && grep -q '^dhcp-option=114,"http://10.42.0.1/api/captive"$' $DC && grep -q '^no-resolv$' $DC && ! grep -q '^server=' $DC \
-  && ok "dnsmasq: wlan0 and 10.42.0.1 only, every name is the box, option 114, no upstream" || bad "hotspot-dnsmasq.conf"
+  && grep -q '^address=/#/10.42.0.1$' $DC && ! grep -q '^dhcp-option=114' $DC && grep -q '^no-resolv$' $DC && ! grep -q '^server=' $DC \
+  && ok "dnsmasq: wlan0 and 10.42.0.1 only, every name is the box, no option 114, no upstream" || bad "hotspot-dnsmasq.conf"
 # Units: the daemon is enabled and ordered; the three it drives have no [Install] (nothing else starts them); stock dnsmasq never runs.
 s=$(chroot $R systemctl is-enabled alnasl-hotspot.service 2>&1 | tail -1); [ "$s" = enabled ] && ok "alnasl-hotspot enabled" || bad "alnasl-hotspot: $s"
 for u in alnasl-hotspot-ap alnasl-hotspot-dns alnasl-portal; do
