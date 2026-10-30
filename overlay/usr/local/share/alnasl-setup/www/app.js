@@ -50,6 +50,7 @@ const TX = {
     restart_now: "Restart",
     m_arkab_d: "The board bridge", m_polis_d: "The print station", m_nunki_d: "The announcer",
     role_down: "%s is not running on this box. Diagnostics says why; a restart often helps.",
+    st_up: "running", st_down: "not running", st_noaddr: "no address yet",
     printers: "Printers", printers_tile: "Where Polis prints",
     printers_d: "Polis prints through these. A printer that understands PDF works, as most network printers do. There is no search: type the printer's address.",
     printers_none: "No printer yet.", printer_default: "default", printer_make_default: "Make default", printer_remove: "Remove",
@@ -173,6 +174,7 @@ const TX = {
     restart_now: "Herstarten",
     m_arkab_d: "De bordenbrug", m_polis_d: "Het printstation", m_nunki_d: "De omroeper",
     role_down: "%s draait niet op deze box. Diagnose zegt waarom; herstarten helpt vaak.",
+    st_up: "draait", st_down: "draait niet", st_noaddr: "nog geen adres",
     printers: "Printers", printers_tile: "Waar Polis afdrukt",
     printers_d: "Polis drukt hierlangs af. Een printer die PDF begrijpt werkt, zoals de meeste netwerkprinters. Er wordt niet gezocht: typ het adres van de printer.",
     printers_none: "Nog geen printer.", printer_default: "standaard", printer_make_default: "Standaard maken", printer_remove: "Verwijderen",
@@ -433,9 +435,19 @@ async function openAlnasl() {
 }
 // An error from the server is a word; the sentence for it, when there is one.
 const errText = (e) => (TX.en[e.message] ? t(e.message) : e.message);
+// Compact screens (3.5 inch): the status line comes first. Hidden by CSS on big screens.
+function statusStrip(r) {
+  const addr = h("span", { class: "dim" }, "...");
+  api("/api/sysinfo").then((i) => {
+    const a = [].concat((i.net && i.net.eth0) || [], (i.net && i.net.wlan0) || []);
+    addr.textContent = a.join("  ") || t("st_noaddr");
+  }).catch(() => { addr.textContent = "-"; });
+  return h("div", { class: "card statusbar", id: "status-strip" },
+    h("span", { class: "pill " + (S.role_up ? "ok" : "bad") }, ROLE_NAME[r] + " " + (S.role_up ? t("st_up") : t("st_down"))), addr);
+}
 function menu() {
   const r = roleNow();
-  shell(t("menu"), [hotspotCard(), h("div", { class: "grid" },
+  shell(t("menu"), [statusStrip(r), hotspotCard(), h("div", { class: "grid" },
     tile(ROLE_NAME[r], t(r === "alnasl" ? "m_alnasl_d" : "m_" + r + "_d"), openAlnasl),
     tile(t("m_settings"), t("m_settings_d"), () => go("/settings")),
     tile(t("m_info"), t("m_info_d"), () => go("/info")),

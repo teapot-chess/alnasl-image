@@ -144,3 +144,55 @@ input.range { flex: 1; min-width: 180px; height: 44px; accent-color: var(--accen
   .tile { min-height: 72px; } .steps i { height: 4px; }
   #modal { align-items: flex-start; }
 }
+/* ==== compact-screen: 3.5 inch panels (480x320 landscape, 320x480 portrait). Nothing outside this block
+   changes the big-screen layout. Status first, every tap target at least 40 px, one scroll direction. ==== */
+.statusbar { display: none; }
+@media (max-width: 520px), (max-height: 360px) {
+  :root { --tap: 44px; }
+  html, body { font-size: 15px; line-height: 1.3; overflow-x: hidden; }
+  #app { padding-bottom: 8px; }
+  h1 { font-size: 20px; } h2 { font-size: 17px; margin-bottom: 8px; }
+  .small, .note, label.f > span { font-size: 13px; }
+  .top { flex-wrap: nowrap; padding: 4px 8px; gap: 6px; min-height: 48px; }
+  .top .brand { font-size: 15px; }
+  .top .dim { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+  .top .row { flex-wrap: nowrap; gap: 4px; }
+  .top .btn.sm { min-height: 40px; min-width: 40px; padding: 0 10px; font-size: 14px; }
+  .page { padding: 8px; }
+  .statusbar { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; padding: 8px 10px; margin-bottom: 8px; border-radius: 10px; }
+  .statusbar .pill { font-size: 14px; padding: 4px 10px; }
+  .statusbar .dim { font-size: 14px; word-break: break-all; }
+  .card { padding: 10px; margin-bottom: 8px; border-radius: 10px; }
+  .grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .tile { min-height: 56px; padding: 8px 10px; flex-direction: column; align-items: flex-start; justify-content: center; flex-wrap: nowrap; border-radius: 10px; }
+  .tile .t { font-size: 16px; margin-top: 0; } .tile .d { font-size: 12px; line-height: 1.2; }
+  .btn { min-height: 44px; padding: 0 12px; font-size: 15px; border-radius: 10px; }
+  .btn.sm { min-height: 44px; font-size: 14px; }
+  .tabs { gap: 4px; margin-bottom: 8px; flex-wrap: nowrap; }
+  .tab { flex: 1 1 0; min-width: 0; min-height: 44px; padding: 0 4px; font-size: 14px; border-radius: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item { min-height: 44px; padding: 6px 10px; gap: 8px; }
+  .item.wrap .grow { flex-basis: 140px; }
+  .sw { padding: 8px 0; gap: 10px; } .sw input { width: 32px; height: 32px; }
+  input[type=text], input[type=password], select { min-height: 44px; padding: 0 10px; }
+  input.range { min-width: 120px; }
+  label.f { margin-bottom: 8px; }
+  .row { gap: 6px; }
+  .foot { margin-top: 8px; padding: 4px 0; }
+  .msg { padding: 8px 10px; margin-bottom: 8px; }
+  .kv { grid-template-columns: 1fr; gap: 0; } .kv dt { font-size: 12px; } .kv dd { margin-bottom: 6px; }
+  .helpcode { font-size: 40px; margin: 2px 0 6px; }
+  .big { font-size: 40px; }
+  details.card > summary { font-size: 16px; min-height: 44px; }
+  pre.raw { font-size: 11px; max-height: 50vh; }
+  #modal { padding: 4px; } #modal .box { padding: 10px; border-radius: 10px; }
+  #osk { padding: 3px; } #osk .kr { gap: 3px; margin-bottom: 3px; }
+  #osk button { min-height: 40px; font-size: 17px; border-radius: 7px; } #osk button.w { font-size: 13px; }
+  body.osk-open #app { padding-bottom: 232px; }
+  .steps { margin-bottom: 8px; }
+}
+/* Portrait (320x480 and the like): the status line stays, the tiles keep two columns while 140 px fits. */
+@media (max-width: 360px) {
+  .grid { gap: 6px; } .tile .d { display: none; }
+  .top .brand { display: none; }
+}
+/* ==== end compact-screen ==== */
