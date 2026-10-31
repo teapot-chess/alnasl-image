@@ -90,7 +90,7 @@ grub() {
         { print }' "$t" > "$t.n"
       cat "$t.n" > "$t"; rm -f "$t.n" "$t.b"
     fi
-    if ! cmp -s "$c" "$t"; then
+    if [ "$(sha256sum < "$c")" != "$(sha256sum < "$t")" ]; then   # not cmp: the build VM has no diffutils
       cat "$t" > "$c"
       case $c in "$ROOT"*) say "edited ${c#"$ROOT"}" ;; *) say "edited $c" ;; esac
     fi
