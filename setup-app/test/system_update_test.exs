@@ -4,6 +4,7 @@ defmodule AlnaslSetup.SystemUpdateTest do
   # writes (status, history, last result, trial), the command lock, the downloads and the boot check.
   # Nothing here touches a disk, a partition or the network: a fake root, fake commands, a loopback server.
   use ExUnit.Case, async: false
+  import Bitwise, only: [<<<: 2]
 
   alias AlnaslSetup.SystemUpdate, as: U
   alias AlnaslSetup.{Http, Json, Sys}
@@ -33,7 +34,7 @@ defmodule AlnaslSetup.SystemUpdateTest do
         "raw_sha256" => String.duplicate("b", 64),
         "min_from" => min_from
       },
-      Map.new(kw)
+      Map.new(kw, fn {k, v} -> {to_string(k), v} end)
     )
   end
 
@@ -919,6 +920,12 @@ defmodule AlnaslSetup.SystemUpdateTest do
     test "root_part reads sysfs the way the box has it" do
       Application.delete_env(:alnasl_setup, :system_update)
       sys = U.root_sysfs()
+      # st_dev as coreutils' stat sees it, taken apart the way glibc's major() and minor() do
+      {dev, 0} = System.cmd("stat", ["-c", "%d", Sys.path("/")])
+      dev = String.to_integer(String.trim(dev))
+      maj = Bitwise.bor(Bitwise.band(Bitwise.bsr(dev, 8), 0xFFF), Bitwise.band(Bitwise.bsr(dev, 32), 0xFFFFF000))
+      min = Bitwise.bor(Bitwise.band(dev, 0xFF), Bitwise.band(Bitwise.bsr(dev, 12), 0xFFFFFF00))
+      assert sys == "/sys/dev/block/#{maj}:#{min}"
       tail = "devices/platform/emmc2/mmc_host/mmc0/mmc0:0001/block/mmcblk0/mmcblk0p2"
       Box.put("/sys/" <> tail <> "/partition", "2\n")
       File.mkdir_p!(Path.dirname(Sys.path(sys)))
@@ -1075,8 +1082,28 @@ defmodule AlnaslSetup.SystemUpdateTest do
       path = System.get_env("PATH")
       System.put_env("PATH", bin <> ":" <> path)
       on_exit(fn -> System.put_env("PATH", path) end)
-      Box.runner!(fn _ -> nil end)
+
+      # mkfifo really runs (the FIFO is the point); the card's commands are faked
+      Box.runner!(fn
+        ["mkfifo" | args] ->
+          {out, rc} = System.cmd("mkfifo", args, stderr_to_stdout: true)
+          {rc, out}
+
+        _ ->
+          nil
+      end)
+
       :ok
+    end
+
+    test "a decompressor that fails is a failed unpack, never a hang" do
+      File.write!(Sys.path("/fakebin/zstd"), "#!/bin/sh\necho broken >&2\nexit 3\n")
+      dl = "/var/lib/alnasl-os-update/system/download/alnasl-system-v6.3.img.zst"
+      Box.put(dl, "x")
+      i = img("v6", "6.3", nil, raw_size: 10)
+
+      assert {:refused, "the image did not unpack to what the index says (0 of 10 bytes)"} =
+               U.attempt(fn -> quiet(fn -> U.write_slot(i, dl, "B", false) end) end)
     end
 
     test "unpacked, written, read back, labelled" do
