@@ -10,7 +10,18 @@ defmodule AlnaslSetup.CLI do
   The exit code is the program's.
   """
 
-  def main(argv \\ System.argv()) do
+  @doc """
+  The program's arguments. The release's `eval` hands over the `--` that separates them from the expression
+  (seen on the arm64 image: System.argv() is ["--", "splash", ...]), so a leading one is dropped.
+  """
+  def argv do
+    case System.argv() do
+      ["--" | rest] -> rest
+      args -> args
+    end
+  end
+
+  def main(argv \\ argv()) do
     code =
       case argv do
         ["splash" | rest] -> AlnaslSetup.Splash.main(rest)

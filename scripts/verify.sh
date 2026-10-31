@@ -19,8 +19,9 @@ bad() { echo "  FAIL $*"; fail=1; }
 # (qemu-user): ex '<elixir>' args... (System.argv() is args), or exf args... with the Elixir on stdin
 # (a heredoc). A failed check halts with 1 or raises. Callers mount the chroot (cmount) around them.
 AS=/opt/alnasl-setup/bin/alnasl_setup
-ex() { chroot $R $AS eval "$1" -- "${@:2}"; }
-exf() { cat > $R/tmp/verify-check.exs; chroot $R $AS eval 'Code.eval_file("/tmp/verify-check.exs")' -- "$@"; local rc=$?; rm -f $R/tmp/verify-check.exs; return $rc; }
+# (the release's eval leaves the "--" in System.argv(); AlnaslSetup.CLI.argv() drops it, so the snippets are rewritten to call it)
+ex() { local e=${1//System.argv()/AlnaslSetup.CLI.argv()}; chroot $R $AS eval "$e" -- "${@:2}"; }
+exf() { sed 's/System.argv()/AlnaslSetup.CLI.argv()/g' > $R/tmp/verify-check.exs; chroot $R $AS eval 'Code.eval_file("/tmp/verify-check.exs")' -- "$@"; local rc=$?; rm -f $R/tmp/verify-check.exs; return $rc; }
 # The shipped code has no source in the image, only .beam files; their atoms and string literals are plain
 # bytes (OTP 29 does not compress the literal table), so grep -a finds what a module names and says.
 # bhas Module string... : every string is in Elixir.AlnaslSetup.<Module>.beam. Not for the strings of a
