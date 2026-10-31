@@ -7,3 +7,6 @@ scripts/__pycache__/
 *.key
 *.pem
 __pycache__/
+
+# build outputs: git archive of the tags in versions.json, made by build.ps1
+*-src.tar

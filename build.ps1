@@ -14,8 +14,8 @@
 # scripts/sign-release.sh on the machine that holds the private key, then upload them by hand.
 # A release build refuses the placeholder update key (ALNASL_RELEASE=1 in assemble/verify).
 #
-# What it does: ships the Alnasl, Arkab, Polis and Nunki sources (git archive HEAD of each; each HEAD
-# must be the branch you want in the image, main) and the scripts to
+# What it does: ships the Alnasl, Arkab, Polis and Nunki sources (git archive of the tag in versions.json; nothing is built from HEAD, and
+# Arkab must equal the tag Alnasl's mix.exs and mix.lock pin) and the scripts to
 # the build VM (/root/w-photon-img5 only), runs the stages there, then copies
 # the compressed image + SHA256 back into .\out\. Needs ssh/scp (Windows 10+).
 # The VM needs: docker (started), qemu-user binfmt for aarch64 (the script
@@ -47,26 +47,30 @@ $ssh = @("-i", $Key, "-o", "StrictHostKeyChecking=accept-new")
 # "exec 2>&1": the remote shell merges stderr into stdout, otherwise Windows PowerShell 5.1 turns any stderr line into a terminating error.
 function Vm-Run([string]$cmd) { & ssh @ssh $Vm "exec 2>&1; $cmd"; if ($LASTEXITCODE -ne 0) { throw "remote command failed: $cmd" } }
 
+$V = & (Join-Path $here "check-versions.ps1") -Root $here -AlnasLRepo $AlnasLRepo -ArkabRepo $ArkabRepo -PolisRepo $PolisRepo -NunkiRepo $NunkiRepo
+$Tags = $V.Tags; $Shas = $V.Shas
+foreach ($n in @("alnasl", "arkab", "polis", "nunki")) { Write-Host ("== bundle {0,-6} {1}  {2}" -f $n, $Tags[$n], $Shas[$n]) }
+
 Write-Host "== ship"
 Vm-Run "mkdir -p $W/alnasl $W/arkab $W/polis $W/nunki $W/espeak $W/kiosk"
 if ($Skip -notcontains "alnasl") {
   $tar = Join-Path $here "alnasl\alnasl-src.tar"
-  git -C $AlnasLRepo archive -o $tar HEAD
+  git -C $AlnasLRepo archive -o $tar $Tags.alnasl
   & scp @ssh $tar "$Vm`:$W/alnasl/"
 }
 & scp @ssh (Join-Path $here "alnasl\Dockerfile") "$Vm`:$W/alnasl/"
 if ($Skip -notcontains "arkab") {
-  # Arkab (the slave mode's program, docs/v6-plan.md section 1): its own repo's HEAD, built like Alnasl's.
+  # Arkab (the slave mode's program, docs/v6-plan.md section 1): its manifest tag, built like Alnasl's.
   $atar = Join-Path $here "arkab\arkab-src.tar"
-  git -C $ArkabRepo archive -o $atar HEAD
+  git -C $ArkabRepo archive -o $atar $Tags.arkab
   & scp @ssh $atar "$Vm`:$W/arkab/"
 }
 & scp @ssh (Join-Path $here "arkab\Dockerfile") "$Vm`:$W/arkab/"
-# v7: Polis (the print station) and Nunki (the announcer), each from its own repo's HEAD, built like Arkab.
+# v7: Polis (the print station) and Nunki (the announcer), each from its manifest tag, built like Arkab.
 foreach ($app in @(@{ n = "polis"; repo = $PolisRepo }, @{ n = "nunki"; repo = $NunkiRepo })) {
   if ($Skip -notcontains $app.n) {
     $ptar = Join-Path $here ("{0}\{0}-src.tar" -f $app.n)
-    git -C $app.repo archive -o $ptar HEAD
+    git -C $app.repo archive -o $ptar $Tags[$app.n]
     & scp @ssh $ptar ("{0}:{1}/{2}/" -f $Vm, $W, $app.n)
   }
   & scp @ssh (Join-Path $here ("{0}\Dockerfile" -f $app.n)) ("{0}:{1}/{2}/" -f $Vm, $W, $app.n)
