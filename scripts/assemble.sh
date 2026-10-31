@@ -380,11 +380,25 @@ pys=$( { rpm -qa --qf '%{NAME}\n' | grep -E '^python3($|-)|-python3?$' || true
        } | grep -v 'not owned' | sort -u)
 if [ -z "$pys" ]; then echo "  python: none in the base"; exit 0; fi
 echo "  python packages to remove: $(echo $pys)"
-if ! out=$(rpm -e --test $pys 2>&1); then
-  echo "$out" | sed 's/^/  /'
-  echo "PYTHON IS STILL NEEDED by the packages above (not Python themselves); decide what to do with them"; exit 1
+# Photon's motd package is a Python script (motdgen) for login banners; the box has no login. It goes with Python.
+if rpm -q motd >/dev/null 2>&1; then
+  [ -z "$(rpm -q --whatrequires motd 2>/dev/null | grep -v '^no package requires')" ] || { echo "something needs motd"; exit 1; }
+  rpm -e motd; echo "  removed motd (Python script, login banner)"
 fi
-rpm -e $pys
+# alsa-lib carries a bare "Requires: python3" in Photon 5 although it ships no Python file (checked: no script,
+# no python import). That one dependency is waived (rpm -e --nodeps); anything else still stops the build.
+waived='alsa-lib'
+if ! out=$(rpm -e --test $pys 2>&1); then
+  others=$(echo "$out" | grep -E 'is needed by' | grep -v -E "needed by \(installed\) ($waived)-[0-9]" || true)
+  if [ -n "$others" ]; then
+    echo "$out" | sed 's/^/  /'
+    echo "PYTHON IS STILL NEEDED by the packages above (not Python themselves); decide what to do with them"; exit 1
+  fi
+  echo "  waived: python3 required by $waived only"
+  rpm -e --nodeps $pys
+else
+  rpm -e $pys
+fi
 left=$(ls -d /usr/bin/python* /usr/lib/python3* /usr/lib64/python3* 2>/dev/null || true)
 [ -z "$left" ] || { echo "python files left behind: $left"; exit 1; }
 ! rpm -qa | grep -q -E '^python3' || { echo "a python3 package is still installed"; exit 1; }
