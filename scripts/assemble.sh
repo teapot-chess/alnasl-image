@@ -188,11 +188,18 @@ chroot $R /bin/bash -c 'for b in /usr/sbin/hostapd /usr/sbin/hostapd_cli; do ldd
 # executables keep their x bit; assemble sets the real scripts' modes below.
 (cd $W/overlay && tar --owner=0 --group=0 --mode='u=rwX,go=rX' -cf - --exclude=boot-efi .) | tar -xf - -C $R
 chmod 0755 $R
-chmod 0755 $R/usr/local/sbin/alnasl-* $R/usr/local/lib/alnasl-setup/server.py
+chmod 0755 $R/usr/local/sbin/alnasl-*
 [ -x $R/usr/local/sbin/alnasl-mode ] || { echo "alnasl-mode missing from the overlay"; exit 1; }
-chmod 0644 $R/usr/local/lib/alnasl-setup/diag.py $R/usr/local/lib/alnasl-setup/bootlog.py
-chmod 0755 $R/usr/local/lib/alnasl-setup/hotspot.py $R/usr/local/lib/alnasl-setup/portal.py
-chmod 0644 $R/usr/local/lib/alnasl-setup/alnasl_qr.py $R/usr/local/lib/alnasl-setup/arkab_live.py $R/etc/alnasl/hotspot-dnsmasq.conf
+chmod 0644 $R/etc/alnasl/hotspot-dnsmasq.conf
+# The box's own programs: one Elixir release (setup-app, build-setup.sh) at /opt/alnasl-setup. The setup server,
+# the hotspot and its portal run from it as units; alnasl-splash and alnasl-system-update are shell wrappers
+# around its eval. Root owns it, everyone may read it (the portal runs as a throwaway user), nobody writes it.
+rm -rf $R/opt/alnasl-setup
+tar -xzf $W/alnasl-setup-linux-aarch64.tar.gz -C $R/opt
+chown -R 0:0 $R/opt/alnasl-setup
+chmod -R u=rwX,go=rX $R/opt/alnasl-setup
+[ -x $R/opt/alnasl-setup/bin/alnasl_setup ] && [ -x $R/opt/alnasl-setup/bin/alnasl-fbtool ] || { echo "setup-app release incomplete"; exit 1; }
+chroot $R /opt/alnasl-setup/bin/alnasl_setup eval 'IO.puts("setup-app runs in the image: " <> System.otp_release())' || { echo "setup-app does not start in the image"; exit 1; }
 # v7.3: the hotspot file's template, for when someone deletes it from the card (alnasl-hotspot re-creates it).
 install -D -m 0644 $W/overlay/boot-efi/alnasl-hotspot.txt $R/usr/share/alnasl/defaults/boot-efi/alnasl-hotspot.txt
 chmod 0755 $R/usr/local/bin/espeak-ng
@@ -359,6 +366,30 @@ rpm -q openssh-server 2>&1 | sed 's/^/  ssh server package: /'
 IN
 rm -f $R/root/.ssh/authorized_keys $R/etc/ssh/ssh_host_* $R/etc/ssh/alnasl-sshd.conf
 [ "$(chroot $R rpm -q linux)" = "linux-6.1.10-11.ph5.aarch64" ] || { echo "KERNEL PACKAGE CHANGED by the ssh removal"; exit 1; }
+
+# --- 7b. no Python on the box --------------------------------------------------------------------
+# Photon's base image ships python3; nothing of ours uses it any more (setup-app replaced the last of it).
+# Every package that is Python (python3, python3-*, *-python) or owns a file under a python3 directory goes,
+# in one rpm -e. If anything that is NOT Python still needs one of them, the build stops and names it:
+# that is a decision for a person, not for this script.
+chroot $R /bin/bash <<'IN'
+set -euo pipefail
+pys=$( { rpm -qa --qf '%{NAME}\n' | grep -E '^python3($|-)|-python3?$' || true
+         for d in /usr/lib/python3* /usr/lib64/python3* /usr/bin/python3*; do [ -e "$d" ] && rpm -qf --qf '%{NAME}\n' "$d" 2>/dev/null; done || true
+       } | grep -v 'not owned' | sort -u)
+if [ -z "$pys" ]; then echo "  python: none in the base"; exit 0; fi
+echo "  python packages to remove: $(echo $pys)"
+if ! out=$(rpm -e --test $pys 2>&1); then
+  echo "$out" | sed 's/^/  /'
+  echo "PYTHON IS STILL NEEDED by the packages above (not Python themselves); decide what to do with them"; exit 1
+fi
+rpm -e $pys
+left=$(ls -d /usr/bin/python* /usr/lib/python3* /usr/lib64/python3* 2>/dev/null || true)
+[ -z "$left" ] || { echo "python files left behind: $left"; exit 1; }
+! rpm -qa | grep -q -E '^python3' || { echo "a python3 package is still installed"; exit 1; }
+echo "  python: removed"
+IN
+[ "$(chroot $R rpm -q linux)" = "linux-6.1.10-11.ph5.aarch64" ] || { echo "KERNEL PACKAGE CHANGED by the python removal"; exit 1; }
 
 # --- 8. services: enable ours, silence the ones that would wait for a network --------
 chroot $R /bin/bash -e <<'IN'
