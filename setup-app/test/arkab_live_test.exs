@@ -230,6 +230,9 @@ defmodule AlnaslSetup.ArkabLiveTest do
 
   defp unmask(payload, <<a, b, c, d>>) do
     key = {a, b, c, d}
-    for {byte, i} <- Enum.with_index(:binary.bin_to_list(payload)), into: <<>>, do: <<Bitwise.bxor(byte, elem(key, rem(i, 4)))>>
+
+    for {byte, i} <- Enum.with_index(:binary.bin_to_list(payload)),
+        into: <<>>,
+        do: <<Bitwise.bxor(byte, elem(key, rem(i, 4)))>>
   end
 end

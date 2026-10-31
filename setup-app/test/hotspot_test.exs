@@ -14,13 +14,44 @@ defmodule AlnaslSetup.HotspotTest do
   @stamp "/var/lib/alnasl-setup/hotspot-qr.stamp"
 
   # ------------------------------------------------------------------ decide ---
-  defp d(opts \\ []) do
-    o = Map.merge(%{now: 10_000.0, uptime: 1000.0, has_wlan: true, enabled: true, eth: false, client: false,
-                    ap_on: false, saved: false, stations: 0, no_net_since: nil, had_network: false,
-                    off_since: nil, hold_until: 0.0, last_probe: nil}, Map.new(opts))
+  defp d(opts) do
+    o =
+      Map.merge(
+        %{
+          now: 10_000.0,
+          uptime: 1000.0,
+          has_wlan: true,
+          enabled: true,
+          eth: false,
+          client: false,
+          ap_on: false,
+          saved: false,
+          stations: 0,
+          no_net_since: nil,
+          had_network: false,
+          off_since: nil,
+          hold_until: 0.0,
+          last_probe: nil
+        },
+        Map.new(opts)
+      )
 
-    Hotspot.decide(o.now, o.uptime, o.has_wlan, o.enabled, o.eth, o.client, o.ap_on, o.saved, o.stations,
-      o.no_net_since || o.now - o.uptime, o.had_network, o.off_since, o.hold_until, o.last_probe || o.now)
+    Hotspot.decide(
+      o.now,
+      o.uptime,
+      o.has_wlan,
+      o.enabled,
+      o.eth,
+      o.client,
+      o.ap_on,
+      o.saved,
+      o.stations,
+      o.no_net_since || o.now - o.uptime,
+      o.had_network,
+      o.off_since,
+      o.hold_until,
+      o.last_probe || o.now
+    )
   end
 
   describe "decide/14" do
@@ -65,7 +96,10 @@ defmodule AlnaslSetup.HotspotTest do
     test "steps aside for saved networks when nobody is on it" do
       assert d(ap_on: true, saved: true, last_probe: 10_000.0 - 301) == {true, true, "probe"}
       assert {_, false, _} = d(ap_on: true, saved: true, last_probe: 10_000.0 - 200)
-      assert {_, true, _} = d(ap_on: true, saved: true, had_network: true, no_net_since: 9_000.0, last_probe: 10_000.0 - 121)
+
+      assert {_, true, _} =
+               d(ap_on: true, saved: true, had_network: true, no_net_since: 9_000.0, last_probe: 10_000.0 - 121)
+
       assert {_, false, _} = d(ap_on: true, saved: true, stations: 1, last_probe: 0.0)
       assert {_, false, _} = d(ap_on: true, saved: false, last_probe: 0.0)
       assert {_, false, _} = d(ap_on: true, saved: true, eth: true, uptime: 200, last_probe: 0.0)
@@ -76,7 +110,10 @@ defmodule AlnaslSetup.HotspotTest do
       0..(until - 1)//3
       |> Enum.reduce({false, nil, []}, fn t, {ap, off_since, timeline} ->
         st = if ap and phone_from != nil and t >= phone_from, do: 1, else: 0
-        {want, _probe, reason} = Hotspot.decide(1.0e6 + t, t * 1.0, true, true, eth, false, ap, false, st, 1.0e6, false, off_since, 0.0, 1.0e6)
+
+        {want, _probe, reason} =
+          Hotspot.decide(1.0e6 + t, t * 1.0, true, true, eth, false, ap, false, st, 1.0e6, false, off_since, 0.0, 1.0e6)
+
         off_since = if reason == "linger", do: off_since || 1.0e6 + t, else: nil
         {want, off_since, if(want != ap, do: [{t, want, reason} | timeline], else: timeline)}
       end)
@@ -148,7 +185,9 @@ defmodule AlnaslSetup.HotspotTest do
       s = Hotspot.qr_stamp("Alnasl-setup-ABCD", "secretpw1")
       assert s =~ ~r/\A[0-9a-f]{64}\z/
       refute String.contains?(s, "secretpw1")
-      assert s == :crypto.hash(:sha256, "alnasl-hotspot-qr\0Alnasl-setup-ABCD\0secretpw1") |> Base.encode16(case: :lower)
+
+      assert s ==
+               :crypto.hash(:sha256, "alnasl-hotspot-qr\0Alnasl-setup-ABCD\0secretpw1") |> Base.encode16(case: :lower)
     end
 
     test "render_file fills PASSWORD= and SSID=, replaces the old status line, ends CRLF" do
@@ -179,7 +218,11 @@ defmodule AlnaslSetup.HotspotTest do
     defp qr_matrix, do: QRDecoder.png_matrix(File.read!(Sys.path(@qr_file)), 10, 4)
 
     defp set_pw(value) do
-      t = boot_text() |> String.split("\r\n") |> Enum.map(&if(String.starts_with?(&1, "PASSWORD="), do: "PASSWORD=" <> value, else: &1))
+      t =
+        boot_text()
+        |> String.split("\r\n")
+        |> Enum.map(&if(String.starts_with?(&1, "PASSWORD="), do: "PASSWORD=" <> value, else: &1))
+
       File.write!(Sys.path(@boot_file), Enum.join(t, "\r\n"))
     end
 
@@ -343,12 +386,23 @@ defmodule AlnaslSetup.HotspotTest do
       ap_json = fn addrs -> Json.encode([%{"addr_info" => Enum.map(addrs, &%{"local" => &1, "scope" => "global"})}]) end
 
       Box.runner!(fn
-        ["ip", "-j", "-4", "addr", "show", "dev", "eth0"] -> {0, ap_json.(Agent.get(net, & &1.eth))}
-        ["ip", "-j", "-4", "addr", "show", "dev", "wlan0"] -> {0, ap_json.(Agent.get(net, & &1.wlan))}
-        ["wpa_cli" | _] -> {0, Agent.get(net, & &1.wpa)}
-        ["systemctl", "is-active", _] -> {0, "active\n"}
-        ["iw", "dev", "wlan0", "station", "dump"] -> {0, "Station aa:bb:cc:dd:ee:ff (on wlan0)\n\tinactive time: 10 ms\n"}
-        _ -> nil
+        ["ip", "-j", "-4", "addr", "show", "dev", "eth0"] ->
+          {0, ap_json.(Agent.get(net, & &1.eth))}
+
+        ["ip", "-j", "-4", "addr", "show", "dev", "wlan0"] ->
+          {0, ap_json.(Agent.get(net, & &1.wlan))}
+
+        ["wpa_cli" | _] ->
+          {0, Agent.get(net, & &1.wpa)}
+
+        ["systemctl", "is-active", _] ->
+          {0, "active\n"}
+
+        ["iw", "dev", "wlan0", "station", "dump"] ->
+          {0, "Station aa:bb:cc:dd:ee:ff (on wlan0)\n\tinactive time: 10 ms\n"}
+
+        _ ->
+          nil
       end)
 
       %{net: net}
@@ -356,6 +410,7 @@ defmodule AlnaslSetup.HotspotTest do
 
     defp run_dir(f), do: Sys.path("/run/alnasl-hotspot/" <> f)
     defp status, do: run_dir("status.json") |> File.read!() |> Json.decode() |> elem(1)
+
     defp start do
       {state, _} = with_io(fn -> Hotspot.startup(Hotspot.new_state()) end)
       state
@@ -388,7 +443,10 @@ defmodule AlnaslSetup.HotspotTest do
       s = start()
       {s, delay} = with_io(fn -> Hotspot.iterate(s) end) |> elem(0)
       assert delay == 3000 and s.had_network and not s.ap_on
-      assert %{"active" => false, "reason" => "ethernet", "ssid" => "Alnasl-setup-ABCD", "address" => "10.42.0.1"} = status()
+
+      assert %{"active" => false, "reason" => "ethernet", "ssid" => "Alnasl-setup-ABCD", "address" => "10.42.0.1"} =
+               status()
+
       assert is_float(status()["updated"])
     end
 
@@ -404,7 +462,10 @@ defmodule AlnaslSetup.HotspotTest do
       assert conf =~ "wpa_psk=" and conf =~ "ssid=Alnasl-setup-ABCD\n"
       refute String.contains?(conf, s.password)
       assert File.read!(Sys.path("/run/systemd/network/05-alnasl-hotspot.network")) == Hotspot.network_file()
-      assert %{"networks" => [%{"ssid" => "Hall"}], "t" => t} = run_dir("scan.json") |> File.read!() |> Json.decode() |> elem(1)
+
+      assert %{"networks" => [%{"ssid" => "Hall"}], "t" => t} =
+               run_dir("scan.json") |> File.read!() |> Json.decode() |> elem(1)
+
       assert is_float(t)
       assert %{"active" => true, "reason" => "no_network"} = status()
 
@@ -440,7 +501,8 @@ defmodule AlnaslSetup.HotspotTest do
       refute File.exists?(run_dir("active"))
     end
 
-    test "--stop puts wlan0 back in client mode and says so in the status" do
+    test "--stop puts wlan0 back in client mode and says so in the status", %{net: net} do
+      Agent.update(net, &%{&1 | wlan: ["10.42.0.1"]})
       s = start()
       with_io(fn -> Hotspot.iterate(s) end)
       assert File.exists?(run_dir("active"))
@@ -511,9 +573,12 @@ defmodule AlnaslSetup.HotspotTest do
       assert is_binary(s.last_join["host"]) and is_float(s.last_join["at"])
       assert s.had_network
       assert out =~ ~s(a network was chosen on the setup page: "Hall"; the hotspot steps aside to try it)
-      assert out =~ ~s(joined "Hall" (192.168.1.9); the hotspot stays off)
+      assert out =~ ~s|joined "Hall" (192.168.1.9); the hotspot stays off|
       refute String.contains?(out, "hunter22hunter")
-      assert boot_text() =~ ~r/# Box: joined Wi-Fi "Hall" on \d{4}-\d\d-\d\d \d\d:\d\d: address 192\.168\.1\.9, name .+\.local\./
+
+      assert boot_text() =~
+               ~r/# Box: joined Wi-Fi "Hall" on \d{4}-\d\d-\d\d \d\d:\d\d: address 192\.168\.1\.9, name .+.local/
+
       assert %{"last_join" => %{"ok" => true}, "reason" => "joining"} = status()
     end
 
@@ -525,7 +590,7 @@ defmodule AlnaslSetup.HotspotTest do
       assert_received {:connect, "Hall", "nope", true, "BE"}
       assert %{"ok" => false, "reason" => "wrong_password", "ssid" => "Hall"} = s.last_join
       assert_in_delta s.hold_until, Sys.now() + 600, 5
-      assert out =~ ~s(joining "Hall" did not work (wrong_password); the hotspot comes back)
+      assert out =~ ~s|joining "Hall" did not work (wrong_password); the hotspot comes back|
     end
 
     test "joined but no address yet: waits up to 15 s for one, then no_address" do

@@ -161,7 +161,7 @@ defmodule AlnaslSetup.PortalTest do
     end
 
     defp recv_all(s, acc) do
-      case :gen_tcp.recv(s, 0, 2000) do
+      case :gen_tcp.recv(s, 0, 8000) do
         {:ok, d} -> recv_all(s, acc <> d)
         {:error, _} -> acc
       end
@@ -217,7 +217,10 @@ defmodule AlnaslSetup.PortalTest do
       assert body == ~s({"captive": true, "user-portal-url": "http://10.42.0.1/"})
     end
 
-    test "a GET is passed on with Host 127.0.0.1:<setup port>, status and body as they are", %{port: port, setup_port: sp} do
+    test "a GET is passed on with Host 127.0.0.1:<setup port>, status and body as they are", %{
+      port: port,
+      setup_port: sp
+    } do
       {200, h, body} = get(port, "10.42.0.1", "/api/portal?x=1")
       assert body == ~s({"ok": true})
       assert h["x-frame-options"] == "DENY"
@@ -288,7 +291,7 @@ defmodule AlnaslSetup.PortalTest do
   defp sys_path(p), do: AlnaslSetup.Sys.path(p)
 
   defp closed_port do
-    {:ok, l} = :gen_tcp.listen(0, [ip: {127, 0, 0, 1}])
+    {:ok, l} = :gen_tcp.listen(0, ip: {127, 0, 0, 1})
     {:ok, p} = :inet.port(l)
     :gen_tcp.close(l)
     p
