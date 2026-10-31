@@ -194,6 +194,7 @@ chmod 0644 $R/etc/alnasl/hotspot-dnsmasq.conf
 # The box's own programs: one Elixir release (setup-app, build-setup.sh) at /opt/alnasl-setup. The setup server,
 # the hotspot and its portal run from it as units; alnasl-splash and alnasl-system-update are shell wrappers
 # around its eval. Root owns it, everyone may read it (the portal runs as a throwaway user), nobody writes it.
+mkdir -p $R/opt
 rm -rf $R/opt/alnasl-setup
 tar -xzf $W/alnasl-setup-linux-aarch64.tar.gz -C $R/opt
 chown -R 0:0 $R/opt/alnasl-setup
