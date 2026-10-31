@@ -130,6 +130,9 @@ cp "$T/rel/index.json" "$T/i2"
 exs "$HERE/release-index.exs" "$T/rel" alnasl-system-v7.1.img.zst v7 7.1 https://example.org/dl/v7.1/ 9 "$A" 9 "$B" "" "again" "$T/i2" > /dev/null 2>&1
 check "$(sum "$T/rel/index.json")" "$(sum "$T/i2")" "index.json: same inputs, same bytes (signature-stable)"
 
+
+# --- the compact-screen CSS checks (test-compact-css.sh) -----------------------------------
+if bash "$HERE/test-compact-css.sh" > "$T/css.out" 2>&1; then ok "test-compact-css.sh passes"; else bad "test-compact-css.sh ($(grep FAIL "$T/css.out" | head -n 2 | tr '\n' ' '))"; fi
 echo
 if [ $fails -eq 0 ]; then echo "all scripts checks passed"; else echo "$fails failed"; fi
 exit $((fails > 0))
