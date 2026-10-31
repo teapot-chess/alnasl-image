@@ -14,6 +14,23 @@ ok()  { echo "  ok   $*"; }
 # Byte-for-byte compare without cmp (the build VM has no diffutils, so cmp was "command not found" = always different).
 same() { [ -f "$1" ] && [ -f "$2" ] && [ "$(sha256sum < "$1")" = "$(sha256sum < "$2")" ]; }
 bad() { echo "  FAIL $*"; fail=1; }
+# The box's own programs are one Elixir release (setup-app) at /opt/alnasl-setup; the image has no other interpreter, and
+# neither has this VM. Checks that need more than grep run as Elixir in the image's release, in the chroot
+# (qemu-user): ex '<elixir>' args... (System.argv() is args), or exf args... with the Elixir on stdin
+# (a heredoc). A failed check halts with 1 or raises. Callers mount the chroot (cmount) around them.
+AS=/opt/alnasl-setup/bin/alnasl_setup
+ex() { chroot $R $AS eval "$1" -- "${@:2}"; }
+exf() { cat > $R/tmp/verify-check.exs; chroot $R $AS eval 'Code.eval_file("/tmp/verify-check.exs")' -- "$@"; local rc=$?; rm -f $R/tmp/verify-check.exs; return $rc; }
+# The shipped code has no source in the image, only .beam files; their atoms and string literals are plain
+# bytes (OTP 29 does not compress the literal table), so grep -a finds what a module names and says.
+# bhas Module string... : every string is in Elixir.AlnaslSetup.<Module>.beam. Not for the strings of a
+# `case` on a binary (the routes): the compiler splits those into shared prefixes; they are src checks.
+bhas() { local m=$1 s; shift; for s in "$@"; do grep -a -q -F -- "$s" "$EB/Elixir.AlnaslSetup.$m.beam" || return 1; done; }
+# The source the release was built from (build-setup.sh unpacks git archive HEAD:setup-app here), for what
+# leaves no whole trace in a .beam (routes, what a log line contains, comments).
+# src file string... : every string is in $SRC/<file>.
+SRC=$W/setup/src/lib/alnasl_setup
+src() { local f=$1 s; shift; for s in "$@"; do grep -q -F -- "$s" "$SRC/$f" || return 1; done; }
 
 for d in $W/vmnt/root $W/vmnt/boot; do umount -R -l $d 2>/dev/null; done
 L=$(losetup -f --show -P $IMG)
@@ -21,6 +38,7 @@ mkdir -p $W/vmnt/root $W/vmnt/boot
 mount ${L}p2 $W/vmnt/root; mount ${L}p1 $W/vmnt/boot
 R=$W/vmnt/root; B=$W/vmnt/boot
 trap 'cumount $R 2>/dev/null; umount -R -l $R $B 2>/dev/null; losetup -d $L 2>/dev/null' EXIT
+EB=$(ls -d $R/opt/alnasl-setup/lib/alnasl_setup-*/ebin 2>/dev/null | head -n 1)
 
 echo "== kernel / modules / dtbs"
 ls $R/lib/modules/ | tr '\n' ' '; echo
@@ -91,7 +109,11 @@ grep -q 'After=.*alnasl-mode.service' $R/etc/systemd/system/alnasl-firewall.serv
 ts=$(ls $R/usr/local/bin/tailscale* $R/usr/bin/tailscale* $R/usr/sbin/tailscale* $R/usr/local/sbin/alnasl-tailscale-up \
         $R/etc/systemd/system/tailscale* $R/etc/systemd/system/alnasl-tailscale* $R/usr/lib/systemd/system/tailscale* $B/tailscale* 2>/dev/null)
 [ -z "$ts" ] && ok "no Tailscale binary, unit, script or key file" || bad "Tailscale pieces: $ts"
-grep -q -E 'sshd|tailscale' $R/usr/local/lib/alnasl-setup/server.py && bad "server.py can still reach sshd/tailscale" || ok "server.py: /api/services cannot start sshd or Tailscale"
+# The setup server's modules (Server, Server.*): no unit, binary or switch of either in any string they hold.
+[ -n "$EB" ] && [ -f $EB/Elixir.AlnaslSetup.Server.Box.beam ] || bad "no setup-app release in /opt/alnasl-setup"
+[ -f $SRC/server.ex ] || bad "no setup-app source in $SRC (build-setup.sh unpacks it there)"
+{ grep -a -q -i -E 'sshd|tailscale' $EB/Elixir.AlnaslSetup.Server.beam $EB/Elixir.AlnaslSetup.Server.*.beam || grep -q -i -E 'sshd|tailscale' $SRC/server.ex $SRC/server/*.ex; } \
+  && bad "the setup server can still reach sshd/tailscale" || ok "setup server: /api/services cannot start sshd or Tailscale (no such string in its .beam files or source)"
 grep -q -i -E 'tailscale|"ssh"|s_ssh' $R/usr/local/share/alnasl-setup/www/app.js && bad "app.js still offers ssh/Tailscale" || ok "app.js: no ssh/Tailscale switches"
 
 echo "== units"
@@ -106,63 +128,72 @@ done
 echo "  iptables.service: $(chroot $R systemctl is-enabled iptables.service 2>&1 | tail -1)"
 echo "  wait-online:      $(chroot $R systemctl is-enabled systemd-networkd-wait-online.service 2>&1 | tail -1)"
 echo "  -- does anything that starts at boot PULL IN network-online.target? (drop-ins evaluated) --"
-python3 - "$R" <<'PY'
-import os, re, sys
-R = sys.argv[1]
-dirs = [R + '/etc/systemd/system', R + '/usr/lib/systemd/system']
-def find(n):
-    for d in dirs:
-        p = os.path.join(d, n)
-        if os.path.lexists(p):
-            return p
-def unit(n):
-    p = find(n)
-    if not p or os.path.realpath(p).endswith('/dev/null') or os.path.islink(p) and os.readlink(p) == '/dev/null':
-        return None
-    files = [p]
-    for d in dirs:
-        dd = os.path.join(d, n + '.d')
-        if os.path.isdir(dd):
-            files += [os.path.join(dd, f) for f in sorted(os.listdir(dd)) if f.endswith('.conf')]
-    res = {'After': [], 'Wants': [], 'Requires': [], 'BindsTo': [], 'Requisite': []}
-    for f in files:
-        try:
-            for line in open(f):
-                m = re.match(r'(After|Wants|Requires|BindsTo|Requisite)=(.*)', line.strip())
-                if m:
-                    k, v = m.groups()
-                    res[k] = [] if v == '' else res[k] + v.split()
-        except IsADirectoryError:
-            pass
-    return res
-def wants_dir(n):
-    out = []
-    for d in dirs:
-        for suffix in ('.wants', '.requires'):
-            dd = os.path.join(d, n + suffix)
-            if os.path.isdir(dd):
-                out += os.listdir(dd)
-    return out
-seen, todo, hits = set(), ['default.target'], []
-while todo:
-    n = todo.pop()
-    if n in seen:
-        continue
-    seen.add(n)
-    u = unit(n)
-    if u is None:
-        continue
-    pulled = u['Wants'] + u['Requires'] + u['BindsTo'] + u['Requisite'] + wants_dir(n)
-    if 'network-online.target' in pulled:
-        hits.append(n)
-    todo += [x for x in pulled if x != 'network-online.target']
-masked = [n for n in ('systemd-networkd-wait-online.service',) if unit(n) is None]
-print('       units reachable from default.target: %d' % len(seen))
-print('       pulling network-online.target: %s' % (hits or 'none'))
-print('       wait-online masked: %s' % bool(masked))
-sys.exit(1 if hits else 0)
-PY
-[ $? = 0 ] && ok "nothing at boot pulls in network-online.target" || bad "something pulls in network-online.target"
+# Walked in the chroot, so the units' absolute symlinks resolve inside the image (not on this VM).
+cmount $R
+exf <<'EX'
+dirs = ["/etc/systemd/system", "/usr/lib/systemd/system"]
+keys = ~w(After Wants Requires BindsTo Requisite)
+lexists = fn p -> match?({:ok, _}, File.lstat(p)) end
+# os.path.realpath, for the one thing asked of it: does the file end up at /dev/null
+real = fn real, p, n ->
+  case File.read_link(p) do
+    {:ok, t} when n < 40 -> real.(real, Path.expand(to_string(t), Path.dirname(p)), n + 1)
+    _ -> p
+  end
+end
+find = fn n -> Enum.find_value(dirs, fn d -> p = Path.join(d, n); if lexists.(p), do: p end) end
+unit = fn n ->
+  p = find.(n)
+  if p == nil or String.ends_with?(real.(real, p, 0), "/dev/null") or File.read_link(p) == {:ok, ~c"/dev/null"} do
+    nil
+  else
+    dropins =
+      for d <- dirs, dd = Path.join(d, n <> ".d"), File.dir?(dd),
+          f <- Enum.sort(File.ls!(dd)), String.ends_with?(f, ".conf"), do: Path.join(dd, f)
+
+    Enum.reduce([p | dropins], Map.new(keys, &{&1, []}), fn f, res ->
+      text = case File.read(f) do {:ok, t} -> t; _ -> "" end
+      Enum.reduce(String.split(text, "\n"), res, fn line, res ->
+        case Regex.run(~r/^(After|Wants|Requires|BindsTo|Requisite)=(.*)/, String.trim(line)) do
+          [_, k, ""] -> Map.put(res, k, [])
+          [_, k, v] -> Map.update!(res, k, &(&1 ++ String.split(v)))
+          _ -> res
+        end
+      end)
+    end)
+  end
+end
+wants_dir = fn n ->
+  for d <- dirs, s <- [".wants", ".requires"], dd = Path.join(d, n <> s), File.dir?(dd), f <- File.ls!(dd), do: f
+end
+walk = fn walk, todo, seen, hits ->
+  case todo do
+    [] -> {seen, hits}
+    [n | rest] ->
+      if MapSet.member?(seen, n) do
+        walk.(walk, rest, seen, hits)
+      else
+        case unit.(n) do
+          nil ->
+            walk.(walk, rest, MapSet.put(seen, n), hits)
+
+          u ->
+            pulled = u["Wants"] ++ u["Requires"] ++ u["BindsTo"] ++ u["Requisite"] ++ wants_dir.(n)
+            hits = if "network-online.target" in pulled, do: hits ++ [n], else: hits
+            walk.(walk, Enum.reject(pulled, &(&1 == "network-online.target")) ++ rest, MapSet.put(seen, n), hits)
+        end
+      end
+  end
+end
+{seen, hits} = walk.(walk, ["default.target"], MapSet.new(), [])
+masked = unit.("systemd-networkd-wait-online.service") == nil
+IO.puts("       units reachable from default.target: #{MapSet.size(seen)}")
+IO.puts("       pulling network-online.target: #{if hits == [], do: "none", else: inspect(hits)}")
+IO.puts("       wait-online masked: #{masked}")
+System.halt(if hits == [], do: 0, else: 1)
+EX
+rc=$?; cumount $R
+[ $rc = 0 ] && ok "nothing at boot pulls in network-online.target" || bad "something pulls in network-online.target"
 echo "  -- merged docker.service: --"; cat $R/usr/lib/systemd/system/docker.service $R/etc/systemd/system/docker.service.d/*.conf | grep -E '^(\[|After|Wants|Requires|ExecStart|Before)' | sed 's/^/       /'
 ls $R/etc/systemd/system/network-online.target.wants 2>/dev/null | sed 's/^/       wants: /'
 [ -L $R/etc/resolv.conf ] && ok "resolv.conf -> $(readlink $R/etc/resolv.conf)" || bad "resolv.conf"
@@ -194,12 +225,37 @@ chroot $R /usr/sbin/iw --version 2>&1 | sed 's/^/       /'; [ -x $R/usr/sbin/iw 
 [ -x $R/usr/local/sbin/alnasl-screen ] && bash -n $R/usr/local/sbin/alnasl-screen && ok "alnasl-screen present, bash -n" || bad "alnasl-screen"
 for pk in linux linux-drivers-gpu dtb-rpi4 linux-firmware; do echo "       $(rpm --root=$R -q $pk)"; done
 echo "== settings server / wizard / kiosk script"
-for f in usr/local/lib/alnasl-setup/server.py usr/local/lib/alnasl-setup/diag.py usr/local/lib/alnasl-setup/bootlog.py usr/local/share/alnasl-setup/www/index.html usr/local/share/alnasl-setup/www/app.js usr/local/share/alnasl-setup/www/app.css \
+for f in opt/alnasl-setup/bin/alnasl_setup usr/local/share/alnasl-setup/www/index.html usr/local/share/alnasl-setup/www/app.js usr/local/share/alnasl-setup/www/app.css \
          usr/local/sbin/alnasl-setup etc/alnasl/keyboard.conf etc/alnasl/kiosk.conf etc/alnasl/image-version etc/wpa_supplicant/wpa_supplicant-wlan0.conf \
          etc/systemd/system/alnasl-setup.service; do
   [ -e $R/$f ] || [ -L $R/$f ] && ok "present: /$f" || bad "missing: /$f"
 done
-chroot $R python3 -c "import sys; compile(open('/usr/local/lib/alnasl-setup/server.py').read(), 'server.py', 'exec'); print('compiles with image python', sys.version.split()[0])" 2>&1 | sed 's/^/       /'
+# The programs behind it: one Elixir release, root's, readable by all (the portal runs as a throwaway user), writable by nobody else.
+O=$R/opt/alnasl-setup
+[ -d $O ] && [ -x $O/bin/alnasl_setup ] && [ -x $O/bin/alnasl-fbtool ] && ok "setup-app release in /opt/alnasl-setup (bin/alnasl_setup, bin/alnasl-fbtool executable)" || bad "setup-app release incomplete in /opt/alnasl-setup"
+[ -z "$(find $O \( ! -user 0 -o ! -group 0 \) -print -quit 2>/dev/null)" ] && ok "/opt/alnasl-setup: owned by root" || bad "/opt/alnasl-setup: not root's: $(find $O ! -user 0 -print -quit)"
+[ -z "$(find $O ! -type l -perm /022 -print -quit 2>/dev/null)" ] && ok "/opt/alnasl-setup: nothing group- or world-writable" || bad "/opt/alnasl-setup: writable by others: $(find $O ! -type l -perm /022 -print -quit)"
+for s in alnasl-splash alnasl-system-update; do
+  [ -x $R/usr/local/sbin/$s ] && chroot $R sh -n /usr/local/sbin/$s && grep -q "^exec /opt/alnasl-setup/bin/alnasl_setup eval 'AlnaslSetup.CLI.main()' -- ${s#alnasl-} \"\$@\"$" $R/usr/local/sbin/$s \
+    && ok "$s: executable, sh -n in the image, runs the release's ${s#alnasl-}" || bad "$s wrapper"
+done
+for u in setup:server hotspot:hotspot portal:portal; do
+  f=$R/etc/systemd/system/alnasl-${u%%:*}.service
+  grep -q '^ExecStart=/opt/alnasl-setup/bin/alnasl_setup start$' $f && grep -q "^Environment=ALNASL_SETUP_MODE=${u#*:}$" $f && ok "alnasl-${u%%:*}.service: the release, mode ${u#*:}" || bad "alnasl-${u%%:*}.service ExecStart/ALNASL_SETUP_MODE"
+done
+cmount $R
+echo "       $(ex 'IO.puts("the release runs in the image: OTP " <> System.otp_release() <> ", Elixir " <> System.version())' 2>&1 | tail -n 1)"
+cumount $R
+echo "== no Python in the image (setup-app replaced the last of it; assemble.sh 7b removes the packages)"
+py=$(ls -d $R/usr/bin/python* $R/usr/lib/python3* $R/usr/lib64/python3* $R/usr/local/bin/python* 2>/dev/null)
+[ -z "$py" ] && ok "no /usr/bin/python*, no /usr/lib/python3*" || bad "python files: $py"
+pk=$(rpm --root=$R -qa 2>/dev/null | grep -i python)
+[ -z "$pk" ] && ok "no python package installed (rpm -qa)" || bad "python packages: $(echo $pk)"
+pyf=$(find $R/usr/local $R/etc/systemd $R/usr/share/alnasl -type f 2>/dev/null | while IFS= read -r f; do
+        case "$f" in *.py|*.pyc) echo "${f#$R}"; continue ;; esac
+        [ "$(head -c 2 "$f" | tr -d '\0')" = '#!' ] && head -n 1 "$f" | grep -q -a python && echo "${f#$R}"
+      done)
+[ -z "$pyf" ] && ok "no .py file and no python #! script in /usr/local, /etc/systemd, /usr/share/alnasl" || bad "python left: $(echo $pyf)"
 for s in alnasl-setup alnasl-kiosk alnasl-kiosk-load alnasl-firstboot alnasl-arkab-pin alnasl-wifi-setup alnasl-os-update alnasl-reset alnasl-data alnasl-mode alnasl-sound alnasl-firewall; do bash -n $R/usr/local/sbin/$s && ok "bash -n $s" || bad "bash -n $s"; done
 echo "       vconsole.conf: $(cat $R/etc/vconsole.conf 2>/dev/null)"
 for k in be-latin1 fr-latin9 nl us-acentos de-latin1-nodeadkeys us uk es it pt-latin1; do
@@ -208,11 +264,15 @@ done
 rpm --root=$R -q kbd | sed 's/^/       /'
 cmount $R
 cat > $R/tmp/setup-test.sh <<'IN'
-python3 /usr/local/lib/alnasl-setup/server.py > /tmp/setup.log 2>&1 &
+ALNASL_SETUP_MODE=server /opt/alnasl-setup/bin/alnasl_setup start > /tmp/setup.log 2>&1 &
 echo $! > /tmp/setup.pid
-for i in $(seq 1 30); do curl -fsS -o /dev/null --max-time 2 http://127.0.0.1:4041/healthz && break; sleep 1; done
+# The BEAM under qemu-user takes a while to come up: up to 60 s.
+for i in $(seq 1 60); do curl -fsS -o /dev/null --max-time 2 http://127.0.0.1:4041/healthz && break; sleep 1; done
+echo "healthz after ${i}s"
 H='Host: 127.0.0.1:4041'
 c() { curl -s -o /tmp/body -w '%{http_code}' "$@"; }
+# A JSON answer, read by the image's own release (this VM has no jq): j '<elixir with d = /tmp/body decoded>'
+j() { /opt/alnasl-setup/bin/alnasl_setup eval "d = JSON.decode!(File.read!(\"/tmp/body\")); $1" 2>&1 | tail -n 1; }
 echo "GET /            -> $(c -H "$H" http://127.0.0.1:4041/) (302 expected: not set up yet)"
 echo "GET /setup       -> $(c -H "$H" http://127.0.0.1:4041/setup) $(grep -c app.js /tmp/body) script tag"
 echo "GET /app.js      -> $(c -H "$H" http://127.0.0.1:4041/app.js)"
@@ -220,9 +280,9 @@ echo "GET /api/state   -> $(c -H "$H" http://127.0.0.1:4041/api/state) $(head -c
 echo "GET /api/net     -> $(c -H "$H" http://127.0.0.1:4041/api/net)"
 echo "GET /api/sysinfo -> $(c -H "$H" http://127.0.0.1:4041/api/sysinfo) $(head -c 120 /tmp/body)"
 echo "GET /diag        -> $(c -H "$H" http://127.0.0.1:4041/diag) $(grep -c app.js /tmp/body) script tag"
-echo "GET /api/diag    -> $(c -H "$H" http://127.0.0.1:4041/api/diag) checks=$(python3 -c 'import json;d=json.load(open("/tmp/body"));print(len(d["checks"]), "verdict", d["verdict"], "sections", [s["id"] for s in d["sections"]])')"
-echo "GET /api/diag/journals -> $(c -H "$H" http://127.0.0.1:4041/api/diag/journals) units=$(python3 -c 'import json;print(len(json.load(open("/tmp/body"))["journals"]))')"
-echo "GET /api/diag/scan -> $(c -H "$H" http://127.0.0.1:4041/api/diag/scan) $(python3 -c 'import json;d=json.load(open("/tmp/body"));print("reason", d.get("reason"), "networks", len(d["networks"]), "available", d["available"])') (no wlan0 in a chroot: a reason, not an empty list)"
+echo "GET /api/diag    -> $(c -H "$H" http://127.0.0.1:4041/api/diag) checks=$(j 'IO.puts("#{length(d["checks"])} verdict #{d["verdict"]} sections #{inspect(Enum.map(d["sections"], & &1["id"]))}")')"
+echo "GET /api/diag/journals -> $(c -H "$H" http://127.0.0.1:4041/api/diag/journals) units=$(j 'IO.puts(length(d["journals"]))')"
+echo "GET /api/diag/scan -> $(c -H "$H" http://127.0.0.1:4041/api/diag/scan) $(j 'IO.puts("reason #{inspect(d["reason"])} networks #{length(d["networks"])} available #{inspect(d["available"])}")') (no wlan0 in a chroot: a reason, not an empty list)"
 echo "GET /api/kiosk-busy -> $(c -H "$H" http://127.0.0.1:4041/api/kiosk-busy) $(head -c 80 /tmp/body)"
 echo "ping settings    -> $(c -H "$H" 'http://127.0.0.1:4041/api/ping?p=%2Fsettings%2Fnetwork%3Ftab%3Dwifi&first=1')"
 echo "GET / (resume)   -> $(curl -s -o /dev/null -D - -H "$H" http://127.0.0.1:4041/ | grep -i -E '^(HTTP|Location)' | tr -d '\r' | tr '\n' ' ') (302 to /settings/network?tab=wifi expected)"
@@ -236,7 +296,7 @@ echo "foreign Host diag -> $(c -H 'Host: evil.example:4041' http://127.0.0.1:404
 echo "POST no header   -> $(c -X POST -H "$H" -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:4041/api/lang) (403 expected)"
 echo "POST bad ip      -> $(c -X POST -H "$H" -H 'X-Alnasl-Setup: 1' -H 'Content-Type: application/json' -d '{"iface":"eth0","mode":"static","address":"nope"}' http://127.0.0.1:4041/api/net/set) (400 expected)"
 echo "POST bad name    -> $(c -X POST -H "$H" -H 'X-Alnasl-Setup: 1' -H 'Content-Type: application/json' -d '{"hostname":"a b;rm"}' http://127.0.0.1:4041/api/hostname) (400 expected)"
-echo "POST lang nl     -> $(c -X POST -H "$H" -H 'X-Alnasl-Setup: 1' -H 'Content-Type: application/json' -d '{"lang":"nl"}' http://127.0.0.1:4041/api/lang) then lang=$(curl -s -H "$H" http://127.0.0.1:4041/api/state | python3 -c 'import sys,json;print(json.load(sys.stdin)["lang"])')"
+echo "POST lang nl     -> $(c -X POST -H "$H" -H 'X-Alnasl-Setup: 1' -H 'Content-Type: application/json' -d '{"lang":"nl"}' http://127.0.0.1:4041/api/lang) then lang=$(c -H "$H" http://127.0.0.1:4041/api/state >/dev/null; j 'IO.puts(d["lang"])')"
 echo "GET /api/resolution -> $(c -H "$H" http://127.0.0.1:4041/api/resolution) $(head -c 160 /tmp/body) (no screen in a chroot: modes [] expected)"
 echo "POST resolution not offered -> $(c -X POST -H "$H" -H 'X-Alnasl-Setup: 1' -H 'Content-Type: application/json' -d '{"mode":"1280x720"}' http://127.0.0.1:4041/api/resolution) (400 expected)"
 echo "POST resolution evil -> $(c -X POST -H "$H" -H 'X-Alnasl-Setup: 1' -H 'Content-Type: application/json' -d '{"mode":"1x1;reboot"}' http://127.0.0.1:4041/api/resolution) (400 expected)"
@@ -244,15 +304,15 @@ echo "POST resolution confirm -> $(c -X POST -H "$H" -H 'X-Alnasl-Setup: 1' -H '
 echo "POST resolution no header -> $(c -X POST -H "$H" -d '{}' http://127.0.0.1:4041/api/resolution) (403 expected)"
 echo "app.js serves the resolution UI: $(curl -s -H "$H" http://127.0.0.1:4041/app.js | grep -c 'api/resolution') api/resolution references"
 echo "GET /api/mode    -> $(c -H "$H" http://127.0.0.1:4041/api/mode) $(head -c 160 /tmp/body) (master/alnasl, not set expected)"
-echo "ROLEAPI $(python3 -c 'import json;d=json.load(open("/tmp/body"));print(d["mode"], d["role"], ",".join(d["roles"]), d["set"])')"
-echo "BOOTLOG $(c -H "$H" 'http://127.0.0.1:4041/api/bootlog?after=0') $(python3 -c 'import json;d=json.load(open("/tmp/body"));v=d.get("view") or {};print(sorted(k for k in d if k!="view"), "view", sorted(v), type(d["lines"]).__name__)' 2>&1)"
-echo "BOOTLOG2 $(c -H "$H" 'http://127.0.0.1:4041/api/bootlog?after=999999') $(python3 -c 'import json;d=json.load(open("/tmp/body"));print("view" in d, d["lines"])' 2>&1)"
+echo "ROLEAPI $(j 'IO.puts("#{d["mode"]} #{d["role"]} #{Enum.join(d["roles"], ",")} #{d["set"]}")')"
+echo "BOOTLOG $(c -H "$H" 'http://127.0.0.1:4041/api/bootlog?after=0') $(j 'v = d["view"] || %{}; IO.puts("#{inspect(Enum.sort(Map.keys(d) -- ["view"]))} view #{inspect(Enum.sort(Map.keys(v)))} #{if is_list(d["lines"]), do: "list", else: "not-a-list"}")')"
+echo "BOOTLOG2 $(c -H "$H" 'http://127.0.0.1:4041/api/bootlog?after=999999') $(j 'IO.puts("#{Map.has_key?(d, "view")} #{inspect(d["lines"])}")')"
 echo "BOOTLOGHOST $(c -H 'Host: evil.example:4041' http://127.0.0.1:4041/api/bootlog)"
 echo "PRINTERS $(c -H "$H" http://127.0.0.1:4041/api/printers)"
 echo "PRINTADD $(c -X POST -H "$H" -H 'X-Alnasl-Setup: 1' -H 'Content-Type: application/json' -d '{"name":"hall","uri":"ipp://10.0.0.9/ipp/print"}' http://127.0.0.1:4041/api/printers/add) $(head -c 80 /tmp/body)"
 echo "SOUND $(c -H "$H" http://127.0.0.1:4041/api/sound)"
 echo "SOUNDSET $(c -X POST -H "$H" -H 'X-Alnasl-Setup: 1' -H 'Content-Type: application/json' -d '{"output":"jack","volume":50}' http://127.0.0.1:4041/api/sound) $(head -c 80 /tmp/body)"
-echo "state has mode   -> $(curl -s -H "$H" http://127.0.0.1:4041/api/state | python3 -c 'import sys,json;print(json.load(sys.stdin)["mode"])')"
+echo "state has mode   -> $(c -H "$H" http://127.0.0.1:4041/api/state >/dev/null; j 'IO.puts(d["mode"])')"
 echo "POST mode no confirm -> $(c -X POST -H "$H" -H 'X-Alnasl-Setup: 1' -H 'Content-Type: application/json' -d '{"mode":"slave"}' http://127.0.0.1:4041/api/mode) (400 expected)"
 echo "POST mode evil   -> $(c -X POST -H "$H" -H 'X-Alnasl-Setup: 1' -H 'Content-Type: application/json' -d '{"mode":"root","confirm":"SWITCH"}' http://127.0.0.1:4041/api/mode) (400 expected)"
 echo "POST mode no header -> $(c -X POST -H "$H" -d '{"mode":"slave","confirm":"SWITCH"}' http://127.0.0.1:4041/api/mode) (403 expected)"
@@ -267,28 +327,42 @@ echo "POST reset unconfirmed -> $(c -X POST -H "$H" -H 'X-Alnasl-Setup: 1' -H 'C
 echo "POST reset no header   -> $(c -X POST -H "$H" -d '{"confirm":"RESET"}' http://127.0.0.1:4041/api/reset) (403 expected)"
 echo "POST services ssh -> $(c -X POST -H "$H" -H 'X-Alnasl-Setup: 1' -H 'Content-Type: application/json' -d '{"ssh":true,"tailscale":true}' http://127.0.0.1:4041/api/services) $(head -c 160 /tmp/body) (no ssh/tailscale keys expected)"
 echo "listening on:    $(ss -ltn 2>/dev/null | awk '$4 ~ /:4041$/ {print $4}' | tr '\n' ' ')"
-kill $(cat /tmp/setup.pid); sleep 1
+# Stop it for sure: the start script's pid is the BEAM's (exec), and anything of the release left is killed too.
+kill $(cat /tmp/setup.pid) 2>/dev/null
+for i in $(seq 1 20); do kill -0 $(cat /tmp/setup.pid) 2>/dev/null || break; sleep 0.5; done
+if command -v pkill >/dev/null; then
+  pkill -f 'alnasl_setup.*start' 2>/dev/null; pkill -f '/opt/alnasl-setup/erts-.*/beam' 2>/dev/null; sleep 1
+  pkill -9 -f '/opt/alnasl-setup/erts-.*/(beam|erl_child_setup)' 2>/dev/null
+fi
 echo "log (no secrets expected):"; sed 's/^/  | /' /tmp/setup.log | head -20
 IN
 sto=$(chroot $R /bin/bash /tmp/setup-test.sh 2>&1); echo "$sto" | sed 's/^/       /'
-grep -q '^ROLEAPI master alnasl alnasl,arkab,polis,nunki False$' <<<"$sto" && ok "/api/mode: v6's word (master, for Arkab's sake) and the v7 role beside it, four roles" || bad "/api/mode role fields"
-grep -q "^BOOTLOG 200 \['lines', 'ready', 'seq', 'status'\] view \['logview', 'mono', 'steps'\] list$" <<<"$sto" && ok "/api/bootlog: seq, ready, status, lines, and the layout on the first ask" || bad "/api/bootlog shape"
-grep -q '^BOOTLOG2 200 False \[\]$' <<<"$sto" && ok "/api/bootlog?after=N: only newer lines, no layout" || bad "/api/bootlog?after"
+# The same from outside (whatever the image has of pkill): no process of the release outlives the test.
+pkill -9 -f '/opt/alnasl-setup/erts-' 2>/dev/null; sleep 1
+[ -z "$(pgrep -f '/opt/alnasl-setup/erts-')" ] && ok "the test's setup server stopped (no BEAM of the release left)" || bad "a setup-app BEAM is still running: $(pgrep -a -f '/opt/alnasl-setup/erts-' | head -3)"
+grep -q '^ROLEAPI master alnasl alnasl,arkab,polis,nunki false$' <<<"$sto" && ok "/api/mode: v6's word (master, for Arkab's sake) and the v7 role beside it, four roles" || bad "/api/mode role fields"
+grep -q '^BOOTLOG 200 \["lines", "ready", "seq", "status"\] view \["logview", "mono", "steps"\] list$' <<<"$sto" && ok "/api/bootlog: seq, ready, status, lines, and the layout on the first ask" || bad "/api/bootlog shape"
+grep -q '^BOOTLOG2 200 false \[\]$' <<<"$sto" && ok "/api/bootlog?after=N: only newer lines, no layout" || bad "/api/bootlog?after"
 grep -q '^BOOTLOGHOST 403$' <<<"$sto" && ok "/api/bootlog: a foreign Host is refused" || bad "/api/bootlog foreign Host"
 grep -q '^PRINTERS 200' <<<"$sto" && grep -q '^PRINTADD 400.*not_polis' <<<"$sto" && ok "printers: listed anywhere, added only on a Polis box (400 here)" || bad "printers API: $(grep '^PRINT' <<<"$sto" | tr '\n' ' ')"
 grep -q '^SOUND 200' <<<"$sto" && grep -q '^SOUNDSET 400.*not_nunki' <<<"$sto" && ok "sound: read anywhere, set only on a Nunki box (400 here)" || bad "sound API: $(grep '^SOUND' <<<"$sto" | tr '\n' ' ')"
-echo "  -- redaction unit test (fake wpa conf with a psk, a clear passphrase and a Tailscale key; image python) --"
-install -m 0644 $W/test-diag.py $R/tmp/test-diag.py
-chroot $R python3 -I /tmp/test-diag.py 2>&1 | sed 's/^/       /'
-[ "${PIPESTATUS[0]}" = 0 ] && ok "redaction: no secret survives, SSIDs do" || bad "redaction unit test failed"
-echo "  -- v7 boot log: redaction, allow-list, colours, status line (image python) --"
-install -m 0644 $W/test-bootlog.py $R/tmp/test-bootlog.py
-chroot $R python3 -I /tmp/test-bootlog.py /usr/local/lib/alnasl-setup/bootlog.py 2>&1 | grep -v '^ok ' | sed 's/^/       /'
-[ "${PIPESTATUS[0]}" = 0 ] && ok "boot log: no secret reaches the hall screen, failures always do (test-bootlog.py)" || bad "boot log unit test failed"
-rm -f $R/tmp/test-bootlog.py
+# The unit tests (ports of the old diag, bootlog, resolution, splash, update, hotspot and QR tests) ran in build-setup.sh: mix test on
+# arm64 before the release was built, a failure stops the build. Here, a few in the image itself, on its own libraries.
+ok "setup-app's ExUnit suites (diag, bootlog, resolution, splash, system update, hotspot, portal, QR, server) passed in build-setup.sh (mix test, arm64)"
+echo "  -- redaction in the image (a wpa conf with a psk, a clear passphrase, a 64-hex key, a Tailscale key) --"
+exf <<'EX' && ok "redaction: no secret survives, SSIDs do (Diag.redact, Bootlog.redact in the image's release)" || bad "redaction in the image"
+hex = String.duplicate("0123456789abcdef", 4)
+conf = "network={\n  ssid=\"HallWifi\"\n  psk=\"hunter2secret\"\n  #psk=\"clearpass99\"\n}\npsk=#{hex}\n--authkey=tskey-auth-kAbCdEf123456\n"
+d = AlnaslSetup.Diag.redact(conf)
+b = AlnaslSetup.Bootlog.redact("wpa_supplicant[612]: wlan0: psk=hunter2secret key #{hex} passphrase: clearpass99")
+gone = fn t -> not Enum.any?(["hunter2secret", "clearpass99", hex, "kAbCdEf123456"], &String.contains?(t, &1)) end
+unless gone.(d) and String.contains?(d, "HallWifi") and gone.(b) do
+  IO.puts(:stderr, "diag: #{inspect(d)}\nbootlog: #{inspect(b)}")
+  System.halt(1)
+end
+EX
 cumount $R
-rm -rf $R/var/lib/alnasl-setup $R/tmp/setup-test.sh $R/tmp/setup.* $R/tmp/body $R/tmp/test-diag.py $R/run/alnasl-kiosk
-find $R/usr/local -name __pycache__ -prune -exec rm -rf {} +
+rm -rf $R/var/lib/alnasl-setup $R/tmp/setup-test.sh $R/tmp/setup.* $R/tmp/body $R/run/alnasl-kiosk
 
 echo "== v4: PrivateTmp, policies, OSK extension, resolution, touch"
 if grep -E '^[[:space:]]*PrivateTmp=(yes|true|1)' $R/etc/systemd/system/alnasl-setup.service $R/etc/systemd/system/alnasl-setup.service.d/*.conf $R/usr/lib/systemd/system/alnasl-setup.service 2>/dev/null; then bad "alnasl-setup.service has PrivateTmp=yes (wpa_cli replies would be swallowed)"; else ok "alnasl-setup.service has no PrivateTmp=yes"; fi
@@ -298,9 +372,14 @@ grep -q '^KIOSK_RES="auto"' $R/usr/share/alnasl/defaults/etc/alnasl/kiosk.conf &
 grep -q 'KIOSK_RES' $R/usr/local/sbin/alnasl-kiosk && ok "alnasl-kiosk passes KIOSK_RES to the container" || bad "alnasl-kiosk lacks KIOSK_RES"
 KC=alnasl-kiosk:latest
 P=$(docker run --rm --platform linux/arm64 --entrypoint cat $KC /etc/chromium/policies/managed/alnasl-kiosk.json 2>/dev/null)
+# The JSON checks below run in the image's release (this VM has no JSON tool): the files go to its /tmp.
+cmount $R
 if [ -n "$P" ]; then
   for k in PasswordManagerEnabled AutofillAddressEnabled AutofillCreditCardEnabled TranslateEnabled BrowserSignin DefaultNotificationsSetting; do echo "$P" | grep -q "\"$k\"" && ok "policy $k present" || bad "policy $k missing"; done
-  echo "$P" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["PasswordManagerEnabled"] is False and d["AutofillAddressEnabled"] is False and d["AutofillCreditCardEnabled"] is False and d["TranslateEnabled"] is False and d["BrowserSignin"]==0; print("values ok")' && ok "policy values: password manager, address+card autofill, translate off; sign-in disabled" || bad "policy values"
+  printf '%s' "$P" > $R/tmp/verify-policy.json
+  ex 'd = JSON.decode!(File.read!(hd(System.argv()))); unless d["PasswordManagerEnabled"] === false and d["AutofillAddressEnabled"] === false and d["AutofillCreditCardEnabled"] === false and d["TranslateEnabled"] === false and d["BrowserSignin"] === 0, do: System.halt(1); IO.puts("values ok")' /tmp/verify-policy.json \
+    && ok "policy values: password manager, address+card autofill, translate off; sign-in disabled" || bad "policy values"
+  rm -f $R/tmp/verify-policy.json
 else bad "no /etc/chromium/policies/managed/alnasl-kiosk.json in the kiosk image"; fi
 docker run --rm --platform linux/arm64 --entrypoint sh $KC -c 'grep -a -o -m1 "/etc/chromium/policies" /usr/lib/chromium/chromium; chromium --version 2>/dev/null' 2>&1 | sed 's/^/       /'
 docker run --rm --platform linux/arm64 --entrypoint sh $KC -c 'grep -q -a "/etc/chromium/policies" /usr/lib/chromium/chromium' && ok "this Chromium build has the Debian policy base /etc/chromium/policies (managed/ below it is appended at run time)" || bad "Chromium build does not know the managed policy path"
@@ -308,36 +387,34 @@ docker run --rm --platform linux/arm64 --entrypoint sh $KC -c 'ls /opt/kiosk-ext
 docker run --rm --platform linux/arm64 --entrypoint sh $KC -c 'test -x /usr/local/bin/kiosk-res && which wlr-randr xrandr >/dev/null' && ok "kiosk image has kiosk-res, wlr-randr and xrandr" || bad "kiosk-res / wlr-randr / xrandr missing in the kiosk image"
 docker run --rm --platform linux/arm64 --entrypoint sh $KC -c 'grep -a -c output_management $(which cage)' 2>&1 | sed 's/^/       cage output-management strings: /'
 E=$W/ext-check; rm -rf $E; mkdir -p $E; docker run --rm --platform linux/arm64 --entrypoint tar $KC -C /opt -cf - kiosk-ext 2>/dev/null | tar -xf - -C $E
-python3 - $E/kiosk-ext <<'PY' && ok "extension manifest: valid, files exist, OSK content script registered, service worker + host permission for :4041" || bad "extension manifest/files"
-import json, os, sys
-d = sys.argv[1]
-m = json.load(open(d + "/manifest.json"))
-assert m["manifest_version"] == 3
-js = [j for c in m["content_scripts"] for j in c.get("js", [])]
-css = [j for c in m["content_scripts"] for j in c.get("css", [])]
-for f in js + css + [m["background"]["service_worker"]]:
-    assert os.path.isfile(d + "/" + f), f
-assert "osk.js" in js and "menu-button.js" in js and "touch.css" in css and "external-bar.js" in js
-assert "http://localhost:4041/*" in m["host_permissions"]
-mb = [c for c in m["content_scripts"] if "menu-button.js" in c.get("js", [])][0]
-assert mb["matches"] == ["http://localhost:%d/*" % p for p in (4040, 4050, 4061, 4062)], mb["matches"]
-bar = [c for c in m["content_scripts"] if "external-bar.js" in c.get("js", [])][0]
-for p in (4040, 4041, 4050, 4061, 4062):
-    assert "http://localhost:%d/*" % p in bar["exclude_matches"] and "http://127.0.0.1:%d/*" % p in bar["exclude_matches"], p
-assert m["version"].startswith("7.")
-PY
+rm -rf $R/tmp/kiosk-ext; cp -a $E/kiosk-ext $R/tmp/kiosk-ext
+exf /tmp/kiosk-ext <<'EX' && ok "extension manifest: valid, files exist, OSK content script registered, service worker + host permission for :4041" || bad "extension manifest/files"
+[d] = System.argv()
+a = fn c, what -> unless c, do: (IO.puts(:stderr, "assert: #{what}"); System.halt(1)) end
+m = JSON.decode!(File.read!(d <> "/manifest.json"))
+a.(m["manifest_version"] == 3, "manifest_version 3")
+cs = m["content_scripts"]
+js = Enum.flat_map(cs, &Map.get(&1, "js", []))
+css = Enum.flat_map(cs, &Map.get(&1, "css", []))
+for f <- js ++ css ++ [m["background"]["service_worker"]], do: a.(File.regular?(d <> "/" <> f), f)
+a.("osk.js" in js and "menu-button.js" in js and "touch.css" in css and "external-bar.js" in js, "osk.js, menu-button.js, touch.css, external-bar.js")
+a.("http://localhost:4041/*" in m["host_permissions"], "host permission :4041")
+mb = Enum.find(cs, &("menu-button.js" in Map.get(&1, "js", [])))
+a.(mb["matches"] == Enum.map([4040, 4050, 4061, 4062], &"http://localhost:#{&1}/*"), "menu-button matches #{inspect(mb["matches"])}")
+bar = Enum.find(cs, &("external-bar.js" in Map.get(&1, "js", [])))
+for p <- [4040, 4041, 4050, 4061, 4062],
+    do: a.("http://localhost:#{p}/*" in bar["exclude_matches"] and "http://127.0.0.1:#{p}/*" in bar["exclude_matches"], "external-bar excludes #{p}")
+a.(String.starts_with?(m["version"], "7."), "version 7.x")
+EX
 for f in osk.js touch.js bg.js menu-button.js external-bar.js; do
   if command -v node >/dev/null; then node --check $E/kiosk-ext/$f && ok "node --check $f" || bad "syntax $f"; fi
 done
 grep -q 'execCommand("insertText"' $E/kiosk-ext/osk.js && grep -q 'requestSubmit' $E/kiosk-ext/osk.js && grep -q 'keydown' $E/kiosk-ext/osk.js && grep -q 'osk-config' $E/kiosk-ext/bg.js && ok "OSK content script types via insertText (real input events), submits forms, reads layout via the service worker" || bad "OSK script content"
 grep -q 'touch-action' $E/kiosk-ext/touch.css && ok "touch.css present" || bad "touch.css"
-rm -rf $E
+rm -rf $E $R/tmp/kiosk-ext
 echo "  -- OSK in a real Chromium? (headless, arm64 under qemu-user; best effort, not a failure when it cannot run) --"
-echo "  -- resolution logic unit test (modes from a fake DRM connector, live apply stubbed, confirm/undo/timeout) --"
-install -m 0644 $W/test-res.py $R/tmp/test-res.py
-chroot $R python3 -I /tmp/test-res.py 2>&1 | sed 's/^/       /'
-[ "${PIPESTATUS[0]}" = 0 ] && ok "resolution: apply/confirm/undo/auto-revert/validation" || bad "resolution unit test failed"
-rm -f $R/tmp/test-res.py
+echo "  -- resolution logic (modes from a fake DRM connector, confirm/undo/timeout): resolution_test.exs in build-setup.sh; the server's refusals above --"
+cumount $R
 grep -c "api/resolution" $R/usr/local/share/alnasl-setup/www/app.js | sed 's/^/       app.js api\/resolution refs: /'
 for key in res_apply res_keep_q res_auto; do n=$(grep -c "$key:" $R/usr/local/share/alnasl-setup/www/app.js); [ "$n" = 2 ] && ok "app.js: $key in EN and NL" || bad "app.js: $key found $n times (2 expected)"; done
 
@@ -383,46 +460,51 @@ docker run --rm --platform linux/arm64 -v $W/test-kiosk-logic.run:/test.sh:ro --
 if grep -q 'FAIL' $W/kiosk-logic.out || ! grep -q 'no KMS card' $W/kiosk-logic.out; then bad "kiosk display-path logic test"; else ok "kiosk display-path logic: X default, X start-up budget, hung cage killed and replaced by X, working cage left alone"; fi
 rm -f $W/test-kiosk-logic.run
 E=$W/ext-check5; rm -rf $E; mkdir -p $E; docker run --rm --platform linux/arm64 --entrypoint tar $KC -C /opt -cf - kiosk-ext 2>/dev/null | tar -xf - -C $E
-python3 - $E/kiosk-ext <<'PY' && ok "extension: external-bar.js matches every http/https page except Alnasl and the box pages; OSK and touch also cover them" || bad "extension external-page matching"
-import json, sys
-d = sys.argv[1]
-m = json.load(open(d + "/manifest.json"))
-bar = [c for c in m["content_scripts"] if "external-bar.js" in c.get("js", [])][0]
-assert "http://*/*" in bar["matches"] and "https://*/*" in bar["matches"]
-assert "http://localhost:4040/*" in bar["exclude_matches"] and "http://localhost:4041/*" in bar["exclude_matches"]
-assert not bar.get("all_frames")
-osk = [c for c in m["content_scripts"] if "osk.js" in c.get("js", [])][0]
-assert "http://*/*" in osk["matches"] and "https://*/*" in osk["matches"] and "http://localhost:4040/*" in osk["matches"]
-assert "http://localhost:4041/*" in osk["exclude_matches"]
-touch = [c for c in m["content_scripts"] if "touch.js" in c.get("js", [])][0]
-assert "https://*/*" in touch["matches"]
-assert "webNavigation" in m["permissions"]
-PY
+cmount $R
+rm -rf $R/tmp/kiosk-ext; cp -a $E/kiosk-ext $R/tmp/kiosk-ext
+exf /tmp/kiosk-ext <<'EX' && ok "extension: external-bar.js matches every http/https page except Alnasl and the box pages; OSK and touch also cover them" || bad "extension external-page matching"
+[d] = System.argv()
+a = fn c, what -> unless c, do: (IO.puts(:stderr, "assert: #{what}"); System.halt(1)) end
+m = JSON.decode!(File.read!(d <> "/manifest.json"))
+cs = m["content_scripts"]
+with_js = fn f -> Enum.find(cs, &(f in Map.get(&1, "js", []))) end
+bar = with_js.("external-bar.js")
+a.("http://*/*" in bar["matches"] and "https://*/*" in bar["matches"], "external-bar matches http and https")
+a.("http://localhost:4040/*" in bar["exclude_matches"] and "http://localhost:4041/*" in bar["exclude_matches"], "external-bar excludes 4040, 4041")
+a.(!bar["all_frames"], "external-bar not in all frames")
+osk = with_js.("osk.js")
+a.("http://*/*" in osk["matches"] and "https://*/*" in osk["matches"] and "http://localhost:4040/*" in osk["matches"], "osk matches")
+a.("http://localhost:4041/*" in osk["exclude_matches"], "osk excludes 4041")
+touch = with_js.("touch.js")
+a.("https://*/*" in touch["matches"], "touch matches https")
+a.("webNavigation" in m["permissions"], "webNavigation permission")
+EX
+rm -rf $R/tmp/kiosk-ext
 b=$E/kiosk-ext/external-bar.js
 grep -q 'Back to Alnasl' $b && grep -q 'Terug naar Alnasl' $b && grep -q '"http://localhost:4041/"' $b && grep -q 'history.back' $b && grep -q 'http://localhost:4041/menu' $b && ok "external-bar.js: EN+NL 'Back to Alnasl', history.back first, then the menu server's / (the role's app), menu button" || bad "external-bar.js content"
 grep -q 'onErrorOccurred' $E/kiosk-ext/bg.js && ok "bg.js: an unreachable external page returns to Alnasl" || bad "bg.js error redirect"
 grep -q 'webkit-scrollbar' $E/kiosk-ext/touch.css && grep -q 'webkit-scrollbar' $R/usr/local/share/alnasl-setup/www/app.css && ok "thin, see-through scrollbars in Alnasl/external pages (touch.css) and the setup pages (app.css)" || bad "scrollbar CSS"
 rm -rf $E
-python3 - $R/usr/local/share/alnasl-setup/www <<'PY' && ok "menu design: tiles are plain text, brand is plain 'Alnasl', no emoji/pictograph/svg/img in the setup pages" || bad "menu design"
-import re, sys
-d = sys.argv[1]
-js = open(d + "/app.js", encoding="utf-8").read()
-css = open(d + "/app.css", encoding="utf-8").read()
-html = open(d + "/index.html", encoding="utf-8").read()
-for n, line in enumerate(js.splitlines(), 1):
-    if "tile(" in line:
-        assert all(ord(c) < 128 for c in line), "non-ASCII on a tile line %d" % n
-assert 'h("div", { class: "brand" }, "Alnasl")' in js
-assert not re.search(r"\.brand\s+(span|i|b|img|svg)|\.brand::(before|after)", css)
-RANGES = ((0x1F000, 0x1FAFF), (0x2190, 0x21FF), (0x2300, 0x23FF), (0x2600, 0x27BF), (0x2B00, 0x2BFF), (0xFE0F, 0xFE0F))
-allowed = (0x2190, 0x232B)   # the arrow in the label of a back button, the backspace key of the on-screen keyboard
-for name, text in (("app.js", js), ("app.css", css), ("index.html", html)):
-    for ch in text:
-        o = ord(ch)
-        assert o in allowed or not any(a <= o <= b for a, b in RANGES), "%s has glyph U+%04X" % (name, o)
-for name, text in (("app.js", js), ("index.html", html)):
-    assert "<svg" not in text and "<img" not in text and 'h("svg"' not in text and 'h("img"' not in text, name + " has svg/img"
-PY
+exf /usr/local/share/alnasl-setup/www <<'EX' && ok "menu design: tiles are plain text, brand is plain 'Alnasl', no emoji/pictograph/svg/img in the setup pages" || bad "menu design"
+[d] = System.argv()
+a = fn c, what -> unless c, do: (IO.puts(:stderr, "assert: #{what}"); System.halt(1)) end
+js = File.read!(d <> "/app.js")
+css = File.read!(d <> "/app.css")
+html = File.read!(d <> "/index.html")
+js |> String.split(~r/\r\n|\n|\r/) |> Enum.with_index(1) |> Enum.each(fn {line, n} ->
+  if String.contains?(line, "tile("), do: a.(Enum.all?(String.to_charlist(line), &(&1 < 128)), "non-ASCII on a tile line #{n}")
+end)
+a.(String.contains?(js, ~S|h("div", { class: "brand" }, "Alnasl")|), "plain brand")
+a.(not Regex.match?(~r/\.brand\s+(span|i|b|img|svg)|\.brand::(before|after)/, css), "no decorated brand in app.css")
+ranges = [{0x1F000, 0x1FAFF}, {0x2190, 0x21FF}, {0x2300, 0x23FF}, {0x2600, 0x27BF}, {0x2B00, 0x2BFF}, {0xFE0F, 0xFE0F}]
+# the arrow in the label of a back button, the backspace key of the on-screen keyboard
+allowed = [0x2190, 0x232B]
+for {name, text} <- [{"app.js", js}, {"app.css", css}, {"index.html", html}], o <- Enum.uniq(String.to_charlist(text)),
+    do: a.(o in allowed or not Enum.any?(ranges, fn {lo, hi} -> o >= lo and o <= hi end), "#{name} has glyph U+#{String.pad_leading(Integer.to_string(o, 16), 4, "0")}")
+for {name, text} <- [{"app.js", js}, {"index.html", html}],
+    do: a.(not Enum.any?(["<svg", "<img", ~S|h("svg"|, ~S|h("img"|], &String.contains?(text, &1)), name <> " has svg/img")
+EX
+cumount $R
 
 echo "== firewall script: syntax + ruleset dry run on the build VM's iptables"
 bash -n $R/usr/local/sbin/alnasl-firewall && ok "bash -n"
@@ -480,12 +562,25 @@ done
 for f in alnasl-splash alnasl-os-update alnasl-reset; do [ -x $R/usr/local/sbin/$f ] && ok "$f executable" || bad "$f not executable"; done
 same $R/usr/share/alnasl/splash/alnasl-splash.png $W/overlay/usr/share/alnasl/splash/alnasl-splash.png && ok "splash png on the card is the overlay's, byte for byte" || bad "splash png differs from the overlay (damaged on the way?)"
 n=$(find $R/usr/share/alnasl/splash/screens -name '*.png' | wc -l); [ "$n" -ge 20 ] && ok "$n state pictures for the browser" || bad "only $n state pictures"
-chroot $R python3 -c "import py_compile; py_compile.compile('/usr/local/sbin/alnasl-splash', cfile='/tmp/s.pyc', doraise=True)" && ok "alnasl-splash compiles with image python" || bad "alnasl-splash does not compile"
-rm -f $R/tmp/s.pyc
-install -m 0644 $W/test-splash.py $R/tmp/test-splash.py
-chroot $R python3 -I /tmp/test-splash.py 2>&1 | grep -v '^ok ' | sed 's/^/       /'
-[ "${PIPESTATUS[0]}" = 0 ] && ok "painter: every state, both languages, 16/24/32 bpp, 720p..4K" || bad "painter unit test failed"
-rm -f $R/tmp/test-splash.py
+echo "  -- the painter in the image: every state in both languages on a small screen, 16/24/32 bpp (AlnaslSetup.Splash.compose) --"
+cmount $R
+exf <<'EX' && ok "painter: every state, both languages, 16/24/32 bpp, 800x480..1080p (the image's release)" || bad "painter in the image"
+alias AlnaslSetup.Splash
+a = fn c, what -> unless c, do: (IO.puts(:stderr, "assert: #{what}"); System.halt(1)) end
+msg = Splash.messages()
+states = Map.keys(msg["states"] || %{})
+a.(length(states) >= 10, "messages.json has its states (#{length(states)})")
+frames =
+  for {w, h, bpp} <- [{800, 480, 16}, {1280, 720, 24}, {1920, 1080, 32}], key <- states, lng <- ["en", "nl"],
+      {w, bpp} == {800, 16} or key == "boot" do
+    fb = Splash.new_fb(w, h, bpp)
+    {frame, probe} = Splash.compose(fb, key, lng, msg: msg)
+    a.(byte_size(frame) == fb.stride * h and is_integer(probe) and probe < byte_size(frame), "#{key}/#{lng} at #{w}x#{h}x#{bpp}")
+    1
+  end
+IO.puts("       painted #{length(frames)} frames: #{length(states)} states x EN+NL at 800x480x16, boot at 720p/24 and 1080p/32")
+EX
+cumount $R
 grep -q '^ExecStart=/usr/local/sbin/alnasl-splash --hold' $R/etc/systemd/system/alnasl-splash.service && grep -q '^DefaultDependencies=no' $R/etc/systemd/system/alnasl-splash.service && ok "alnasl-splash.service: early (no default dependencies), --hold" || bad "alnasl-splash.service"
 grep -q 'alnasl-splash --once' $R/etc/systemd/system/alnasl-kiosk.service && grep -q 'alnasl-splash --once' $R/usr/local/sbin/alnasl-kiosk && ok "the picture comes back when the kiosk stops or restarts" || bad "kiosk does not repaint the boot screen"
 grep -q 'KIOSK_URL=http://localhost:4041/boot' $R/usr/local/sbin/alnasl-kiosk && ok "kiosk starts on /boot" || bad "kiosk start page"
@@ -506,20 +601,32 @@ docker run --rm --platform linux/arm64 --entrypoint sh alnasl-kiosk:latest -c 't
 t=$R/etc/systemd/system/alnasl-os-update.timer
 grep -q '^OnCalendar=\*-\*-\* 03:00:00' $t && grep -q '^RandomizedDelaySec=110min' $t && grep -q '^Persistent=false' $t && ok "OS update timer: 03:00 + up to 110 min, no catch-up" || bad "OS update timer"
 grep -q -- '--security' $R/usr/local/sbin/alnasl-os-update && grep -q 'excludepkgs' $R/usr/local/sbin/alnasl-os-update && ok "OS update: security first, refuses without the exclude list" || bad "alnasl-os-update content"
-grep -q 'updates_text' $R/usr/local/lib/alnasl-setup/diag.py && grep -q 'alnasl-os-update' $R/usr/local/lib/alnasl-setup/diag.py && ok "diagnostics include the OS update result" || bad "diag.py lacks the OS update section"
+bhas Diag updates_text alnasl-os-update && ok "diagnostics include the OS update result" || bad "AlnaslSetup.Diag lacks the OS update section"
 grep -q '127.0.0.1:4040/local/status' $R/usr/local/sbin/alnasl-os-update && ! grep -q 'round_in_progress() { return 1; }' $R/usr/local/sbin/alnasl-os-update && ok "OS update asks Alnasl's /local/status before touching anything" || bad "alnasl-os-update still stubs the round check"
-S=$R/usr/local/lib/alnasl-setup/server.py; J=$R/usr/local/share/alnasl-setup/www/app.js
-grep -q '/api/help/send' $S && grep -q '/api/help/url' $S && grep -q 'support/upload' $S && grep -q 'def valid_support_url' $S && grep -q 'scheme != "https"' $S && ok "Get help: server.py sends the report to an https-only upload address" || bad "Get help missing from server.py"
-grep -q '"/help"' $S && grep -q 'x-alnasl-box' $S && grep -q '_NoRedirect' $S && ok "Get help: /help page, box/version/mode headers, no redirects" || bad "Get help details missing from server.py"
+J=$R/usr/local/share/alnasl-setup/www/app.js
+src server.ex "\"/api/help/send\"" "\"/api/help/url\"" " /help)" && bhas Server.Help support/upload valid_support_url && ok "Get help: the setup server sends the report to an https-only upload address" || bad "Get help missing from the setup server"
+bhas Server.Help x-alnasl-box x-alnasl-version x-alnasl-mode autoredirect && ok "Get help: /help page, box/version/mode headers, no redirects" || bad "Get help details missing from the setup server"
 grep -q 'helpPage' $J && grep -q 'helpSettings' $J && ok "Get help: menu page and Settings page in app.js" || bad "Get help missing from app.js"
 for key in m_help help_d help_send help_read help_err_no_internet help_err_rate_limited help_err_support_off help_err_too_large help_url; do n=$(grep -c -E "(^|[^A-Za-z0-9_])$key:" $J); [ "$n" = 2 ] && ok "app.js: $key in EN and NL" || bad "app.js: $key found $n times (2 expected)"; done
 grep -q 'helpcode' $R/usr/local/share/alnasl-setup/www/app.css && ok "Get help: big code style in app.css" || bad "app.css lacks .helpcode"
-! grep -q -E 'ssh|inbound|listen\(' <(sed -n '/^# -* get help/,/^# -* console/p' $S) && ok "Get help: no listener or shell code in its section" || bad "Get help section mentions ssh/listen"
+# Get help, in the image: https only, and the module calls nothing that listens or runs a program.
+cmount $R
+exf <<'EX' && ok "Get help: https only (plain http, credentials refused); no listener or shell code in AlnaslSetup.Server.Help" || bad "Get help: an address it should refuse, or a listener/shell call"
+alias AlnaslSetup.Server.Help
+a = fn c, what -> unless c, do: (IO.puts(:stderr, "assert: #{what}"); System.halt(1)) end
+refused = fn u -> try do Help.valid_support_url(u); false rescue ArgumentError -> true end end
+a.(Help.valid_support_url("https://support.example/support/upload") == "https://support.example/support/upload", "an https address is taken")
+for u <- ["http://support.example/support/upload", "https://user:pw@support.example/x", "ftp://support.example/x"], do: a.(refused.(u), "#{u} taken")
+{:ok, {_, [imports: imps]}} = :beam_lib.chunks(:code.which(Help), [:imports])
+bad = for {m, f, _} = i <- imps, m in [:gen_tcp, :ssl, :os, :erlang, :ssh, Port, System] and f in [:listen, :cmd, :open_port, :shell, :daemon, :open], do: i
+a.(bad == [], "calls #{inspect(bad)}")
+EX
+cumount $R
 grep -q 'ExecStart=/usr/local/sbin/alnasl-reset --yes' $R/etc/systemd/system/alnasl-reset.service && ok "reset unit (menu)" || bad "alnasl-reset.service"
 grep -q 'ConditionPathExists=/boot/efi/alnasl-reset.txt' $R/etc/systemd/system/alnasl-reset-boot.service && ok "reset unit (boot-partition file)" || bad "alnasl-reset-boot.service"
 grep -q 'rm -f "$TRIGGER"' $R/usr/local/sbin/alnasl-reset && ! grep -q -E 'mkfs|/boot/efi/\*|rm -rf /boot' $R/usr/local/sbin/alnasl-reset && ok "reset removes only its trigger from the boot partition" || bad "alnasl-reset and the boot partition"
 [ -f $B/alnasl-reset.txt.example ] && [ ! -f $B/alnasl-reset.txt ] && ok "boot partition: reset example, no live trigger" || bad "boot partition reset files"
-grep -q '/api/reset' $R/usr/local/lib/alnasl-setup/server.py && grep -q 'reset-hold' $R/usr/local/share/alnasl-setup/www/app.js && ok "menu: Erase this box (hold to confirm)" || bad "reset missing from the menu"
+src server.ex "\"/api/reset\"" && grep -q 'reset-hold' $R/usr/local/share/alnasl-setup/www/app.js && ok "menu: Erase this box (hold to confirm)" || bad "reset missing from the menu"
 for key in reset reset_d reset_hold; do n=$(grep -c "$key:" $R/usr/local/share/alnasl-setup/www/app.js); [ "$n" = 2 ] && ok "app.js: $key in EN and NL" || bad "app.js: $key found $n times (2 expected)"; done
 
 echo "== v6 A/B: card layout, data partition, system updates, train rule"
@@ -565,14 +672,13 @@ grep -q 'bcm2835_wdt' $R/etc/modules-load.d/alnasl.conf && grep -q '^RuntimeWatc
 wdc=$R/etc/systemd/system.conf.d/alnasl-watchdog.conf; wd=$(awk -F= '/^RuntimeWatchdogSec=[0-9]+s?$/{sub(/s$/,"",$2); print $2}' $wdc); rb=$(awk -F= '/^RebootWatchdogSec=[0-9]+s?$/{sub(/s$/,"",$2); print $2}' $wdc)
 [ -n "$wd" ] && [ "$wd" -ge 1 ] && [ "$wd" -le 15 ] && [ -n "$rb" ] && [ "$rb" -le 15 ] && ok "watchdog timeouts ${wd}s/${rb}s: within bcm2835_wdt's 15 s maximum (a longer one is refused and nothing is armed)" || bad "watchdog timeouts must be plain seconds <= 15 for bcm2835_wdt (runtime '$wd', reboot '$rb')"
 U=$R/usr/local/sbin/alnasl-system-update
-[ -x $U ] && chroot $R python3 -c "import py_compile; py_compile.compile('/usr/local/sbin/alnasl-system-update', cfile='/tmp/u.pyc', doraise=True)" && ok "alnasl-system-update: executable, compiles with image python" || bad "alnasl-system-update"
-rm -f $R/tmp/u.pyc
-grep -q 'def train_guard' $U && [ "$(grep -c 'train_guard(' $U)" -ge 2 ] && ok "train guard present and called before anything is written" || bad "train guard missing"
+[ -x $U ] && chroot $R sh -n /usr/local/sbin/alnasl-system-update && ok "alnasl-system-update: executable, sh -n in the image (AlnaslSetup.SystemUpdate in the release)" || bad "alnasl-system-update"
+bhas SystemUpdate train_guard install && ok "train guard present in the updater (its rule is checked in the image below)" || bad "train guard missing"
 for u in alnasl-system-update.service alnasl-system-update-check.service alnasl-slot-check.service alnasl-upgrade-boot.service alnasl-data.service; do [ -f $R/etc/systemd/system/$u ] && ok "unit $u" || bad "missing unit $u"; done
 grep -q -- '--nightly' $R/usr/local/sbin/alnasl-os-update && ok "the nightly run tries a system image of this train first" || bad "alnasl-os-update does not call --nightly"
 grep -q 'ConditionPathExists=/boot/efi/alnasl-upgrade.txt' $R/etc/systemd/system/alnasl-upgrade-boot.service && ok "headless upgrade: alnasl-upgrade.txt on the boot partition" || bad "alnasl-upgrade-boot.service"
 [ -f $R/usr/share/alnasl/kiosk-image-id ] && [ "$(cat $R/usr/share/alnasl/kiosk-image-id)" = "$(docker image inspect alnasl-kiosk:latest --format '{{.Id}}')" ] && ok "kiosk image id recorded (a new slot reloads its own kiosk)" || bad "kiosk-image-id"
-grep -q '"/api/system/upgrade"' $S && grep -q '"UPGRADE"' $S && grep -q '"/api/system/install"' $S && ok "setup server: /api/system (GET), check, install (INSTALL), upgrade (UPGRADE)" || bad "setup server system API"
+src server.ex "\"/api/system/upgrade\"" "\"UPGRADE\"" "\"/api/system/install\"" && ok "setup server: /api/system (GET), check, install (INSTALL), upgrade (UPGRADE)" || bad "setup server system API"
 for key in upd upd_install upd_upgrade upd_upgrade_q upd_offer upd_r_rolled_back upd_trial; do n=$(grep -c "$key:" $J); [ "$n" = 2 ] && ok "app.js: $key in EN and NL" || bad "app.js: $key found $n times (2 expected)"; done
 if grep -q 'ALNASL-PLACEHOLDER' $R/etc/alnasl/update-key.pub; then
   if [ "${ALNASL_RELEASE:-0}" = 1 ]; then bad "update-key.pub is the PLACEHOLDER in a release build"; else echo "  WARN update-key.pub is the PLACEHOLDER: boxes with this image install no system update (fine for a test build)"; fi
@@ -580,11 +686,41 @@ else
   openssl pkey -pubin -in $R/etc/alnasl/update-key.pub -noout 2>/dev/null && ok "update-key.pub is a public key" || bad "update-key.pub is neither the placeholder nor a public key"
 fi
 grep -r -l -E 'BEGIN (EC |RSA |ENCRYPTED )?PRIVATE KEY' $R/etc $R/usr/local $R/usr/share/alnasl $B 2>/dev/null | sed 's/^/       /' | grep . && bad "a PRIVATE key is in the image" || ok "no private key anywhere in /etc, /usr/local, /usr/share/alnasl or the boot partition"
-install -m 0644 $W/test-update.py $R/tmp/test-update.py; install -m 0644 $W/grub-ab.cfg $R/tmp/grub-ab.cfg
-chroot $R python3 -I /tmp/test-update.py /usr/local/sbin/alnasl-system-update /etc/alnasl/update-key.pub /tmp/grub-ab.cfg 2>&1 | grep -v '^ok ' | sed 's/^/       /'
-[ "${PIPESTATUS[0]}" = 0 ] && ok "updater: train rule, choice, index check, grubenv, signatures (image python + openssl)" || bad "updater unit test failed"
-rm -f $R/tmp/test-update.py $R/tmp/grub-ab.cfg
-find $R/usr/local -name __pycache__ -prune -exec rm -rf {} +
+# The updater in the image: the train rule, the roles, and a signature round trip with the image's own openssl
+# (a throwaway key in a fake root under /tmp; the image's key stays as it is). The rest of the old updater test
+# (choice, index check, grubenv) is system_update_test.exs in build-setup.sh.
+cmount $R
+had_sys=$([ -e $R/var/lib/alnasl-os-update/system ] && echo 1)
+chroot $R /bin/sh -c 'set -e; d=/tmp/verify-sig; rm -rf $d; mkdir -p $d/etc/alnasl
+  openssl ecparam -name prime256v1 -genkey -noout -out $d/k.pem; openssl ec -in $d/k.pem -pubout -out $d/etc/alnasl/update-key.pub
+  openssl ecparam -name prime256v1 -genkey -noout -out $d/k2.pem
+  echo "a signed index" > $d/index.json; echo "a signed indeX" > $d/tampered.json
+  openssl dgst -sha256 -sign $d/k.pem -out $d/index.json.sig $d/index.json; openssl dgst -sha256 -sign $d/k2.pem -out $d/other.sig $d/index.json' 2>&1 | sed 's/^/       /'
+exf <<'EX' && ok "updater: train rule, the four roles, signatures (good one verifies; tampered or another key's REFUSED) with the image's openssl" || bad "updater in the image"
+alias AlnaslSetup.SystemUpdate, as: U
+a = fn c, what -> unless c, do: (IO.puts(:stderr, "assert: #{what}"); System.halt(1)) end
+r = fn f -> try do f.() catch :throw, {:sysupd, :refused, _} -> :refused end end
+img = fn t, v -> %{"train" => t, "version" => v} end
+a.(r.(fn -> U.train_guard(img.("v7", "7.3"), "v7") end) == :ok, "same train allowed")
+a.(r.(fn -> U.train_guard(img.("v8", "8.0"), "v7") end) == :refused, "next train, not asked: refused")
+a.(r.(fn -> U.train_guard(img.("v8", "8.0"), "v7", "v8") end) == :ok, "next train, asked: allowed")
+a.(r.(fn -> U.train_guard(img.("v6", "6.9"), "v7", "v6") end) == :refused, "an older train: refused")
+a.(r.(fn -> U.train_guard(img.("v7", "8.1"), "v7") end) == :refused, "a version not of its train: refused")
+a.(Enum.sort(Map.keys(U.role_app())) == ~w(alnasl arkab nunki polis), "role_app: #{inspect(U.role_app())}")
+IO.puts("       this image's update key: #{inspect(U.key_state())}")
+Application.put_env(:alnasl_setup, :root, "/tmp/verify-sig")
+a.(U.key_state() == {true, ""}, "a real public key is usable")
+a.(r.(fn -> U.verify_sig("/index.json", "/index.json.sig") end) == :ok, "a signed file verifies")
+a.(r.(fn -> U.verify_sig("/tampered.json", "/index.json.sig") end) == :refused, "one byte changed: refused")
+a.(r.(fn -> U.verify_sig("/index.json", "/other.sig") end) == :refused, "signed by another key: refused")
+EX
+rm -rf $R/tmp/verify-sig
+st=$(chroot $R /usr/local/sbin/alnasl-system-update --status 2>&1 | tail -n 1); echo "       --status: ${st:0:160}"
+printf '%s' "$st" > $R/tmp/verify-status.json
+ex 'd = JSON.decode!(File.read!("/tmp/verify-status.json")); unless is_map(d) and Map.has_key?(d, "ab"), do: System.halt(1)' && ok "alnasl-system-update --status: a JSON object with \"ab\" (what /api/system shows)" || bad "alnasl-system-update --status"
+rm -f $R/tmp/verify-status.json
+[ -n "$had_sys" ] || rm -rf $R/var/lib/alnasl-os-update/system
+cumount $R
 
 echo "== v7 roles: alnasl, arkab, polis, nunki (docs/v7-plan.md section 1)"
 M=$R/usr/local/sbin/alnasl-mode
@@ -660,8 +796,8 @@ pinrun remove; [ "$(tr '\n' '|' < $T/d/pin-request)" = 'remove|' ] && ok "PIN re
 pinrun 9999 $T/noflag; [ ! -e $T/d/pin-request ] && grep -a -q '^PIN=9999' $T/f.txt && ok "PIN reader: a box that is not Arkab leaves the file alone" || bad "PIN reader on a non-Arkab box"
 pinrun ''; [ ! -e $T/d/pin-request ] && same $P $T/f.txt && ok "PIN reader: an empty PIN line changes nothing" || bad "PIN reader, empty line"
 rm -rf $T
-grep -q '/api/mode' $S && grep -q '"SWITCH"' $S && ok "setup server: GET/POST /api/mode (SWITCH), as Arkab's page calls it" || bad "setup server mode API"
-grep -q '"/api/bootlog"' $S && grep -q '/api/printers' $S && grep -q '/api/sound' $S && ok "setup server: /api/bootlog, /api/printers, /api/sound" || bad "setup server v7 routes"
+src server.ex "\"/api/mode\"" && src server/box.ex "\"SWITCH\"" && ok "setup server: GET/POST /api/mode (SWITCH), as Arkab's page calls it" || bad "setup server mode API"
+src server.ex "\"/api/bootlog\"" "\"/api/printers\"" "\"/api/sound\"" && ok "setup server: /api/bootlog, /api/printers, /api/sound" || bad "setup server v7 routes"
 for key in role_title role_d role_alnasl_d role_arkab_d role_polis_d role_nunki_d role_now role_change role_yes role_q role_switch_d role_down done_arkab_d done_polis_d done_nunki_d printers_tile printers_d sound_tile sound_d out_jack sound_test; do
   n=$(grep -c -E "(^|[^A-Za-z0-9_])$key:" $J); [ "$n" = 2 ] && ok "app.js: $key in EN and NL" || bad "app.js: $key found $n times (2 expected)"
 done
@@ -676,8 +812,11 @@ grep -q ':focus-visible' $C && ok "app.css: focus stays visible" || bad "app.css
 grep -q 'KIOSK_APP_PORT' $R/usr/local/sbin/alnasl-kiosk && grep -q '/run/alnasl-mode/role' $R/usr/local/sbin/alnasl-kiosk && ok "alnasl-kiosk: the watchdog watches the role's own app" || bad "alnasl-kiosk KIOSK_APP_PORT"
 if [ -n "$dk" ]; then grep -q 'KIOSK_APP_PORT' <<<"$dk" && ok "kiosk image's kiosk.sh: KIOSK_APP_PORT" || bad "kiosk image is not the v7 kiosk (rebuild it)"; fi
 # The boot log (painter, browser page, server).
-grep -q 'import bootlog' $R/usr/local/sbin/alnasl-splash && grep -q 'api/bootlog' $R/usr/local/share/alnasl-setup/www/screen.html && ok "boot log: painter and /boot page both read it" || bad "boot log wiring"
-python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); assert set(m["mono"]) >= {"1080","720"} and "colours" in m["logview"] and len(m["logview"]["fade"]) >= 4' $R/usr/share/alnasl/splash/messages.json && ok "messages.json: mono atlas (1080, 720) and the log layout" || bad "messages.json lacks mono/logview"
+bhas Splash Elixir.AlnaslSetup.Bootlog && grep -q 'api/bootlog' $R/usr/local/share/alnasl-setup/www/screen.html && ok "boot log: painter and /boot page both read it" || bad "boot log wiring"
+cmount $R
+ex 'm = JSON.decode!(File.read!(hd(System.argv()))); ks = fn x -> if is_map(x), do: Map.keys(x), else: x end; unless MapSet.subset?(MapSet.new(["1080", "720"]), MapSet.new(ks.(m["mono"]))) and Map.has_key?(m["logview"], "colours") and length(m["logview"]["fade"]) >= 4, do: System.halt(1)' /usr/share/alnasl/splash/messages.json \
+  && ok "messages.json: mono atlas (1080, 720) and the log layout" || bad "messages.json lacks mono/logview"
+cumount $R
 
 # The script itself, run for real in the image's root (its systemctl enable/disable work on the image's
 # units; the run ends as a new box: alnasl, everything else off).
@@ -737,42 +876,40 @@ for u in arkab.service polis.service nunki.service cups.service alnasl-sound.ser
 [ ! -e $R/var/lib/alnasl-setup/mode ] && [ ! -e $R/var/lib/alnasl-setup/mode-applied ] && [ ! -e $R/etc/alnasl/role-applied ] && ok "no role file left in the image (a new card asks the wizard)" || bad "a role file is left in the image"
 grep -q 'role: back to alnasl' $R/usr/local/sbin/alnasl-reset && grep -q 'polis.service nunki.service' $R/usr/local/sbin/alnasl-reset && ok "factory reset: stops every role's app, clears the role (on the wiped data partition)" || bad "alnasl-reset and the roles"
 U=$R/usr/local/sbin/alnasl-system-update
-grep -q 'def box_role' $U && grep -q 'ROLE_APP' $U && grep -q 'def carry_app' $U && ok "system update: health and carry-over follow the role (Polis and Nunki included)" || bad "alnasl-system-update is not role-aware"
+bhas SystemUpdate box_role carry_app role_app && ok "system update: health and carry-over follow the role (Polis and Nunki included)" || bad "alnasl-system-update is not role-aware"
 
 echo "== v7.1: the screen after an update, and what a box with no screen can still tell"
 # The kiosk chain must never end in a job that nothing retries (docs/v7-blackscreen.md).
 KL=$R/etc/systemd/system/alnasl-kiosk-load.service
 grep -q '^Requires=docker.service' $KL && bad "alnasl-kiosk-load Requires=docker: a late docker drops it for good" || ok "alnasl-kiosk-load does not Require docker (a late docker cannot drop it)"
 grep -q 'docker info' $R/usr/local/sbin/alnasl-kiosk-load && ok "alnasl-kiosk-load waits for docker itself" || bad "alnasl-kiosk-load does not wait for docker"
-grep -B1 -A3 '"--progress", str(pct)' $R/usr/local/sbin/alnasl-kiosk-load | grep -q 'except Exception' && ok "alnasl-kiosk-load: a slow progress painter cannot cut the docker load" || bad "alnasl-kiosk-load: the progress call can still kill the load"
+grep -q 'timeout 20 /usr/local/sbin/alnasl-splash --progress "$pct" || true' $R/usr/local/sbin/alnasl-kiosk-load && ok "alnasl-kiosk-load: a slow progress painter cannot cut the docker load" || bad "alnasl-kiosk-load: the progress call can still kill the load"
 grep -q 'systemctl start --no-block alnasl-kiosk-load.service' $R/usr/local/sbin/alnasl-kiosk && ok "alnasl-kiosk asks for the image again when nothing is loading it" || bad "alnasl-kiosk never asks for the image again"
 cdd=$(cat $R/etc/systemd/system/containerd.service.d/*.conf 2>/dev/null)
 grep -q '^TimeoutStartSec=300$' <<<"$cdd" && grep -q '^Restart=on-failure$' <<<"$cdd" && ok "containerd: 5 min to start, and another try (drop-in)" || bad "containerd start timeout/restart drop-in missing"
-grep -q 'tmp = "%s.new.%d" % (path, os.getpid())' $U && grep -q 'STATUS_LOCK' $U && ok "system update: one temporary file per process, status writes locked (the boot check cannot be raced by --check)" || bad "system update: a shared temporary file (boot check vs --check race)"
+bhas SystemUpdate .new. /run/alnasl-system-update.status.lock && ok "system update: one temporary file per process, status writes locked (the boot check cannot be raced by --check)" || bad "system update: a shared temporary file (boot check vs --check race)"
 grep -q 'activating|reloading' $R/usr/local/sbin/alnasl-kiosk && ok "alnasl-kiosk leaves a running or retrying load alone" || bad "alnasl-kiosk restarts a load that is running"
-grep -q 'def kiosk_loading' $U && grep -q 'HEALTH_MAX_MINUTES = 60' $U && ok "a trial boot is not restarted while the kiosk image is still loading (up to 60 min)" || bad "the health check can reboot in the middle of the kiosk load"
-grep -q 'def trial_report' $U && grep -q 'trial_report(version' $U && ok "a trial boot that fails leaves its diagnostics on the boot partition" || bad "no diagnostics from a failed trial boot"
-D=$R/usr/local/lib/alnasl-setup/diag.py
-grep -q 'def role_text' $D && grep -q '"id": "role"' $D && ok "diagnostics: a Role section (chosen, this boot, flags)" || bad "diagnostics have no Role section"
+bhas SystemUpdate kiosk_loading 'the kiosk image is still loading' && ok "a trial boot is not restarted while the kiosk image is still loading (up to 60 min)" || bad "the health check can reboot in the middle of the kiosk load"
+bhas SystemUpdate trial_report report_text save_report && ok "a trial boot that fails leaves its diagnostics on the boot partition" || bad "no diagnostics from a failed trial boot"
+bhas Diag role_text 'Role (what this box is)' && ok "diagnostics: a Role section (chosen, this boot, flags)" || bad "diagnostics have no Role section"
 for u in arkab.service polis.service nunki.service cups.service alnasl-sound.service alnasl-mode.service alnasl-kiosk-load.service containerd.service alnasl-slot-check.service; do
-  grep -q "\"$u\"" $D || { bad "diagnostics do not list $u"; continue; }
+  bhas Diag "$u" || { bad "diagnostics do not list $u"; continue; }
 done
-grep -q 'ConditionResult' $D && ok "diagnostics: every role's units, with whether their condition held" || bad "diagnostics do not show ConditionResult"
-# The diagnostics run end to end in the image's Python (the Role section on a box with no role yet).
-dg=$(chroot $R /usr/bin/python3 -c 'import sys; sys.path.insert(0,"/usr/local/lib/alnasl-setup"); import diag; print("ROLE" if "chosen" in diag.role_text() else "NOROLE")' 2>&1 | tail -1)
-[ "$dg" = ROLE ] && ok "diag.role_text() runs in the image" || bad "diag.role_text(): $dg"
+bhas Diag ConditionResult && ok "diagnostics: every role's units, with whether their condition held" || bad "diagnostics do not show ConditionResult"
+# The diagnostics run end to end in the image's release (the Role section on a box with no role yet).
+cmount $R
+dg=$(ex 'IO.puts(if String.contains?(AlnaslSetup.Diag.role_text(), "chosen"), do: "ROLE", else: "NOROLE")' 2>&1 | tail -1)
+cumount $R
+[ "$dg" = ROLE ] && ok "AlnaslSetup.Diag.role_text() runs in the image" || bad "AlnaslSetup.Diag.role_text(): $dg"
 
 echo "== v7.3: the setup hotspot and its captive portal (docs/captive-portal.md; qemu has no Wi-Fi, so no radio here)"
-L=$R/usr/local/lib/alnasl-setup; SU=$R/etc/systemd/system; WWWD=$R/usr/local/share/alnasl-setup/www
-for f in usr/local/lib/alnasl-setup/hotspot.py usr/local/lib/alnasl-setup/portal.py usr/local/lib/alnasl-setup/alnasl_qr.py usr/local/lib/alnasl-setup/arkab_live.py \
+SU=$R/etc/systemd/system; WWWD=$R/usr/local/share/alnasl-setup/www; EBR=${EB#$R/}
+for f in $EBR/Elixir.AlnaslSetup.Hotspot.beam $EBR/Elixir.AlnaslSetup.Portal.beam $EBR/Elixir.AlnaslSetup.QR.beam $EBR/Elixir.AlnaslSetup.ArkabLive.beam \
          usr/local/share/alnasl-setup/www/portal.html usr/local/share/alnasl-setup/www/portal.js etc/alnasl/hotspot-dnsmasq.conf \
          usr/share/alnasl/defaults/boot-efi/alnasl-hotspot.txt usr/sbin/hostapd usr/sbin/hostapd_cli usr/sbin/dnsmasq; do
   [ -e $R/$f ] && ok "present: /$f" || bad "missing: /$f"
 done
-[ -x $L/hotspot.py ] && [ -x $L/portal.py ] && ok "hotspot.py and portal.py are executable" || bad "hotspot.py/portal.py modes"
-for m in hotspot portal alnasl_qr arkab_live; do
-  chroot $R python3 -c "compile(open('/usr/local/lib/alnasl-setup/$m.py').read(), '$m.py', 'exec')" && ok "$m.py compiles with the image's python" || bad "$m.py does not compile"
-done
+grep -q '^Environment=ALNASL_SETUP_MODE=hotspot$' $SU/alnasl-hotspot.service && grep -q '^Environment=ALNASL_SETUP_MODE=portal$' $SU/alnasl-portal.service && ok "alnasl-hotspot and alnasl-portal run the release (modes hotspot and portal)" || bad "alnasl-hotspot/alnasl-portal ALNASL_SETUP_MODE"
 for b in /usr/sbin/hostapd /usr/sbin/hostapd_cli /usr/sbin/dnsmasq; do
   ! chroot $R ldd $b 2>&1 | grep -q 'not found' && ok "$b: every library is there" || bad "$b: a library is missing"
 done
@@ -790,7 +927,7 @@ done
 s=$(chroot $R systemctl is-enabled dnsmasq.service 2>&1 | tail -1); [ "$s" = masked ] && ok "stock dnsmasq.service masked (it would answer on Ethernet)" || bad "dnsmasq.service: $s"
 H=$SU/alnasl-hotspot.service
 grep -q '^RequiresMountsFor=/boot/efi' $H && grep -q '^After=.*alnasl-firewall.service' $H && grep -q '^After=.*alnasl-data.service' $H && grep -q '^After=.*wpa_supplicant@wlan0.service' $H \
-  && grep -q '^After=.*systemd-networkd.service' $H && grep -q '^ExecStopPost=.*hotspot.py --stop' $H && ok "alnasl-hotspot: after the boot partition, data, firewall, networkd and the supplicant; gives wlan0 back when it stops" || bad "alnasl-hotspot.service ordering"
+  && grep -q '^After=.*systemd-networkd.service' $H && grep -q "^ExecStopPost=/opt/alnasl-setup/bin/alnasl_setup eval 'AlnaslSetup.CLI.main()' -- hotspot --stop$" $H && ok "alnasl-hotspot: after the boot partition, data, firewall, networkd and the supplicant; gives wlan0 back when it stops" || bad "alnasl-hotspot.service ordering"
 grep -q '^After=alnasl-hotspot-ap.service' $SU/alnasl-hotspot-dns.service && grep -q '^Requires=alnasl-hotspot-ap.service' $SU/alnasl-hotspot-dns.service \
   && grep -q '^After=alnasl-hotspot-ap.service' $SU/alnasl-portal.service && ok "DNS/DHCP and the page come after (and need) the access point" || bad "hotspot unit order"
 P=$SU/alnasl-portal.service
@@ -818,15 +955,41 @@ if command -v iptables-restore >/dev/null; then
     fwhs $r 1 | awk '/^\*filter/{n++} n==1' | iptables-restore --noflush --test && ok "iptables-restore --test accepts the $r IPv4 ruleset with the hotspot" || bad "iptables-restore --test refuses the $r hotspot ruleset"
   done
 fi
-grep -q 'start | reload)' $R/usr/local/sbin/alnasl-firewall && grep -q 'alnasl-firewall", "reload"' $L/hotspot.py && ok "alnasl-hotspot reloads the firewall as it goes up and down" || bad "firewall reload"
-# WPA2 only, never open; the password only as the derived key, and never in a log line.
-grep -q '"wpa=2"' $L/hotspot.py && grep -q '"wpa_psk=" + psk_hex' $L/hotspot.py && ! grep -q -E 'wpa_passphrase|wpa=[013]"|key_mgmt=NONE|auth_algs=[23]' $L/hotspot.py \
-  && ok "hostapd: WPA2-PSK with the derived key only; no open or WEP mode in the code" || bad "hostapd configuration in hotspot.py"
-grep -q 'raise ValueError("no valid password' $L/hotspot.py && ok "no valid password, no hotspot (rather than an open one)" || bad "hostapd_conf does not refuse an empty password"
-lk=$(grep -n -E '(^|[^a-z_])(log|print)\([^#]*(self\.password|passphrase|[^a-z_]pw[^a-z_0-9]|pw\)|password\))' $L/hotspot.py $L/portal.py $L/arkab_live.py; \
-     sed -n '/setup hotspot\/portal --/,/^# ---.*HTTP --/p' $L/server.py | grep -n -E '(^|[^a-z_])(log|print)\([^#]*(passphrase|password|[^a-z_]pw[^a-z_0-9]|pin\))')
-[ -z "$lk" ] && ok "no log line carries the hotspot password, a Wi-Fi passphrase or a PIN" || bad "a log line may show a secret: $lk"
-grep -q 'def log_message' $L/portal.py && grep -q 'never a query or a body' $L/portal.py && ok "the portal logs method, path and status only" || bad "portal logging"
+grep -q 'start | reload)' $R/usr/local/sbin/alnasl-firewall && bhas Hotspot /usr/local/sbin/alnasl-firewall reload && ok "alnasl-hotspot reloads the firewall as it goes up and down" || bad "firewall reload"
+# WPA2 only, never open; the password only as the derived key, and never in a log line. hostapd_conf/3 run in the image:
+# its own crypto (PBKDF2) against IEEE 802.11i's test vector; and no open or WEP setting anywhere in the module.
+cmount $R
+nowep() { ! grep -a -q -E 'wpa_passphrase|wpa=[013]|key_mgmt=NONE|auth_algs=[23]' $EB/Elixir.AlnaslSetup.Hotspot.beam; }
+exf <<'EX' && nowep && ok "hostapd: WPA2-PSK with the derived key only; no open or WEP mode in the code" || bad "hostapd configuration in AlnaslSetup.Hotspot"
+alias AlnaslSetup.Hotspot
+a = fn c, what -> unless c, do: (IO.puts(:stderr, "assert: #{what}"); System.halt(1)) end
+a.(Hotspot.psk_hex("IEEE", "password") == "f42c6fc52df0ebef9ebb4b90b38a5f902e83fe1b135a70e23aed762e9710a12e", "PBKDF2 test vector")
+conf = Hotspot.hostapd_conf("Alnasl-Setup-1a2b3c", "Kq7mPx2vRt", "BE")
+lines = String.split(conf, "\n")
+a.("wpa=2" in lines and "wpa_key_mgmt=WPA-PSK" in lines and "auth_algs=1" in lines, "WPA2-PSK lines")
+a.("wpa_psk=" <> Hotspot.psk_hex("Alnasl-Setup-1a2b3c", "Kq7mPx2vRt") in lines, "the derived key")
+a.(not String.contains?(conf, "Kq7mPx2vRt") and not String.contains?(conf, "wpa_passphrase"), "the passphrase is not in the file")
+EX
+exf <<'EX' && ok "no valid password, no hotspot (rather than an open one): hostapd_conf raises" || bad "hostapd_conf does not refuse an empty password"
+alias AlnaslSetup.Hotspot
+for pw <- [nil, "", "short", String.duplicate("x", 64), "tab\there!"] do
+  try do
+    Hotspot.hostapd_conf("Alnasl-Setup-1a2b3c", pw, "BE")
+    IO.puts(:stderr, "a hostapd file for #{inspect(pw)}")
+    System.halt(1)
+  rescue
+    ArgumentError -> :ok
+  end
+end
+EX
+cumount $R
+# What a log line says leaves no trace in a .beam: the source the release was built from (build-setup.sh).
+RX='(^|[^a-z_])(log|puts|warn|info|error|debug)\((.*#\{([^}]*[^a-z_])?(password|passphrase|pw|pin|psk)[^a-z_}]*\}|([^#]*[^a-z_.:])?(password|passphrase|pw|pin|psk)\))'
+if [ -f $SRC/hotspot.ex ] && [ -f $SRC/portal.ex ] && [ -f $SRC/arkab_live.ex ] && [ -f $SRC/server/portal_api.ex ]; then
+  lk=$(grep -n -E "$RX" $SRC/hotspot.ex $SRC/portal.ex $SRC/arkab_live.ex $SRC/server/portal_api.ex)
+  [ -z "$lk" ] && ok "no log line carries the hotspot password, a Wi-Fi passphrase or a PIN (setup-app source as built)" || bad "a log line may show a secret: $lk"
+  grep -q 'never a query or a body' $SRC/portal.ex && grep -q 'String.split("?") |> hd()' $SRC/portal.ex && ok "the portal logs method, path and status only" || bad "portal logging"
+else bad "no setup-app source in $SRC (build-setup.sh unpacks it there): the log-line checks cannot run"; fi
 [ -z "$(grep -o -E '(src|href)="https?://[^"]*' $WWWD/portal.html | grep -v 'https\?://10\.42\.0\.1/')" ] && [ -z "$(grep -E '(fetch|src|href)[:(= ]*["'"'"'`]https?://' $WWWD/portal.js | grep -v 'https\?://10\.42\.0\.1/')" ] && ok "the portal page loads nothing from outside (there is no outside)" || bad "portal page refers to an outside URL"
 # The boot partition: the file is there, CRLF, with its English and Dutch header and an empty PASSWORD= (generated at first boot).
 F=$B/alnasl-hotspot.txt
@@ -839,14 +1002,30 @@ F=$B/alnasl-hotspot.txt
 [ ! -e $B/alnasl-hotspot-qr.png ] && ok "no QR code shipped (it is per box)" || bad "a QR code is on the image's boot partition"
 [ "$(tr -d '\r' < $F | sha256sum)" = "$(tr -d '\r' < $R/usr/share/alnasl/defaults/boot-efi/alnasl-hotspot.txt | sha256sum)" ] && ok "the image keeps a copy to re-create it from" || bad "the template copy differs from the boot file"
 grep -q 'alnasl-hotspot.txt' $B/README-ALNASL.txt && grep -q 'alnasl-hotspot-qr.png' $B/README-ALNASL.txt && grep -q -i 'stick it on the case' $B/README-ALNASL.txt && ok "README-ALNASL.txt: the hotspot file and the QR sticker" || bad "README-ALNASL.txt does not mention the hotspot"
-# The logic and the QR code, on the image's own Python: decide(), the file, hostapd, the portal's routes, PIN and link checks; the QR decoded.
-install -m 0644 $W/test-hotspot.py $R/tmp/test-hotspot.py; install -m 0644 $W/test-qr.py $R/tmp/test-qr.py
-out=$(chroot $R python3 -I /tmp/test-hotspot.py /usr/local/lib/alnasl-setup 2>&1); echo "$out" | grep -v '^ok ' | sed 's/^/       /'
-echo "$out" | grep -q 'RESULT: all hotspot checks passed' && ok "test-hotspot.py: $(echo "$out" | grep -c '^ok ') checks in the image" || bad "test-hotspot.py failed in the image"
-out=$(chroot $R python3 -I /tmp/test-qr.py /usr/local/lib/alnasl-setup/alnasl_qr.py 2>&1); echo "$out" | tail -1 | sed 's/^/       /'
-echo "$out" | grep -q 'test-qr: 0 failure' && ok "test-qr.py: the QR encoder's symbols decode (image python)" || bad "test-qr.py failed in the image"
-rm -f $R/tmp/test-hotspot.py $R/tmp/test-qr.py
-find $R/usr/local/lib/alnasl-setup -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
+# The logic and the QR code in the image (the full suites, hotspot_test/portal_test/qr_test.exs, ran in build-setup.sh):
+# decide(), the password rule and generator (the system's CSPRNG), the portal's routes, a QR code that is a PNG.
+cmount $R
+exf <<'EX' && ok "hotspot in the image: decide(), passwords, portal routes, the QR code is a PNG" || bad "hotspot logic in the image"
+alias AlnaslSetup.{Hotspot, Portal, QR}
+a = fn c, what -> unless c, do: (IO.puts(:stderr, "assert: #{what}"); System.halt(1)) end
+# now, uptime, has_wlan, enabled, eth_up, client_up, ap_on, saved, stations, no_net_since, had_network, off_since, hold_until, last_probe
+a.(elem(Hotspot.decide(1000, 1000, false, true, false, false, false, false, 0, 0, false, nil, 0, 0), 2) == "no_wlan", "no wlan0: no AP")
+a.(elem(Hotspot.decide(1000, 1000, true, false, false, false, false, false, 0, 0, false, nil, 0, 0), 2) == "disabled", "switched off: no AP")
+a.(elem(Hotspot.decide(1000, 1000, true, true, false, true, false, false, 0, 0, false, nil, 0, 0), 0) == false, "a Wi-Fi client is up: no AP")
+a.(elem(Hotspot.decide(30, 30, true, true, false, false, false, false, 0, 0, false, nil, 0, 0), 2) == "boot_grace", "boot grace")
+a.(Hotspot.decide(1000, 1000, true, true, false, false, false, false, 0, 0, false, nil, 0, 0) == {true, false, "no_network"}, "no network: AP")
+pw = Hotspot.gen_password()
+a.(Hotspot.valid_password?(pw) and pw != Hotspot.gen_password(), "gen_password: valid and new each time")
+a.(not Hotspot.valid_password?("1234567") and not Hotspot.valid_password?("cafécafé"), "short / non-ASCII refused")
+a.(match?({:redirect, "http://10.42.0.1/"}, Portal.route("GET", "connectivitycheck.gstatic.com", "/generate_204")), "a probe goes to the page")
+a.(match?({:static, "portal.html", _}, Portal.route("GET", "10.42.0.1", "/")), "the page")
+a.(Portal.route("GET", "10.42.0.1", "/api/reset") == {:forbidden} and Portal.route("POST", "10.42.0.1", "/api/mode") == {:forbidden}, "the setup API stays shut")
+a.(Portal.route("POST", "10.42.0.1", "/api/portal/join") == {:pass, "/api/portal/join"}, "join passes through")
+png = QR.wifi_png("Alnasl-Setup-1a2b3c", pw)
+a.(binary_part(png, 0, 8) == <<137, 80, 78, 71, 13, 10, 26, 10>> and byte_size(png) > 200, "the QR code is a PNG")
+a.(QR.wifi_payload("a;b", "p:w") == ~S"WIFI:T:WPA;S:a\;b;P:p\:w;;", "the payload escapes ; and :")
+EX
+cumount $R
 
 echo "== sizes"
 df -h $R | tail -1
