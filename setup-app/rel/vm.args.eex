@@ -1,0 +1,8 @@
+## A small box with four cores and real work to do: no busy-waiting schedulers, two of them are plenty.
++S 2:2
++sbwt none
++sbwtdcpu none
++sbwtdio none
+## Never a shell on the console, never a crash dump filling the disk.
+-noinput
+-env ERL_CRASH_DUMP_BYTES 0
