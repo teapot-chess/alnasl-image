@@ -97,7 +97,8 @@ defmodule AlnaslSetup.BootlogTest do
   end
 
   # A journal entry as the JSON gives it: string keys.
-  defp e(extra), do: Map.merge(%{"PRIORITY" => "6", "MESSAGE" => "hello"}, Map.new(extra, fn {a, b} -> {to_string(a), b} end))
+  defp e(extra),
+    do: Map.merge(%{"PRIORITY" => "6", "MESSAGE" => "hello"}, Map.new(extra, fn {a, b} -> {to_string(a), b} end))
 
   describe "the allow-list" do
     test "kernel" do
@@ -134,14 +135,20 @@ defmodule AlnaslSetup.BootlogTest do
 
       assert {_, "error", true, text} =
                B.entry_line(
-                 e(_PID: "1", UNIT: "x.service", PRIORITY: "3", MESSAGE: "x.service: Failed with result 'exit-code'. psk=abc"),
+                 e(
+                   _PID: "1",
+                   UNIT: "x.service",
+                   PRIORITY: "3",
+                   MESSAGE: "x.service: Failed with result 'exit-code'. psk=abc"
+                 ),
                  "nunki"
                )
 
       refute String.contains?(text, "abc")
 
       # "ailed" or "rror" in the message makes it a failure whatever the priority says
-      assert {_, "error", true, _} = B.entry_line(e(_PID: "1", UNIT: "weird.service", MESSAGE: "Some error here"), "nunki")
+      assert {_, "error", true, _} =
+               B.entry_line(e(_PID: "1", UNIT: "weird.service", MESSAGE: "Some error here"), "nunki")
     end
 
     test "messages that are not text" do
@@ -197,7 +204,9 @@ defmodule AlnaslSetup.BootlogTest do
       Box.put("/run/alnasl-mode/role", "polis")
 
       Box.runner!(fn ["systemctl", "show", "-p", _props | units] ->
-        out = for u <- units, do: "Id=#{u}\nActiveState=active\nSubState=running\nUnitFileState=enabled\nType=simple\n\n"
+        out =
+          for u <- units, do: "Id=#{u}\nActiveState=active\nSubState=running\nUnitFileState=enabled\nType=simple\n\n"
+
         {0, Enum.join(out)}
       end)
 
@@ -265,7 +274,7 @@ defmodule AlnaslSetup.BootlogTest do
 
     test "starts again when the process ends, but not more often than every two seconds" do
       line = JSON.encode!(%{"PRIORITY" => "6", "_TRANSPORT" => "kernel", "MESSAGE" => "again"}) <> "\n"
-      f = Follower.new(fn -> "alnasl" end, ["sh", "-c", "printf '%s' \"$1\"", "sh", line])
+      f = Follower.new(fn -> "alnasl" end, ["echo", String.trim(line)])
       {first, f} = poll_until(f, 1)
       assert [{"kernel", "kernel", false, "again"}] = first
       # the process has ended; the next poll notices and may not restart yet
