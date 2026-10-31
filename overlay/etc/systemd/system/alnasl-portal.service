@@ -6,7 +6,11 @@ Requires=alnasl-hotspot-ap.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /usr/local/lib/alnasl-setup/portal.py
+# Source: setup-app/lib/alnasl_setup/portal.ex. ProtectSystem=strict makes /opt read-only, so the release's scratch
+# directory (RELEASE_TMP, by default <release>/tmp) is the private /tmp, in case anything wants to write there.
+ExecStart=/opt/alnasl-setup/bin/alnasl_setup start
+Environment=ALNASL_SETUP_MODE=portal
+Environment=RELEASE_TMP=/tmp
 Restart=on-failure
 RestartSec=3
 # It holds nothing and changes nothing itself (it passes a short list of calls to the setup server on
