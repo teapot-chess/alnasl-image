@@ -399,6 +399,8 @@ if ! out=$(rpm -e --test $pys 2>&1); then
 else
   rpm -e $pys
 fi
+# rpm leaves the (now empty) site-packages directories of other packages behind; empty ones go, anything with a file in it stays and fails the check.
+find /usr/lib/python3* /usr/lib64/python3* -depth -type d -empty -delete 2>/dev/null || true
 left=$(ls -d /usr/bin/python* /usr/lib/python3* /usr/lib64/python3* 2>/dev/null || true)
 [ -z "$left" ] || { echo "python files left behind: $left"; exit 1; }
 ! rpm -qa | grep -q -E '^python3' || { echo "a python3 package is still installed"; exit 1; }
