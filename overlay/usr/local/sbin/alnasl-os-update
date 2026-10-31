@@ -54,11 +54,7 @@ finish() { # outcome [note]
 ALNASL_STATUS_URL=http://127.0.0.1:4040/local/status
 round_in_progress() {
   local out
-  if command -v curl >/dev/null 2>&1; then
-    out=$(curl -s -m 4 --connect-timeout 2 "$ALNASL_STATUS_URL" 2>/dev/null)
-  else
-    out=$(python3 -c 'import sys,urllib.request as u; sys.stdout.write(u.urlopen(sys.argv[1], timeout=4).read(2000).decode())' "$ALNASL_STATUS_URL" 2>/dev/null)
-  fi || {
+  out=$(curl -s -m 4 --connect-timeout 2 "$ALNASL_STATUS_URL" 2>/dev/null) || {
     round_check="Alnasl not running or not answering: treated as no round"; return 1; }
   case $out in
     *'"round_in_progress":true'*|*'"round_in_progress": true'*) round_check="round in progress"; return 0 ;;

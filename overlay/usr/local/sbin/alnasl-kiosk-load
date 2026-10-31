@@ -29,30 +29,25 @@ echo "alnasl-kiosk-load: loading $TAR (${HAVE:+replacing $HAVE; }a few minutes o
 # The bar follows how much of the tarball has been read: docker load reads as fast as it unpacks, so the
 # pipe keeps the two honest. Last few percent can sit a while as docker commits the layers. It still beats
 # a sentence about the display.
-set -o pipefail
-if python3 -c '
-import os, subprocess, sys, time
-path = sys.argv[1]
-size, done, last, t = os.path.getsize(path) or 1, 0, -1, 0.0
-out = sys.stdout.buffer
-with open(path, "rb") as f:
-    while True:
-        b = f.read(1 << 20)
-        if not b:
-            break
-        out.write(b)
-        done += len(b)
-        pct = min(99, done * 100 // size)  # 100 once docker says it is done, not when the last byte leaves
-        if pct != last and time.monotonic() - t >= 1:
-            last, t = pct, time.monotonic()
-            # v7.1: the bar is a nicety. A painter slow to start (a busy SD card) used to raise here, which
-            # cut the pipe and failed the whole load ("gzip: unexpected end of file"); now it only skips a step.
-            try:
-                subprocess.run(["/usr/local/sbin/alnasl-splash", "--progress", str(pct)], timeout=20)
-            except Exception:
-                pass
-out.flush()
-' "$TAR" | gzip -dc | docker load; then
+set -o pipefail  # (kept: the load pipeline below reports docker's status)
+# gzip's read position (/proc/PID/fdinfo/0) is the progress: no helper process, no extra copy of the tarball.
+# v7.1: the bar is a nicety. A painter slow to start (a busy SD card) must not cut the pipe; it only skips a step.
+SIZE=$(stat -c %s "$TAR"); [ "${SIZE:-0}" -gt 0 ] || SIZE=1
+gzip -dc < "$TAR" | docker load &
+LOAD=$!
+GZ=
+last=-1
+while kill -0 "$LOAD" 2>/dev/null; do
+  sleep 1
+  [ -n "$GZ" ] && [ -r "/proc/$GZ/fdinfo/0" ] || GZ=$(pgrep -n -x gzip)
+  pos=$(sed -n 's/^pos:[[:space:]]*//p' "/proc/$GZ/fdinfo/0" 2>/dev/null)
+  [ -n "$pos" ] || continue
+  pct=$((pos * 100 / SIZE)); [ "$pct" -le 99 ] || pct=99  # 100 once docker says it is done, not when the last byte leaves
+  [ "$pct" != "$last" ] || continue
+  last=$pct
+  timeout 20 /usr/local/sbin/alnasl-splash --progress "$pct" || true
+done
+if wait "$LOAD"; then
   /usr/local/sbin/alnasl-splash --progress 100
   docker image prune -f >/dev/null 2>&1
   /usr/local/sbin/alnasl-splash --progress clear

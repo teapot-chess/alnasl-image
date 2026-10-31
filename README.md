@@ -33,5 +33,7 @@ CI cannot run `build.ps1` or `verify.sh`.
 ## Tests
 
 `scripts/test-*.py`, `scripts/test-kiosk-logic.sh`, `scripts/verify.sh`: run on the VM by the verify stage.
-The overlay's setup server (`overlay/usr/local/lib/alnasl-setup/*.py`) and its tests are Python, running on the
-image itself.
+The overlay's setup server (`overlay/usr/local/lib/alnasl-setup/*.py`), `alnasl-splash` and `alnasl-system-update` are
+still Python on the image, along with their tests: the `no-python` branch ported the small shell-sized users (the
+kiosk-load progress bar, the os-update status probe) and left these because they are applications, not scripts; they
+need to be rewritten in Elixir inside Alnasl first. Until then `python3` stays in the image.
