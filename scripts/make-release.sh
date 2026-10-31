@@ -40,7 +40,8 @@ while [ $# -gt 0 ]; do
     *) echo "unknown option $1"; exit 2 ;;
   esac
 done
-for t in sfdisk dd debugfs zstd sha256sum python3 stat; do command -v $t >/dev/null || { echo "needs $t"; exit 1; }; done
+for t in sfdisk dd debugfs zstd sha256sum stat; do command -v $t >/dev/null || { echo "needs $t"; exit 1; }; done
+command -v elixir >/dev/null || command -v docker >/dev/null || { echo "needs elixir or docker (for release-index.exs)"; exit 1; }
 [ -f "$IMG" ] || { echo "no image at $IMG"; exit 1; }
 mkdir -p "$OUT"
 
@@ -76,26 +77,21 @@ sha=$(sha256sum "$OUT/$FILE" | cut -d' ' -f1)
 zsize=$(stat -c %s "$OUT/$FILE")
 echo "$FILE: $((zsize >> 20)) MiB, sha256 $sha"
 
-python3 - "$OUT" "$FILE" "$TRAIN" "$VERSION" "$BASE" "$zsize" "$sha" "$raw_size" "$raw_sha" "$MIN_FROM" "$NOTES" "$OLD_INDEX" <<'PY'
-import datetime, json, os, sys
-out, file, train, version, base, size, sha, raw_size, raw_sha, min_from, notes, old = sys.argv[1:]
-entry = {"train": train, "version": version, "file": file, "url": base + file, "sig_url": base + file + ".sig",
-         "size": int(size), "sha256": sha, "raw_size": int(raw_size), "raw_sha256": raw_sha,
-         "min_from": min_from or None, "released": datetime.date.today().isoformat(), "notes": notes[:400]}
-with open(os.path.join(out, "alnasl-system-v%s.json" % version), "w") as f:
-    json.dump(entry, f, indent=1)
-    f.write("\n")
-idx = {"format": 1, "images": []}
-if old:
-    with open(old) as f:
-        idx = json.load(f)
-    assert idx.get("format") == 1, "the old index has another format"
-idx["images"] = [i for i in idx["images"] if i.get("version") != version] + [entry]
-key = lambda i: tuple(int(x) for x in i["version"].split("."))
-idx["images"].sort(key=key)
-with open(os.path.join(out, "index.json"), "w") as f:
-    json.dump(idx, f, indent=1)
-    f.write("\n")
-print("index.json: %d image(s): %s" % (len(idx["images"]), ", ".join(i["version"] for i in idx["images"])))
-PY
+# The entry and index.json: scripts/release-index.exs (Elixir, no Python). With a local elixir it runs
+# directly; otherwise in the Elixir image of the build, which needs the directories mounted at their own paths.
+ELIXIR_IMAGE=${ELIXIR_IMAGE:-hexpm/elixir:1.20.4-erlang-29.0.6-debian-bookworm-20261020-slim}
+HERE=$(cd "$(dirname "$0")" && pwd)
+ABS_OUT=$(cd "$OUT" && pwd)
+ABS_OLD=""
+if [ -n "$OLD_INDEX" ]; then
+  [ -f "$OLD_INDEX" ] || { echo "no old index at $OLD_INDEX"; exit 1; }
+  # a copy inside the work dir (under OUT, so mounted too): --index may be OUT/index.json itself, which gets rewritten
+  cp "$OLD_INDEX" "$work/old-index.json"; ABS_OLD=$ABS_OUT/$(basename "$work")/old-index.json
+fi
+ARGS=("$HERE/release-index.exs" "$ABS_OUT" "$FILE" "$TRAIN" "$VERSION" "$BASE" "$zsize" "$sha" "$raw_size" "$raw_sha" "$MIN_FROM" "$NOTES" "$ABS_OLD")
+if command -v elixir >/dev/null; then
+  elixir "${ARGS[@]}"
+else
+  docker run --rm -v "$HERE:$HERE:ro" -v "$ABS_OUT:$ABS_OUT" -w "$ABS_OUT" "$ELIXIR_IMAGE" elixir "${ARGS[@]}"
+fi
 echo "next: sign-release.sh <private key> $OUT/index.json $OUT/$FILE   (on the machine that holds the key)"

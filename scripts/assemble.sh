@@ -245,7 +245,7 @@ cat > $R/etc/fstab <<FST
 PARTUUID=$DISK_ID-01	/boot/efi	vfat	defaults,nofail	0	2
 FST
 # v6: the boot screen's pictures are binary; nothing above may have touched them (CR stripping).
-python3 -c 'import sys; d=open(sys.argv[1],"rb").read(8); sys.exit(d!=b"\x89PNG\r\n\x1a\n")' $R/usr/share/alnasl/splash/alnasl-splash.png || { echo "alnasl-splash.png is damaged"; exit 1; }
+[ "$(head -c 8 $R/usr/share/alnasl/splash/alnasl-splash.png | od -An -tx1 | tr -d ' \n')" = 89504e470d0a1a0a ] || { echo "alnasl-splash.png is damaged"; exit 1; }
 
 # --- 6. Alnasl: the release's own install.sh ----------------------------------------
 rm -rf $R/tmp/alnasl-rel; mkdir -p $R/tmp/alnasl-rel
@@ -394,11 +394,10 @@ mkdir -p $R/var/log/journal
 : > $R/etc/machine-id
 
 # --- 9. updates must never move the kernel or the boot chain -----------------------
-python3 - "$R/etc/tdnf/tdnf.conf" <<'PY'
-import sys
-p = sys.argv[1]
-s = open(p).read().rstrip("\n") + "\n"
-s += """
+# (the file's trailing newlines are replaced by exactly one, then the block is appended)
+TDNF_CONF=$R/etc/tdnf/tdnf.conf
+{ printf '%s\n' "$(cat $TDNF_CONF)"; cat <<'TDNF'
+
 # Alnasl hall box: the kernel, its device trees, the GPU/driver packages, the
 # firmware, the boot loaders and the Raspberry Pi firmware are matched to each
 # other and must not be updated one at a time (a 6.12 kernel with 6.1 device
@@ -406,9 +405,9 @@ s += """
 #   tdnf --disableexcludes=all update linux linux-drivers-gpu dtb-rpi4 ...
 # and rebuild the out-of-tree modules for the new kernel (see README).
 excludepkgs=linux linux-* dtb-* raspberrypi-firmware* u-boot* grub2* initramfs
-"""
-open(p, "w").write(s)
-PY
+TDNF
+} > $TDNF_CONF.new
+cat $TDNF_CONF.new > $TDNF_CONF; rm -f $TDNF_CONF.new
 grep -n excludepkgs $R/etc/tdnf/tdnf.conf
 
 # --- 10. kiosk container image, baked in ---------------------------------------------
@@ -430,7 +429,7 @@ sed -i 's/\r*$/\r/' $B/alnasl-hotspot.txt
 sed "s/@DISKID@/$DISK_ID/g" $W/grub-ab.cfg > $B/boot/grub2/grub.cfg
 ! grep -q '@DISKID@' $B/boot/grub2/grub.cfg || { echo "grub-ab.cfg: @DISKID@ left"; exit 1; }
 install -d $B/alnasl
-python3 -c 'import sys; open(sys.argv[1],"wb").write(b"# GRUB Environment Block\nalnasl_slot=A\nalnasl_try=none\nalnasl_tries=0\nalnasl_failed=none\n".ljust(1024,b"#"))' $B/alnasl/grubenv
+{ printf '# GRUB Environment Block\nalnasl_slot=A\nalnasl_try=none\nalnasl_tries=0\nalnasl_failed=none\n'; head -c 1024 /dev/zero | tr '\0' '#'; } | head -c 1024 > $B/alnasl/grubenv
 [ "$(stat -c %s $B/alnasl/grubenv)" = 1024 ] || { echo "grubenv is not 1024 bytes"; exit 1; }
 install -D -m 0644 $R/usr/share/alnasl/splash/alnasl-splash.png $B/boot/grub2/alnasl-splash.png
 # The picture is now drawn from this partition's grub.cfg: the font gfxterm loads must be here too.
@@ -454,7 +453,7 @@ grep '^photon_cmdline=' $R/boot/photon.cfg | sed 's/^/  /'
 cat $R/boot/systemd.cfg
 # grub (no menu, no wait, the picture as background) and u-boot (no delay, its text on serial only).
 install -D -m 0644 $R/usr/share/alnasl/splash/alnasl-splash.png $R/boot/grub2/alnasl-splash.png
-python3 $W/bootscreen.py $R $B
+bash $W/bootscreen.sh $R $B
 sed -i 's/\r$//' $B/config.txt
 ! grep -q 'disable_overscan\|core_freq_min' $B/config.txt || { echo "config.txt already has overscan/core_freq_min lines"; exit 1; }
 awk '
