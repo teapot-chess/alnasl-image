@@ -118,16 +118,27 @@ defmodule AlnaslSetup.SplashTest do
 
       logv = {"starting nunki - 7 of 12 up", lines}
 
-      for {w, h, bpp, pad} <- [{1920, 1080, 32, 0}, {800, 480, 16, 0}, {1280, 720, 32, 128}, {720, 720, 32, 0}, {1024, 600, 24, 0}] do
+      for {w, h, bpp, pad} <- [
+            {1920, 1080, 32, 0},
+            {800, 480, 16, 0},
+            {1280, 720, 32, 128},
+            {720, 720, 32, 0},
+            {1024, 600, 24, 0}
+          ] do
         fb = Splash.new_fb(w, h, bpp, pad)
 
         for key <- Splash.log_states(), Map.has_key?(@states, key) do
           {bare, _} = Splash.compose(fb, key, "en")
           {withlog, _} = Splash.compose(fb, key, "en", logv: logv)
-          assert byte_size(withlog) == byte_size(bare) and withlog != bare, "#{key} at #{w}x#{h} #{bpp}bpp: the log is drawn"
+
+          assert byte_size(withlog) == byte_size(bare) and withlog != bare,
+                 "#{key} at #{w}x#{h} #{bpp}bpp: the log is drawn"
+
           {y0, data} = Splash.log_region(fb, key, elem(logv, 0), lines)
           assert rem(byte_size(data), fb.stride) == 0
-          assert binary_part(withlog, y0 * fb.stride, byte_size(data)) == data, "#{key} at #{w}x#{h}: region is whole rows"
+
+          assert binary_part(withlog, y0 * fb.stride, byte_size(data)) == data,
+                 "#{key} at #{w}x#{h}: region is whole rows"
         end
 
         for key <- ["update-restart", "reset-2", "shutdown"], Map.has_key?(@states, key) do
@@ -300,7 +311,8 @@ defmodule AlnaslSetup.SplashTest do
     test "paints, repaints what was wiped, and stops when X appears" do
       Box.runner!(fn
         [_, "vinfo", _] ->
-          {0, "xres=320\nyres=200\nyoffset=0\nbits_per_pixel=32\nred_offset=16\nred_length=8\ngreen_offset=8\ngreen_length=8\nblue_offset=0\nblue_length=8\n"}
+          {0,
+           "xres=320\nyres=200\nyoffset=0\nbits_per_pixel=32\nred_offset=16\nred_length=8\ngreen_offset=8\ngreen_length=8\nblue_offset=0\nblue_length=8\n"}
 
         [_, "graphics", _] ->
           {0, ""}
