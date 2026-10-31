@@ -3,7 +3,7 @@
 #   (from inside PowerShell: & .\build.ps1 -Skip alnasl,modules ; with -File the list is read as one word)
 #   powershell -File build.ps1 [-Vm root@172.16.63.81] [-Key ~/.ssh/photon_openpair]
 #                              [-AlnasLRepo "..\Alnasl"] [-ArkabRepo "..\arkab"] [-PolisRepo "..\polis"] [-NunkiRepo "..\nunki"]
-#                              [-Skip alnasl,arkab,polis,nunki,espeak,modules,iw,hostapd,kiosk]
+#                              [-Skip alnasl,arkab,polis,nunki,setup,espeak,modules,iw,hostapd,kiosk]
 #                              [-Version 7.0] [-Release] [-MinFrom 6.2] [-Notes "..."]
 #
 # -Version: the image's version within its train (v7 -> 7.0, 7.1 ...); written into the image
@@ -52,7 +52,7 @@ $Tags = $V.Tags; $Shas = $V.Shas
 foreach ($n in @("alnasl", "arkab", "polis", "nunki")) { Write-Host ("== bundle {0,-6} {1}  {2}" -f $n, $Tags[$n], $Shas[$n]) }
 
 Write-Host "== ship"
-Vm-Run "mkdir -p $W/alnasl $W/arkab $W/polis $W/nunki $W/espeak $W/kiosk"
+Vm-Run "mkdir -p $W/alnasl $W/arkab $W/polis $W/nunki $W/setup $W/espeak $W/kiosk"
 if ($Skip -notcontains "alnasl") {
   $tar = Join-Path $here "alnasl\alnasl-src.tar"
   git -C $AlnasLRepo archive -o $tar $Tags.alnasl
@@ -75,15 +75,26 @@ foreach ($app in @(@{ n = "polis"; repo = $PolisRepo }, @{ n = "nunki"; repo = $
   }
   & scp @ssh (Join-Path $here ("{0}\Dockerfile" -f $app.n)) ("{0}:{1}/{2}/" -f $Vm, $W, $app.n)
 }
+# The box's own programs (setup-app: setup server, hotspot + portal, boot screen, system updater): this repository's
+# own source at HEAD, so a build is a commit. Uncommitted changes in setup-app are NOT in the image.
+if ($Skip -notcontains "setup") {
+  if (& git -C $here status --porcelain -- setup-app) { Write-Warning "setup-app has uncommitted changes; the image gets HEAD's setup-app" }
+  $star = Join-Path $here "setup-app\setup-src.tar"
+  git -C $here archive -o $star HEAD:setup-app
+  & scp @ssh $star "$Vm`:$W/setup/"
+}
 & scp @ssh (Join-Path $here "espeak\Dockerfile") "$Vm`:$W/espeak/"
 & scp @ssh (Join-Path $here "kiosk\Dockerfile") (Join-Path $here "kiosk\kiosk.sh") (Join-Path $here "kiosk\kiosk-res.sh") (Join-Path $here "kiosk\policies.json") "$Vm`:$W/kiosk/"
 Vm-Run "rm -rf $W/kiosk/ext"
 & scp -r @ssh (Join-Path $here "kiosk\ext") "$Vm`:$W/kiosk/"
-& scp @ssh (Join-Path $here "scripts\build-alnasl.sh") (Join-Path $here "scripts\build-arkab.sh") (Join-Path $here "scripts\build-polis.sh") (Join-Path $here "scripts\build-nunki.sh") (Join-Path $here "scripts\build-espeak.sh") (Join-Path $here "scripts\test-bootlog.py") (Join-Path $here "scripts\build-modules.sh") (Join-Path $here "scripts\build-kiosk.sh") (Join-Path $here "scripts\build-iw.sh") (Join-Path $here "scripts\test-diag.py") (Join-Path $here "scripts\test-res.py") (Join-Path $here "scripts\test-kiosk-logic.sh") (Join-Path $here "scripts\verify.sh") (Join-Path $here "scripts\qemu-smoke.sh") (Join-Path $here "scripts\assemble.sh") (Join-Path $here "scripts\lib-chroot.sh") (Join-Path $here "scripts\prepare-base.sh") (Join-Path $here "scripts\bootscreen.py") (Join-Path $here "scripts\test-splash.py") (Join-Path $here "scripts\grub-ab.cfg") (Join-Path $here "scripts\make-release.sh") (Join-Path $here "scripts\test-update.py") (Join-Path $here "scripts\build-hostapd.sh") (Join-Path $here "scripts\test-hotspot.py") (Join-Path $here "scripts\test-qr.py") "$Vm`:$W/"
+$scripts = @("build-alnasl.sh", "build-arkab.sh", "build-polis.sh", "build-nunki.sh", "build-setup.sh", "build-espeak.sh", "build-modules.sh", "build-kiosk.sh", "build-iw.sh", "build-hostapd.sh",
+  "test-kiosk-logic.sh", "test-scripts.sh", "test-compact-css.sh", "verify.sh", "qemu-smoke.sh", "assemble.sh", "lib-chroot.sh", "prepare-base.sh", "bootscreen.sh", "uboot-env.exs",
+  "grub-ab.cfg", "make-release.sh", "release-index.exs")
+& scp @ssh @($scripts | ForEach-Object { Join-Path $here "scripts\$_" }) "$Vm`:$W/"
 & scp @ssh (Join-Path $here "module\Makefile") "$Vm`:$W/module-Makefile"
 Vm-Run "rm -rf $W/overlay"
 & scp -r @ssh (Join-Path $here "overlay") "$Vm`:$W/"
-Vm-Run "cd $W && sed -i 's/\r$//' *.sh test-diag.py test-res.py bootscreen.py test-splash.py test-update.py test-bootlog.py test-hotspot.py test-qr.py grub-ab.cfg kiosk/kiosk.sh kiosk/kiosk-res.sh module-Makefile && find overlay -type f ! -name '*.png' ! -name '*.pgm' ! -name '*.ttf' ! -name alnasl-arkab-pin.txt -exec sed -i 's/\r$//' {} +"
+Vm-Run "cd $W && sed -i 's/\r$//' *.sh *.exs grub-ab.cfg kiosk/kiosk.sh kiosk/kiosk-res.sh module-Makefile && find overlay -type f ! -name '*.png' ! -name '*.pgm' ! -name '*.ttf' ! -name alnasl-arkab-pin.txt -exec sed -i 's/\r$//' {} +"
 
 Write-Host "== base image + binfmt"
 Vm-Run "bash $W/prepare-base.sh"
@@ -92,6 +103,7 @@ if ($Skip -notcontains "alnasl")  { Write-Host "== Alnasl release (arm64, qemu)"
 if ($Skip -notcontains "arkab")   { Write-Host "== Arkab release (arm64, qemu)";   Vm-Run "bash $W/build-arkab.sh" }
 if ($Skip -notcontains "polis")   { Write-Host "== Polis release (arm64, qemu)";   Vm-Run "bash $W/build-polis.sh" }
 if ($Skip -notcontains "nunki")   { Write-Host "== Nunki release (arm64, qemu)";   Vm-Run "bash $W/build-nunki.sh" }
+if ($Skip -notcontains "setup")   { Write-Host "== setup-app release (arm64, qemu, tests included)"; Vm-Run "bash $W/build-setup.sh" }
 if ($Skip -notcontains "espeak")  { Write-Host "== espeak-ng for Nunki (arm64, qemu)"; Vm-Run "bash $W/build-espeak.sh" }
 if ($Skip -notcontains "modules") { Write-Host "== out-of-tree modules";          Vm-Run "bash $W/build-modules.sh" }
 if ($Skip -notcontains "iw")      { Write-Host "== iw (userspace tool)";        Vm-Run "bash $W/build-iw.sh" }
