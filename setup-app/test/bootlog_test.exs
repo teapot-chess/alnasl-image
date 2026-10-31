@@ -296,7 +296,7 @@ defmodule AlnaslSetup.BootlogTest do
       {:os_pid, pid} = Port.info(f.port, :os_pid)
       Follower.close(f)
       Process.sleep(200)
-      {_, rc} = System.cmd("kill", ["-0", Integer.to_string(pid)], stderr_to_stdout: true)
+      {_, rc} = System.cmd("sh", ["-c", "kill -0 \"$1\"", "sh", Integer.to_string(pid)], stderr_to_stdout: true)
       assert rc != 0
     end
   end

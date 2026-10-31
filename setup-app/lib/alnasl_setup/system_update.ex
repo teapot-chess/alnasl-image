@@ -1409,7 +1409,7 @@ defmodule AlnaslSetup.SystemUpdate do
     after
       30_000 ->
         case Port.info(port, :os_pid) do
-          {:os_pid, pid} -> System.cmd("kill", ["-9", Integer.to_string(pid)], stderr_to_stdout: true)
+          {:os_pid, pid} -> System.cmd("sh", ["-c", "kill -9 \"$1\"", "sh", Integer.to_string(pid)], stderr_to_stdout: true)
           _ -> :ok
         end
 
