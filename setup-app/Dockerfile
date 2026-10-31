@@ -12,6 +12,9 @@ RUN apt-get update \
 
 WORKDIR /src
 COPY src/ /src/
+# What the tests read from the repository (../../overlay, ../../scripts from /src/test): staged by scripts/build-setup.sh.
+COPY overlay/ /overlay/
+COPY scripts/ /scripts/
 
 ENV LANG=C.UTF-8 ERL_FLAGS="+S 8:8" MAKEFLAGS=-j8
 # The tests first, on the target architecture: they include the :unix ones a Windows PC skips.
