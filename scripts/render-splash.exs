@@ -13,7 +13,7 @@
 # background, and below it, when there is something to say, a title, a line and a row of step squares. The
 # mark never moves from one screen to the next. Writes (same names, formats and sizes as the Python):
 #   alnasl-splash.png                 1920x1080, the mark only (grub, the browser's first page)
-#   messages.json                     the states, their steps and texts (alnasl-splash and server.py read it)
+#   messages.json                     the states, their steps and texts (alnasl-splash and the setup server read it)
 #   screens/<lang>/<state>.png        1920x1080, the full screen of each state (the browser shows these)
 #   text/<lang>/<state>.<h>.title.pgm / .sub.pgm   the title and line as 8-bit coverage, h = 1080 and 720
 #   text/glyphs/<h>/<name>.pgm        the few characters a changing value is made of: 0-9, dot, v, pct
@@ -413,7 +413,7 @@ defmodule Splash do
       {"max_chars", 150},
       # the newest line is drawn at full strength, older ones fade over BG: 255 = the colour itself
       {"fade", [255, 225, 195, 170, 145, 120, 100, 85]},
-      # by source (bootlog.py COLOURS); errors are never faded
+      # by source (AlnaslSetup.Bootlog colours); errors are never faded
       {"colours",
        Json.o([
          {"kernel", [0x8A, 0x8B, 0x90]},

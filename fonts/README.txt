@@ -1,5 +1,5 @@
 DejaVuSansMono.ttf: DejaVu Sans Mono 2.37, as Debian 12 ships it (fonts-dejavu-core 2.37-6, taken from
-the kiosk image). scripts/render-splash.py renders the v7 boot log's glyph atlas from it; only those
+the kiosk image). scripts/render-splash.exs renders the v7 boot log's glyph atlas from it; only those
 pictures go into the image, not the font.
 
 License: the Bitstream Vera Fonts license, with the DejaVu changes in the public domain. Full text:

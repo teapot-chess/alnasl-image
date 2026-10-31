@@ -124,7 +124,7 @@
     return { size: size, A: A, LH: LH, top: top, statusY: statusY, n: n, cols: cols, x0: cx - Math.floor(cols * A / 2), cx: cx,
              y0: statusY != null ? statusY : top, y1: top + n * LH, fade: lv.fade, colours: lv.colours };
   }
-  // Python rounds halves to even; Math.round rounds them up. Only the tint's blend could meet a half.
+  // The painter (alnasl-splash) rounds halves to even; Math.round rounds them up. Only the tint's blend could meet a half.
   function pyround(x) { var r = Math.round(x); return (Math.abs(x % 1) === 0.5 && r % 2) ? r - 1 : r; }
   function tinted(size, col, alpha) {
     var k = size + ":" + col + ":" + alpha;

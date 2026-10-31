@@ -4,7 +4,7 @@
 #
 # What it covers: versions.json against the sibling tags and Alnasl's Arkab pin, shell syntax of every .sh,
 # PowerShell syntax of every .ps1, JSON validity, build outputs not tracked, no private key material.
-# What it cannot cover: scripts/verify.sh and the test-*.py / test-kiosk-logic.sh it runs need the finished
+# What it cannot cover: scripts/verify.sh and test-kiosk-logic.sh it runs need the finished
 # image (loop mount, chroot, arm64 Docker). Those run on the build VM as the "verify" stage of build.ps1.
 param(
   [string]$AlnasLRepo = (Join-Path $PSScriptRoot "..\Alnasl"),

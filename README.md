@@ -32,8 +32,27 @@ CI cannot run `build.ps1` or `verify.sh`.
 
 ## Tests
 
-`scripts/test-*.py`, `scripts/test-kiosk-logic.sh`, `scripts/verify.sh`: run on the VM by the verify stage.
-The overlay's setup server (`overlay/usr/local/lib/alnasl-setup/*.py`), `alnasl-splash` and `alnasl-system-update` are
-still Python on the image, along with their tests: the `no-python` branch ported the small shell-sized users (the
-kiosk-load progress bar, the os-update status probe) and left these because they are applications, not scripts; they
-need to be rewritten in Elixir inside Alnasl first. Until then `python3` stays in the image.
+## The box's own programs (setup-app)
+
+There is no Python on the image. The setup server (127.0.0.1:4041), the hotspot and its captive portal
+(10.42.0.1:80), the boot screen painter (`alnasl-splash`) and the system updater (`alnasl-system-update`) are one
+small Elixir release in `setup-app/` (no dependencies, its own ERTS), installed at `/opt/alnasl-setup`.
+`ALNASL_SETUP_MODE=server|hotspot|portal` picks the long-running program in the units; the two `/usr/local/sbin`
+commands are shell wrappers around `bin/alnasl_setup eval 'AlnaslSetup.CLI.main()' -- ...`. The two ioctls the
+painter needs are done by a tiny C helper, `alnasl-fbtool`, built into the release.
+
+`build.ps1` ships `git archive HEAD:setup-app` (this repository's committed source, not the working tree) and
+`scripts/build-setup.sh` builds it in an arm64 container on the VM, running the full test suite there first.
+`assemble.sh` unpacks it into the image and removes every python3 package; the build stops if anything else
+depends on one. Build-VM helpers that need more than shell (`uboot-env.exs`, `release-index.exs`,
+`render-splash.exs`) are Elixir scripts run in the same hexpm Elixir image.
+
+## Tests
+
+- `cd setup-app && mix test`: ExUnit, runs locally (tests tagged `:unix` are skipped on Windows; the arm64 build
+  runs all of them).
+- `scripts/test-scripts.sh`, `scripts/test-compact-css.sh`, `scripts/test-kiosk-logic.sh`: shell, run locally
+  with bash.
+- `scripts/verify.sh`: needs the finished image, runs on the VM in the verify stage.
+- What none of these can show (hotspot on real Wi-Fi, the iPhone captive sheet, the framebuffer, A/B update and
+  rollback, diagnostics upload) is in `docs/no-python-checklist.md`.

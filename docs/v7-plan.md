@@ -60,13 +60,13 @@ nunki, 7 of 12 up") and below it the box's log scrolling: newest line at the bot
 Coloured by source: kernel, systemd, the role's app, network. Errors and failed units in the accent colour,
 never hidden. Same palette as v6, monospace, the frame composed whole (no flicker, no black frame).
 
-- `bootlog.py` (in /usr/local/lib/alnasl-setup) follows `journalctl -b -f -o json`. Shown are only: the
+- `AlnaslSetup.Bootlog` (setup-app, in /opt/alnasl-setup) follows `journalctl -b -f -o json`. Shown are only: the
   kernel, systemd's own lines about allowed units, and an allow-list of units, at priority info or more
   urgent. Every line goes through `redact()` first: Wi-Fi passphrases and PSKs, passwords, tokens, keys,
   cookies, `Authorization`, `user:pass@` in URLs, long hex and base64 strings, query strings and support
-  codes are replaced with `***`. Non-ASCII becomes `?`. Tests: `scripts/test-bootlog.py`.
+  codes are replaced with `***`. Non-ASCII becomes `?`. Tests: `setup-app/test/bootlog_test.exs`.
 - The painter (`alnasl-splash --log`, run by `alnasl-splash.service`) draws from a monospace glyph atlas that
-  `render-splash.py` pre-renders (DejaVu Sans Mono, printable ASCII, at the 1080 and 720 sizes).
+  `scripts/render-splash.exs` pre-renders (DejaVu Sans Mono, printable ASCII, at the 1080 and 720 sizes).
 - After X starts, `/boot` draws the same view from the same atlas on a canvas, fed by
   `GET /api/bootlog?after=N` on the loopback-only setup server, so the hand-over shows the same lines in the
   same places.

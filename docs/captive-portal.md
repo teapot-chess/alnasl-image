@@ -6,7 +6,7 @@ check opens the box's setup page. No app, no cable, no screen.
 
 ## When the hotspot is on
 
-`decide()` in `overlay/usr/local/lib/alnasl-setup/hotspot.py`, tested by `scripts/test-hotspot.py`:
+`AlnaslSetup.Hotspot.decide/14` in `setup-app/lib/alnasl_setup/hotspot.ex`, tested by `setup-app/test/hotspot_test.exs`:
 
 | Situation | Hotspot |
 |---|---|
@@ -48,12 +48,12 @@ wrong password, network not found, refused, or no address.
 
 | Piece | What | Why this one |
 |---|---|---|
-| `alnasl-hotspot.service` → `hotspot.py` | the decision, the mode switch, the file and the QR | the only thing that touches wlan0's mode |
+| `alnasl-hotspot.service` → `AlnaslSetup.Hotspot` (setup-app) | the decision, the mode switch, the file and the QR | the only thing that touches wlan0's mode |
 | `alnasl-hotspot-ap.service` → `/usr/sbin/hostapd` | the access point | Photon 5 has no hostapd package, and its wpa_supplicant is built without AP mode ("AP mode support not included in the build"). Taken from Debian bookworm arm64 like `iw` (`scripts/build-hostapd.sh`): same glibc 2.36, needs only libnl-3/genl/route and OpenSSL 3, which Photon ships; ldd-checked in the image |
 | `alnasl-hotspot-dns.service` → dnsmasq | DHCP 10.42.0.10-250/24, DNS answering every name with 10.42.0.1, no option 114 | Photon's own `dnsmasq` package (release repo). The stock `dnsmasq.service` is masked |
-| `alnasl-portal.service` → `portal.py` | HTTP on 10.42.0.1:80 | stdlib Python. DynamicUser, `CAP_NET_BIND_SERVICE` only, ProtectSystem=strict |
-| `alnasl_qr.py` | the QR code | no qrencode in Photon. Pure Python (byte mode, level M, versions 1-10), checked by an independent decoder in `scripts/test-qr.py` |
-| `arkab_live.py` | Arkab's join link | Arkab has no API for it (only its LiveView `join` event) and runs without distribution, so this is a small LiveView websocket client on loopback, which is what Arkab counts as "local" |
+| `alnasl-portal.service` → `AlnaslSetup.Portal` (setup-app) | HTTP on 10.42.0.1:80 | the setup-app release, OTP only. DynamicUser, `CAP_NET_BIND_SERVICE` only, ProtectSystem=strict |
+| `AlnaslSetup.QR` | the QR code | no qrencode in Photon. Plain Elixir (byte mode, level M, versions 1-10), checked by an independent decoder in `setup-app/test/qr_test.exs` |
+| `AlnaslSetup.ArkabLive` | Arkab's join link | Arkab has no API for it (only its LiveView `join` event) and runs without distribution, so this is a small LiveView websocket client on loopback, which is what Arkab counts as "local" |
 
 The box is 10.42.0.1/24 through a runtime networkd file, `/run/systemd/network/05-alnasl-hotspot.network`.
 Forwarding is off on wlan0, and there is no NAT and no upstream DNS. A phone on the hotspot can reach the
@@ -100,7 +100,7 @@ and nothing that needs a clipboard API (pasting into a field is enough).
 - The portal passes exactly five calls to the setup server: `GET /api/portal`, `GET /api/portal/scan`,
   `POST /api/portal/join`, `POST /api/portal/arkab-pin`, `POST /api/portal/arkab-join`. Factory reset,
   updates, the role, power, diagnostics and `/api/hotspot` (which shows the password) are not on the list,
-  and `scripts/test-hotspot.py` checks that. POSTs need the `X-Alnasl-Setup` header, as on the box itself.
+  and `setup-app/test/portal_test.exs` checks that. POSTs need the `X-Alnasl-Setup` header, as on the box itself.
 - The firewall (`alnasl-firewall`) opens DNS (53), DHCP (67) and HTTP (80) only while
   `/run/alnasl-hotspot/active` exists, only `-i wlan0`, and only to 10.42.0.1. Everything else from wlan0
   is dropped while the hotspot is up, including the role's own port; IPv6 on wlan0 is dropped whole. Never
@@ -115,8 +115,8 @@ and nothing that needs a clipboard API (pasting into a field is enough).
 qemu has no Wi-Fi, so neither `verify.sh` nor `qemu-smoke.sh` can bring up the radio. What they do check:
 units exist and are ordered; the firewall never opens 53/67/80 on Ethernet or without the flag; WPA2 only;
 the file ships with its header and an empty password; no log line carries a secret; hostapd and dnsmasq
-are present with all their libraries; `dnsmasq --test` accepts the configuration; `test-hotspot.py` and
-`test-qr.py` pass on the image's Python. The rest is the hardware checklist:
+are present with all their libraries; `dnsmasq --test` accepts the configuration; the setup-app tests
+(hotspot, portal, QR) pass in the arm64 build container. The rest is the hardware checklist (also in docs/no-python-checklist.md):
 
 1. **No network, iPhone**: boot with no cable and no saved Wi-Fi. After about a minute `Alnasl-setup-XXXX`
    appears and the screen (if any) shows SSID and password. Join it, scanning the QR from the card. The

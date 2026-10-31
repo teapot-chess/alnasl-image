@@ -288,7 +288,7 @@ Arkab needs three things on its status page:
 ### Tested, and not yet
 
 **Tested on the PC:**
-- `scripts/test-update.py`: the train rule, the choice of image including stepping stones, index
+- `setup-app/test/system_update_test.exs` (was scripts/test-update.py): the train rule, the choice of image including stepping stones, index
   validation, writing grubenv in place, and signatures with a throw-away key
 - the screens rendered by `alnasl-splash`
 - `sign-release.sh`
