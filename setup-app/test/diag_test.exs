@@ -110,7 +110,7 @@ defmodule AlnaslSetup.DiagTest do
 
       assert Enum.all?(info["checks"], &(&1["id"] in ~w(driver hardware firmware interface link supplicant)))
       assert info["generated"] =~ ~r/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d [+-]\d{4}$/
-      assert length(jl) == 24
+      assert length(jl) == 25
       assert List.last(jl)["unit"] == "kernel (Wi-Fi, cfg80211, mmc)"
       assert Enum.at(jl, 12)["unit"] == "wpa_supplicant@wlan0.service + syslog tag wpa_supplicant"
     end

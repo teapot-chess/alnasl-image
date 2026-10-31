@@ -399,7 +399,13 @@ defmodule AlnaslSetup.ServerTest do
 
       assert Sys.read("/etc/vconsole.conf") == "KEYMAP=fr-latin1\n"
       assert ran?(["loadkeys", "fr-latin1"])
-      assert json("/api/state")["keyboard"] == %{"KBD_ID" => "fr", "KBD_LAYOUT" => "fr", "KBD_VARIANT" => "", "KBD_CONSOLE" => "fr-latin1"}
+
+      assert json("/api/state")["keyboard"] == %{
+               "KBD_ID" => "fr",
+               "KBD_LAYOUT" => "fr",
+               "KBD_VARIANT" => "",
+               "KBD_CONSOLE" => "fr-latin1"
+             }
     end
 
     test "keyboard: no console keymap, and an unknown layout" do
@@ -415,7 +421,11 @@ defmodule AlnaslSetup.ServerTest do
       assert Sys.read("/etc/alnasl/kiosk.conf") == ~s(KIOSK_RES="auto"\nKIOSK_SCALE="125"\n)
       assert json("/api/state")["scale"] == "125"
       assert post("/api/scale", %{"scale" => 90}).json == %{"error" => "Unsupported scale."}
-      assert post("/api/scale", %{"scale" => "abc"}).json == %{"error" => "invalid literal for int() with base 10: 'abc'"}
+
+      assert post("/api/scale", %{"scale" => "abc"}).json == %{
+               "error" => "invalid literal for int() with base 10: 'abc'"
+             }
+
       assert post("/api/scale", %{"scale" => nil}).status == 500
       assert ok!(post("/api/scale", %{"scale" => 150.0})) == %{"ok" => true}
     end
@@ -499,8 +509,15 @@ defmodule AlnaslSetup.ServerTest do
   describe "Wi-Fi connect" do
     test "validation" do
       assert_raise ArgumentError, "The network name must be 1 to 32 bytes.", fn -> Wifi.connect("", "", false, "BE") end
-      assert_raise ArgumentError, "The network name must be 1 to 32 bytes.", fn -> Wifi.connect(String.duplicate("é", 17), "", false, "BE") end
-      assert_raise ArgumentError, "The passphrase must be 8 to 63 characters.", fn -> Wifi.connect("x", "short", false, "BE") end
+
+      assert_raise ArgumentError, "The network name must be 1 to 32 bytes.", fn ->
+        Wifi.connect(String.duplicate("é", 17), "", false, "BE")
+      end
+
+      assert_raise ArgumentError, "The passphrase must be 8 to 63 characters.", fn ->
+        Wifi.connect("x", "short", false, "BE")
+      end
+
       assert_raise ArgumentError, "The country must be two letters.", fn -> Wifi.connect("x", "", false, "B1") end
       r = post("/api/wifi/connect", %{"ssid" => "x", "passphrase" => "1234567"})
       assert r.status == 400 and r.json == %{"error" => "The passphrase must be 8 to 63 characters."}
@@ -508,7 +525,12 @@ defmodule AlnaslSetup.ServerTest do
 
     test "while the hotspot has the radio: handed to the hotspot daemon, 0600, never logged" do
       Box.put("/run/alnasl-hotspot/active", "")
-      r = ok!(post("/api/wifi/connect", %{"ssid" => "Hall", "passphrase" => "hallpass1", "hidden" => 1, "country" => "nl"}))
+
+      r =
+        ok!(
+          post("/api/wifi/connect", %{"ssid" => "Hall", "passphrase" => "hallpass1", "hidden" => 1, "country" => "nl"})
+        )
+
       assert r == %{"ok" => false, "reason" => "hotspot_handover", "pending" => true}
 
       assert Json.decode_or_nil(Sys.read("/run/alnasl-hotspot/join.json")) ==
@@ -539,17 +561,27 @@ defmodule AlnaslSetup.ServerTest do
       Box.put("/sys/class/net/wlan0/operstate", "up\n")
 
       runner(fn
-        ["wpa_cli", _, _, _, _, "ping"] -> {0, "PONG\n"}
-        ["wpa_cli", _, _, _, _, "status"] -> {0, status}
-        ["wpa_cli" | _] -> {0, "OK\n"}
-        ["ip", "-j", "-4", "addr", "show", "wlan0"] -> {0, ~s([{"addr_info": [{"local": "192.168.1.77", "prefixlen": 24}]}])}
-        _ -> nil
+        ["wpa_cli", _, _, _, _, "ping"] ->
+          {0, "PONG\n"}
+
+        ["wpa_cli", _, _, _, _, "status"] ->
+          {0, status}
+
+        ["wpa_cli" | _] ->
+          {0, "OK\n"}
+
+        ["ip", "-j", "-4", "addr", "show", "wlan0"] ->
+          {0, ~s([{"addr_info": [{"local": "192.168.1.77", "prefixlen": 24}]}])}
+
+        _ ->
+          nil
       end)
     end
 
     test "connected: the network is saved with the next priority" do
       Wifi.write_wpa("BE", [%{"ssid" => Wifi.hexify("Old"), "psk" => nil, "hidden" => false, "prio" => 4}])
       wifi_box("wpa_state=COMPLETED\nssid=Hall\\x20A\n")
+
       assert ok!(post("/api/wifi/connect", %{"ssid" => "Hall A", "passphrase" => "password", "country" => "BE"})) ==
                %{"ok" => true, "ip" => "192.168.1.77"}
 
@@ -563,6 +595,7 @@ defmodule AlnaslSetup.ServerTest do
       old = "country=BE\nnetwork={\n\tssid=4f6c64\n\tkey_mgmt=NONE\n\tpriority=1\n}\n"
       Box.put(Wifi.wpa_conf(), old)
       wifi_box("wpa_state=4WAY_HANDSHAKE\n")
+
       assert ok!(post("/api/wifi/connect", %{"ssid" => "Hall", "passphrase" => "password1"})) ==
                %{"ok" => false, "reason" => "wrong_passphrase"}
 
@@ -655,7 +688,8 @@ defmodule AlnaslSetup.ServerTest do
 
       runner(fn
         ["iw", "dev", "wlan0", "scan", "ap-force"] ->
-          {0, "BSS 1\n\tfreq: 2412\n\tsignal: -30 dBm\n\tSSID: Alnasl-setup-1234\nBSS 2\n\tfreq: 2412\n\tsignal: -60 dBm\n\tSSID: Hall\n"}
+          {0,
+           "BSS 1\n\tfreq: 2412\n\tsignal: -30 dBm\n\tSSID: Alnasl-setup-1234\nBSS 2\n\tfreq: 2412\n\tsignal: -60 dBm\n\tSSID: Hall\n"}
 
         _ ->
           nil
@@ -703,7 +737,11 @@ defmodule AlnaslSetup.ServerTest do
 
   describe "network settings" do
     test "validate_static: Python's ipaddress rules" do
-      assert Net.validate_static(%{"address" => "192.168.1.50/24", "gateway" => " 192.168.1.1 ", "dns" => "1.1.1.1, 8.8.8.8"}) ==
+      assert Net.validate_static(%{
+               "address" => "192.168.1.50/24",
+               "gateway" => " 192.168.1.1 ",
+               "dns" => "1.1.1.1, 8.8.8.8"
+             }) ==
                {"192.168.1.50/24", "192.168.1.1", ["1.1.1.1", "8.8.8.8"]}
 
       assert Net.validate_static(%{"address" => "10.0.0.5/255.255.0.0"}) == {"10.0.0.5/16", "", []}
@@ -734,10 +772,23 @@ defmodule AlnaslSetup.ServerTest do
     end
 
     test "a static address is written, applied, and reverted when nobody confirms" do
-      r = ok!(post("/api/net/set", %{"iface" => "eth0", "mode" => "static", "address" => "192.168.1.50/24", "gateway" => "192.168.1.1", "dns" => "1.1.1.1 9.9.9.9"}))
+      r =
+        ok!(
+          post("/api/net/set", %{
+            "iface" => "eth0",
+            "mode" => "static",
+            "address" => "192.168.1.50/24",
+            "gateway" => "192.168.1.1",
+            "dns" => "1.1.1.1 9.9.9.9"
+          })
+        )
+
       assert r == %{"ok" => true, "confirm_seconds" => 1}
       f = "/etc/systemd/network/10-wired.network.d/50-alnasl.conf"
-      assert Sys.read(f) == "[Network]\nDHCP=no\nAddress=192.168.1.50/24\nGateway=192.168.1.1\nDNS=1.1.1.1\nDNS=9.9.9.9\n"
+
+      assert Sys.read(f) ==
+               "[Network]\nDHCP=no\nAddress=192.168.1.50/24\nGateway=192.168.1.1\nDNS=1.1.1.1\nDNS=9.9.9.9\n"
+
       assert ran?(["networkctl", "reload"]) and ran?(["networkctl", "reconfigure", "eth0"])
 
       assert json("/api/net")["eth0"]["config"] == %{
@@ -793,12 +844,23 @@ defmodule AlnaslSetup.ServerTest do
       Box.put("/run/alnasl-hotspot/status.json", ~s({"ssid": "Alnasl-setup-AB12"}))
 
       runner(fn
-        ["ip", "-j", "-4", "addr", "show", "eth0"] -> {0, ~s([{"addr_info": [{"local": "192.168.1.9", "prefixlen": 24}]}])}
-        ["ip", "-j", "-4", "addr", "show", "wlan0"] -> {0, ~s([{"addr_info": [{"local": "10.42.0.1", "prefixlen": 24}]}])}
-        ["ip", "-j", "route", "show", "default", "dev", "eth0"] -> {0, ~s([{"dst": "default", "gateway": "192.168.1.1"}])}
-        ["ip", "-j", "route", "show", "default", "dev", "wlan0"] -> {0, ~s([{"gateway": "10.42.0.254"}])}
-        ["resolvectl", "dns"] -> {0, "Global: 1.1.1.1\nLink 2 (eth0): 192.168.1.1 1.1.1.1 fe80::1\n"}
-        _ -> nil
+        ["ip", "-j", "-4", "addr", "show", "eth0"] ->
+          {0, ~s([{"addr_info": [{"local": "192.168.1.9", "prefixlen": 24}]}])}
+
+        ["ip", "-j", "-4", "addr", "show", "wlan0"] ->
+          {0, ~s([{"addr_info": [{"local": "10.42.0.1", "prefixlen": 24}]}])}
+
+        ["ip", "-j", "route", "show", "default", "dev", "eth0"] ->
+          {0, ~s([{"dst": "default", "gateway": "192.168.1.1"}])}
+
+        ["ip", "-j", "route", "show", "default", "dev", "wlan0"] ->
+          {0, ~s([{"gateway": "10.42.0.254"}])}
+
+        ["resolvectl", "dns"] ->
+          {0, "Global: 1.1.1.1\nLink 2 (eth0): 192.168.1.1 1.1.1.1 fe80::1\n"}
+
+        _ ->
+          nil
       end)
 
       n = json("/api/net")
@@ -829,7 +891,15 @@ defmodule AlnaslSetup.ServerTest do
 
       w = json("/api/net")["wlan0"]
       assert w["ssid"] == "Hall A" and w["rssi"] == "-51"
-      assert json("/api/net")["eth0"] == %{"present" => false, "link" => false, "addresses" => [], "gateway" => nil, "config" => %{"mode" => "dhcp"}, "mac" => ""}
+
+      assert json("/api/net")["eth0"] == %{
+               "present" => false,
+               "link" => false,
+               "addresses" => [],
+               "gateway" => nil,
+               "config" => %{"mode" => "dhcp"},
+               "mac" => ""
+             }
     end
 
     test "hostname" do
@@ -938,11 +1008,21 @@ defmodule AlnaslSetup.ServerTest do
       runner(fn argv ->
         extra.(argv) ||
           case argv do
-            ["lpstat", "-d"] -> {0, "system default destination: hall\n"}
-            ["lpstat", "-v"] -> {0, "device for hall: ipp://user:pw@10.0.0.9/ipp/print?x=1\ndevice for usb1: usb://HP/LaserJet?serial=12\n"}
-            ["lpstat", "-p"] -> {0, "printer hall is idle.  enabled since Sat\nprinter usb1 disabled since Sat -\n\treason\n"}
-            ["lpinfo" | _] -> {0, "network ipp\ndirect usb://HP/LaserJet?serial=12\ndirect usb://Brother/HL?serial=9\n"}
-            _ -> nil
+            ["lpstat", "-d"] ->
+              {0, "system default destination: hall\n"}
+
+            ["lpstat", "-v"] ->
+              {0,
+               "device for hall: ipp://user:pw@10.0.0.9/ipp/print?x=1\ndevice for usb1: usb://HP/LaserJet?serial=12\n"}
+
+            ["lpstat", "-p"] ->
+              {0, "printer hall is idle.  enabled since Sat\nprinter usb1 disabled since Sat -\n\treason\n"}
+
+            ["lpinfo" | _] ->
+              {0, "network ipp\ndirect usb://HP/LaserJet?serial=12\ndirect usb://Brother/HL?serial=9\n"}
+
+            _ ->
+              nil
           end
       end)
     end
@@ -977,7 +1057,10 @@ defmodule AlnaslSetup.ServerTest do
       assert ran?(["lpadmin", "-p", "Office_1", "-E", "-v", "usb://Brother/HL?serial=9", "-m", "raw"])
       assert post("/api/printers/add", %{"usb" => "usb://Other/X"}).json == %{"error" => "bad_printer_address"}
       assert post("/api/printers/add", %{"address" => "a b"}).json == %{"error" => "bad_printer_address"}
-      assert post("/api/printers/add", %{"address" => "10.0.0.2", "name" => "bad name"}).json == %{"error" => "bad_printer_name"}
+
+      assert post("/api/printers/add", %{"address" => "10.0.0.2", "name" => "bad name"}).json == %{
+               "error" => "bad_printer_name"
+             }
 
       ok!(post("/api/printers/default", %{"name" => "usb1"}))
       assert ran?(["lpadmin", "-d", "usb1"])
@@ -1000,8 +1083,17 @@ defmodule AlnaslSetup.ServerTest do
 
       ok!(post("/api/printers/add", %{"address" => "10.0.0.20", "name" => "first"}))
       assert ran?(["lpadmin", "-d", "first"])
-      assert post("/api/printers/add", %{"address" => "10.0.0.21", "name" => "bad"}).json == %{"error" => "printer_not_added"}
-      runner(fn ["lp" | _] -> {1, ""}; ["lpstat", "-p"] -> {0, "printer hall is idle.\n"}; _ -> nil end)
+
+      assert post("/api/printers/add", %{"address" => "10.0.0.21", "name" => "bad"}).json == %{
+               "error" => "printer_not_added"
+             }
+
+      runner(fn
+        ["lp" | _] -> {1, ""}
+        ["lpstat", "-p"] -> {0, "printer hall is idle.\n"}
+        _ -> nil
+      end)
+
       assert post("/api/printers/test", %{"name" => "hall"}).json == %{"error" => "printer_test_failed"}
     end
 
@@ -1060,14 +1152,30 @@ defmodule AlnaslSetup.ServerTest do
 
   describe "get help" do
     test "the address: https only, no credentials; empty puts the default back" do
-      assert json("/api/help") == %{"url" => "https://alnasl.zerotwo.cloud/support/upload", "default_url" => "https://alnasl.zerotwo.cloud/support/upload", "last" => nil}
+      assert json("/api/help") == %{
+               "url" => "https://alnasl.zerotwo.cloud/support/upload",
+               "default_url" => "https://alnasl.zerotwo.cloud/support/upload",
+               "last" => nil
+             }
 
-      for bad <- ["http://x.example/u", "https://user@x.example/u", "https://u:p@x.example/", "https:///nohost", "https://x.example/#frag",
-                  "https://x.example:99999/", "https://x.example:abc/", "https://x .example/", "ftp://x.example/", "https://x.example/" <> String.duplicate("a", 300)] do
+      for bad <- [
+            "http://x.example/u",
+            "https://user@x.example/u",
+            "https://u:p@x.example/",
+            "https:///nohost",
+            "https://x.example/#frag",
+            "https://x.example:99999/",
+            "https://x.example:abc/",
+            "https://x .example/",
+            "ftp://x.example/",
+            "https://x.example/" <> String.duplicate("a", 300)
+          ] do
         assert post("/api/help/url", %{"url" => bad}).json == %{"error" => "bad_url"}, bad
       end
 
-      assert ok!(post("/api/help/url", %{"url" => "https://help.example:8443/up?x=1"}))["url"] == "https://help.example:8443/up?x=1"
+      assert ok!(post("/api/help/url", %{"url" => "https://help.example:8443/up?x=1"}))["url"] ==
+               "https://help.example:8443/up?x=1"
+
       assert state_json()["support_url"] == "https://help.example:8443/up?x=1"
       assert ok!(post("/api/help/url", %{"url" => ""}))["url"] == "https://alnasl.zerotwo.cloud/support/upload"
       assert state_json()["support_url"] == ""
@@ -1079,9 +1187,18 @@ defmodule AlnaslSetup.ServerTest do
     end
 
     test "the last code, only while it is valid" do
-      Box.put("/var/lib/alnasl-setup/state.json", ~s({"help_last": {"code": "123456", "expires_at": "2999-01-01T00:00:00Z", "sent_at": "x"}}))
+      Box.put(
+        "/var/lib/alnasl-setup/state.json",
+        ~s({"help_last": {"code": "123456", "expires_at": "2999-01-01T00:00:00Z", "sent_at": "x"}})
+      )
+
       assert json("/api/help")["last"] == %{"code" => "123456", "expires_at" => "2999-01-01T00:00:00Z"}
-      Box.put("/var/lib/alnasl-setup/state.json", ~s({"help_last": {"code": "123456", "expires_at": "2001-01-01T00:00:00"}}))
+
+      Box.put(
+        "/var/lib/alnasl-setup/state.json",
+        ~s({"help_last": {"code": "123456", "expires_at": "2001-01-01T00:00:00"}})
+      )
+
       assert json("/api/help")["last"] == nil
       Box.put("/var/lib/alnasl-setup/state.json", ~s({"help_last": {"code": "123456", "expires_at": "soon"}}))
       assert json("/api/help")["last"] == nil
@@ -1108,7 +1225,12 @@ defmodule AlnaslSetup.ServerTest do
       Box.put("/etc/alnasl/image-version", "7.2\n")
       Box.put("/opt/alnasl/current/VERSION", "1.4.0\n")
 
-      assert ok!(post("/api/help/send", %{})) == %{"ok" => true, "code" => "042424", "expires_at" => "2999-01-01T00:00:00Z"}
+      assert ok!(post("/api/help/send", %{})) == %{
+               "ok" => true,
+               "code" => "042424",
+               "expires_at" => "2999-01-01T00:00:00Z"
+             }
+
       assert_received {:upload, r}
       assert r.method == "POST" and r.path == "/support/upload"
       assert r.headers["content-type"] == "text/plain; charset=utf-8"
@@ -1122,7 +1244,15 @@ defmodule AlnaslSetup.ServerTest do
     end
 
     test "refusals and odd answers" do
-      for {status, key} <- [{404, "support_off"}, {413, "too_large"}, {429, "rate_limited"}, {400, "rejected"}, {415, "rejected"}, {500, "server_error"}, {302, "server_error"}] do
+      for {status, key} <- [
+            {404, "support_off"},
+            {413, "too_large"},
+            {429, "rate_limited"},
+            {400, "rejected"},
+            {415, "rejected"},
+            {500, "server_error"},
+            {302, "server_error"}
+          ] do
         support_server(fn _ -> {status, [{"Location", "http://elsewhere.example/"}], %{"error" => "x"}} end)
         assert ok!(post("/api/help/send", %{})) == %{"ok" => false, "error" => key, "status" => status}
       end
@@ -1136,7 +1266,7 @@ defmodule AlnaslSetup.ServerTest do
     end
 
     test "nobody answers: no_internet" do
-      {:ok, ls} = :gen_tcp.listen(0, [ip: {127, 0, 0, 1}])
+      {:ok, ls} = :gen_tcp.listen(0, ip: {127, 0, 0, 1})
       {:ok, p} = :inet.port(ls)
       :gen_tcp.close(ls)
       Application.put_env(:alnasl_setup, :help_url, "http://127.0.0.1:#{p}/support/upload")
@@ -1176,14 +1306,27 @@ defmodule AlnaslSetup.ServerTest do
       assert post("/api/system/install", %{"confirm" => "INSTALL"}).json == %{"error" => "busy"}
       sysupd(%{"ab" => true, "updates_on" => true, "train" => "v7"})
       assert post("/api/system/install", %{"confirm" => "yes"}).json == %{"error" => "Not confirmed."}
-      assert post("/api/system/upgrade", %{"confirm" => "INSTALL", "train" => "v8"}).json == %{"error" => "Not confirmed."}
+
+      assert post("/api/system/upgrade", %{"confirm" => "INSTALL", "train" => "v8"}).json == %{
+               "error" => "Not confirmed."
+             }
+
       assert post("/api/system/upgrade", %{"confirm" => "UPGRADE", "train" => "v7"}).json == %{"error" => "bad_train"}
       assert post("/api/system/upgrade", %{"confirm" => "UPGRADE", "train" => "8"}).json == %{"error" => "bad_train"}
-      assert post("/api/system/upgrade", %{"confirm" => "UPGRADE", "train" => "v1000"}).json == %{"error" => "bad_train"}
+
+      assert post("/api/system/upgrade", %{"confirm" => "UPGRADE", "train" => "v1000"}).json == %{
+               "error" => "bad_train"
+             }
+
       refute Sys.exists?("/var/lib/alnasl-os-update/system/request")
 
-      assert ok!(post("/api/system/upgrade", %{"confirm" => "UPGRADE", "train" => "v8", "by" => "arkab"})) == %{"ok" => true}
-      assert Sys.read("/var/lib/alnasl-os-update/system/request") == ~s({"action": "upgrade", "by": "arkab", "train": "v8"}\n)
+      assert ok!(post("/api/system/upgrade", %{"confirm" => "UPGRADE", "train" => "v8", "by" => "arkab"})) == %{
+               "ok" => true
+             }
+
+      assert Sys.read("/var/lib/alnasl-os-update/system/request") ==
+               ~s({"action": "upgrade", "by": "arkab", "train": "v8"}\n)
+
       assert ran?(["systemctl", "start", "--no-block", "alnasl-system-update.service"])
 
       assert ok!(post("/api/system/install", %{"confirm" => "INSTALL", "by" => "evil"})) == %{"ok" => true}
@@ -1213,7 +1356,14 @@ defmodule AlnaslSetup.ServerTest do
   describe "the setup hotspot and its portal" do
     test "/api/hotspot: the password only while the hotspot is on" do
       Box.put("/boot/efi/alnasl-hotspot.txt", "password=hallpass99\n")
-      assert json("/api/hotspot") == %{"active" => false, "ssid" => nil, "portal" => "http://10.42.0.1/", "reason" => nil}
+
+      assert json("/api/hotspot") == %{
+               "active" => false,
+               "ssid" => nil,
+               "portal" => "http://10.42.0.1/",
+               "reason" => nil
+             }
+
       Box.put("/run/alnasl-hotspot/active", "")
       Box.put("/run/alnasl-hotspot/status.json", ~s({"ssid": "Alnasl-setup-AB12", "reason": "no_network"}))
 
@@ -1231,13 +1381,23 @@ defmodule AlnaslSetup.ServerTest do
 
     test "/api/portal: what the phone page shows, no secrets" do
       Box.put("/run/alnasl-hotspot/active", "")
-      Box.put("/run/alnasl-hotspot/status.json", ~s({"ssid": "Alnasl-setup-AB12", "reason": "no_network", "last_join": {"ok": false}}))
+
+      Box.put(
+        "/run/alnasl-hotspot/status.json",
+        ~s({"ssid": "Alnasl-setup-AB12", "reason": "no_network", "last_join": {"ok": false}})
+      )
+
       Wifi.write_wpa("NL", [%{"ssid" => Wifi.hexify("Old"), "psk" => @ieee_psk, "hidden" => false, "prio" => 1}])
 
       runner(fn
-        ["ip", "-j", "-4", "addr", "show", "eth0"] -> {0, ~s([{"addr_info": [{"local": "192.168.5.5", "prefixlen": 24}]}])}
-        ["ip", "-j", "-4", "addr", "show", "wlan0"] -> {0, ~s([{"addr_info": [{"local": "10.42.0.1", "prefixlen": 24}]}])}
-        _ -> nil
+        ["ip", "-j", "-4", "addr", "show", "eth0"] ->
+          {0, ~s([{"addr_info": [{"local": "192.168.5.5", "prefixlen": 24}]}])}
+
+        ["ip", "-j", "-4", "addr", "show", "wlan0"] ->
+          {0, ~s([{"addr_info": [{"local": "10.42.0.1", "prefixlen": 24}]}])}
+
+        _ ->
+          nil
       end)
 
       p = json("/api/portal")
@@ -1263,7 +1423,10 @@ defmodule AlnaslSetup.ServerTest do
     end
 
     test "/api/portal/join: validated, then handed to the hotspot daemon" do
-      assert post("/api/portal/join", %{"ssid" => "", "passphrase" => "x"}).json == %{"error" => "The network name must be 1 to 32 bytes."}
+      assert post("/api/portal/join", %{"ssid" => "", "passphrase" => "x"}).json == %{
+               "error" => "The network name must be 1 to 32 bytes."
+             }
+
       Box.put("/run/alnasl-hotspot/active", "")
       Box.put("/run/alnasl-hotspot/status.json", ~s({"ssid": "Alnasl-setup-AB12"}))
       r = ok!(post("/api/portal/join", %{"ssid" => "Hall", "passphrase" => "hallpass1", "country" => "be"}))
@@ -1276,9 +1439,19 @@ defmodule AlnaslSetup.ServerTest do
       assert post("/api/portal/arkab-pin", %{"pin" => "1234"}).json == %{"error" => "not_arkab"}
       Box.put("/run/alnasl-mode/role", "arkab\n")
 
-      for {pin, err} <- [{"123", "pin_length"}, {String.duplicate("1", 65), "pin_length"}, {1234, "pin_length"}, {" 1234", "pin_edges"},
-                         {"1234 ", "pin_edges"}, {"'1234", "pin_edges"}, {"1234\"", "pin_edges"}, {"12\t34", "pin_control"},
-                         {"12\x7f34", "pin_control"}, {"Remove", "pin_word"}, {"VERWIJDEREN", "pin_word"}] do
+      for {pin, err} <- [
+            {"123", "pin_length"},
+            {String.duplicate("1", 65), "pin_length"},
+            {1234, "pin_length"},
+            {" 1234", "pin_edges"},
+            {"1234 ", "pin_edges"},
+            {"'1234", "pin_edges"},
+            {"1234\"", "pin_edges"},
+            {"12\t34", "pin_control"},
+            {"12\x7f34", "pin_control"},
+            {"Remove", "pin_word"},
+            {"VERWIJDEREN", "pin_word"}
+          ] do
         assert post("/api/portal/arkab-pin", %{"pin" => pin}).json == %{"error" => err}, inspect(pin)
       end
 
@@ -1324,24 +1497,40 @@ defmodule AlnaslSetup.ServerTest do
       Application.put_env(:alnasl_setup, :connect_ports, %{4050 => listening_port()})
 
       runner(fn
-        ["ip", "-j", "-4", "addr", "show", "eth0"] -> {0, ~s([{"addr_info": [{"local": "192.168.5.5", "prefixlen": 24}]}])}
-        _ -> nil
+        ["ip", "-j", "-4", "addr", "show", "eth0"] ->
+          {0, ~s([{"addr_info": [{"local": "192.168.5.5", "prefixlen": 24}]}])}
+
+        _ ->
+          nil
       end)
 
       assert Server.arkab_join_pending() == "joined"
       refute Sys.exists?(Server.arkab_pending_file())
-      assert %{"ok" => true, "reason" => "joined", "at" => _} = Json.decode_or_nil(Sys.read("/var/lib/alnasl-setup/arkab-join.result"))
+
+      assert %{"ok" => true, "reason" => "joined", "at" => _} =
+               Json.decode_or_nil(Sys.read("/var/lib/alnasl-setup/arkab-join.result"))
+
       assert Server.arkab_join_pending() == nil
 
       # with a network now, the join is at once
-      assert ok!(post("/api/portal/arkab-join", %{"link" => link})) == %{"ok" => true, "reason" => "joined", "pending" => false}
+      assert ok!(post("/api/portal/arkab-join", %{"link" => link})) == %{
+               "ok" => true,
+               "reason" => "joined",
+               "pending" => false
+             }
     end
 
     test "arkab_join_pending: an old link expires" do
-      Box.put("/var/lib/alnasl-setup/arkab-join.pending", Json.encode(%{"link" => "https://arkab.example/join/A", "t" => Sys.now() - 901}))
+      Box.put(
+        "/var/lib/alnasl-setup/arkab-join.pending",
+        Json.encode(%{"link" => "https://arkab.example/join/A", "t" => Sys.now() - 901})
+      )
+
       assert Server.arkab_join_pending() == "expired"
       refute Sys.exists?("/var/lib/alnasl-setup/arkab-join.pending")
-      assert %{"ok" => false, "reason" => "expired"} = Json.decode_or_nil(Sys.read("/var/lib/alnasl-setup/arkab-join.result"))
+
+      assert %{"ok" => false, "reason" => "expired"} =
+               Json.decode_or_nil(Sys.read("/var/lib/alnasl-setup/arkab-join.result"))
     end
   end
 
@@ -1389,7 +1578,12 @@ defmodule AlnaslSetup.ServerTest do
                %{"n" => 2, "t" => "alnasl", "c" => "app", "e" => true, "m" => "line two"}
              ]
 
-      assert b["view"] == %{"mono" => %{"font" => "DejaVu Sans Mono"}, "logview" => %{"lines" => 12}, "steps" => ["reset-1", "update-os"]}
+      assert b["view"] == %{
+               "mono" => %{"font" => "DejaVu Sans Mono"},
+               "logview" => %{"lines" => 12},
+               "steps" => ["reset-1", "update-os"]
+             }
+
       assert json("/api/bootlog?after=1")["lines"] |> Enum.map(& &1["n"]) == [2]
       b = json("/api/bootlog?after=999999")
       refute Map.has_key?(b, "view")
@@ -1414,8 +1608,11 @@ defmodule AlnaslSetup.ServerTest do
       Box.put("/sys/class/net/eth0/carrier", "1\n")
 
       runner(fn
-        ["ip", "-j", "-4", "addr", "show", "eth0"] -> {0, ~s([{"addr_info": [{"local": "192.168.1.9", "prefixlen": 24}, {"local": "10.42.0.1", "prefixlen": 24}]}])}
-        _ -> nil
+        ["ip", "-j", "-4", "addr", "show", "eth0"] ->
+          {0, ~s([{"addr_info": [{"local": "192.168.1.9", "prefixlen": 24}, {"local": "10.42.0.1", "prefixlen": 24}]}])}
+
+        _ ->
+          nil
       end)
 
       s = json("/api/sysinfo")
@@ -1443,7 +1640,11 @@ defmodule AlnaslSetup.ServerTest do
     end
 
     test "/api/sysinfo on an empty box" do
-      runner(fn ["stat" | _] -> {1, ""}; _ -> nil end)
+      runner(fn
+        ["stat" | _] -> {1, ""}
+        _ -> nil
+      end)
+
       s = json("/api/sysinfo")
       assert s["temp_c"] == nil and s["os"] == "?" and s["image"] == "?" and s["alnasl"] == "?"
       assert s["uptime"] == 0 and s["display"] == "unknown" and s["net"] == %{}
@@ -1472,7 +1673,7 @@ defmodule AlnaslSetup.ServerTest do
       assert Enum.map(d["sections"], & &1["id"]) == ~w(wifi network role services kiosk updates)
       assert d["sections"] |> Enum.find(&(&1["id"] == "kiosk")) |> Map.get("text") =~ "browser heartbeat: never"
       j = json("/api/diag/journals")
-      assert length(j["journals"]) == 24
+      assert length(j["journals"]) == 25
     end
 
     test "/api/diag/save writes the report to the boot partition" do
