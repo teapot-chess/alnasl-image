@@ -28,6 +28,7 @@ defmodule AlnaslSetup.Http do
     405 => "Method Not Allowed",
     413 => "Request Entity Too Large",
     500 => "Internal Server Error",
+    501 => "Not Implemented",
     502 => "Bad Gateway"
   }
 

@@ -34,8 +34,11 @@ defmodule AlnaslSetup.Sys do
     real = realpath(path(p))
     File.mkdir_p!(Path.dirname(real))
     tmp = real <> ".new"
-    File.write!(tmp, data)
+    # The mode before the data: a 0600 file (the Wi-Fi keys) is never readable by others, not even briefly.
+    File.rm(tmp)
+    File.write!(tmp, "")
     File.chmod!(tmp, mode)
+    File.write!(tmp, data)
     File.rename!(tmp, real)
     :ok
   end
