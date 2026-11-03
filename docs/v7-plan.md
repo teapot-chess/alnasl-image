@@ -77,6 +77,10 @@ never hidden. Same palette as v6, monospace, the frame composed whole (no flicke
 app.css and app.js work at 800x480, 1024x600 and 720x720: one column, nothing cut off, every tap target at
 least 44 px, focus visible.
 
+v7.3 goes smaller: 480x320 and 320x240 panels on the GPIO pins (waveshare35a/piscreen, waveshare32b, hx8357d)
+and the 3.5-inch HDMI stylus screen, switched on in `alnasl-screen.txt`, with an on-screen stylus calibration.
+Off by default; how it works and what was never tried on a real panel: `docs/spi-screens.md`.
+
 ## 4. Version
 
 `image-version` v7, `photon-alnasl-v7.img`, `ALNASL_TRAIN=v7`, 7.0. The release index keeps 6.1 and 6.2.

@@ -95,3 +95,17 @@ every box below before this branch goes to `main`.
 
 - [ ] Up to three BEAMs at once (server, hotspot, portal): note RSS of each and the boot-to-ready time;
       `+S 2:2` and no busy-waiting should keep CPU idle at rest (`top` for a minute).
+
+## 9. Small screens on the pins (v7.3, docs/spi-screens.md)
+
+- [ ] `SCREEN=hdmi` (as shipped): `ls /sys/kernel/config/device-tree/overlays/` is empty, `spidev0.0`/`spidev0.1`
+      are as before, the kiosk log has no "small SPI screen" line.
+- [ ] `SCREEN=waveshare35a`: the panel shows the menu at 480x320 (not white), HDMI shows only the boot picture,
+      the stylus lands where it is aimed. `ROTATE=180` turns picture and stylus together.
+- [ ] Settings > Touch screen: the four-cross calibration saves, the kiosk restarts with it, it survives a
+      reboot; "Back to the defaults" undoes it.
+- [ ] `SCREEN=waveshare32b` (never tried): picture at 320x240 in landscape, the menu fits, the keyboard leaves
+      room for the field; calibrate if the guessed touch ranges are off.
+- [ ] `SCREEN=hx8357d` (never tried): picture at 480x320, no stylus.
+- [ ] A preset with no panel on the pins: state `no_panel`, the kiosk stays on HDMI, the boot is not slower than
+      the two 10-second waits.

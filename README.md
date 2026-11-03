@@ -47,6 +47,14 @@ painter needs are done by a tiny C helper, `alnasl-fbtool`, built into the relea
 depends on one. Build-VM helpers that need more than shell (`uboot-env.exs`, `release-index.exs`,
 `render-splash.exs`) are Elixir scripts run in the same hexpm Elixir image.
 
+
+## Small screens on the pins (v7.3)
+
+`alnasl-screen.txt` on the boot partition names a small SPI panel (or a 3.5-inch HDMI screen with its stylus on
+the pins); the shipped `SCREEN=hdmi` touches nothing. `alnasl-small-screen.service` applies the device-tree
+overlays at boot through configfs and tells the kiosk which DRM card to drive. Presets, the white-panel trap
+and what has never met real hardware: `docs/spi-screens.md`.
+
 ## Tests
 
 - `cd setup-app && mix test`: ExUnit, runs locally (tests tagged `:unix` are skipped on Windows; the arm64 build
