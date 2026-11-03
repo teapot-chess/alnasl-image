@@ -533,9 +533,9 @@ function compactMenu(r) {
   const close = modal([h("div", { class: "cmp-tiles", id: "cmp-tiles" },
     tile(t("cmp_t_role"), ROLE_NAME[role], done(modeDialog)),
     role === "arkab" ? tile(t("cmp_t_pin"), "", done(pinPad)) : null,
-    tile(t("wifi"), "", done(() => go("/settings/network?tab=wifi"))),
+    tile(t("wifi"), "", done(() => go("/settings/network?tab=wifi&from=compact"))),
     tile(t("cmp_t_qr"), "", done(() => { CMP_FORCE_QR = true; compactDraw(); })),
-    tile(t("touch"), "", done(() => go("/settings/touch"))),
+    tile(t("touch"), "", done(() => go("/settings/touch?from=compact"))),
     tile(t("power"), "", done(powerDialog))),
     h("button", { class: "btn cmp-menu", id: "cmp-close", onclick: () => close() }, t("close"))]);
 }
@@ -886,7 +886,9 @@ function modeDialog() {
 }
 async function rerun() { await api("/api/reopen", {}); sessionStorage.setItem("wizstep", "0"); sessionStorage.removeItem("wizmode"); WMODE = null; go("/setup"); }
 function sub(title, body, back) {
-  shell(title, [h("p", {}, h("button", { class: "btn sm", onclick: () => go("/settings") }, "← " + t("settings"))), h("h1", {}, title), body], { home: true });
+  // v7.4.1: a page opened from the compact screen's menu goes back there, not to Settings it never came through.
+  const back_to = qget("from") === "compact" ? ["/compact", t("back")] : ["/settings", t("settings")];
+  shell(title, [h("p", {}, h("button", { class: "btn sm", id: "sub-back", onclick: () => go(back_to[0]) }, "← " + back_to[1])), h("h1", {}, title), body], { home: true });
 }
 
 /* ---------------------------------------------------------- keyboard ----- */
