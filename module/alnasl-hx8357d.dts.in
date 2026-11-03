@@ -1,0 +1,28 @@
+// Alnasl: Adafruit's 3.5-inch PiTFT type (HX8357D, 480x320), SPI0 CE0, DC on GPIO25, no reset line. The panel
+// only: its resistive touch is an STMPE610 behind an MFD driver this kernel lacks, and so is the STMPE's GPIO
+// that switches the backlight (it is on at power-up). The HX8357D is a portrait panel (320x480): the box's
+// ROTATE=0 is driver rotation 90, landscape. NOT tried on hardware.
+// One .dtbo per rotation (@ROTATION@), applied at run time like alnasl-waveshare35a (see there).
+/dts-v1/;
+/plugin/;
+
+/ {
+	compatible = "brcm,bcm2835";
+
+	fragment@0 {
+		target = <&spi>;
+		__overlay__ {
+			status = "okay";
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			alnasl_panel: display@0 {
+				compatible = "adafruit,yx350hv15";
+				reg = <0>;
+				spi-max-frequency = <32000000>;
+				dc-gpios = <&gpio 25 0>;
+				rotation = <@ROTATION@>;
+			};
+		};
+	};
+};

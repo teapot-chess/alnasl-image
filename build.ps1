@@ -92,9 +92,12 @@ $scripts = @("build-alnasl.sh", "build-arkab.sh", "build-polis.sh", "build-nunki
   "grub-ab.cfg", "make-release.sh", "release-index.exs")
 & scp @ssh @($scripts | ForEach-Object { Join-Path $here "scripts\$_" }) "$Vm`:$W/"
 & scp @ssh (Join-Path $here "module\Makefile") "$Vm`:$W/module-Makefile"
+# v7.3: the small screens' device-tree overlays (build-modules.sh compiles them, *.dts.in once per rotation).
+Vm-Run "rm -rf $W/module-dts && mkdir -p $W/module-dts"
+& scp @ssh @(Get-ChildItem (Join-Path $here "module") | Where-Object { $_.Name -like "*.dts" -or $_.Name -like "*.dts.in" } | ForEach-Object { $_.FullName }) "$Vm`:$W/module-dts/"
 Vm-Run "rm -rf $W/overlay"
 & scp -r @ssh (Join-Path $here "overlay") "$Vm`:$W/"
-Vm-Run "cd $W && sed -i 's/\r$//' *.sh *.exs grub-ab.cfg kiosk/kiosk.sh kiosk/kiosk-res.sh module-Makefile && find overlay -type f ! -name '*.png' ! -name '*.pgm' ! -name '*.ttf' ! -name alnasl-arkab-pin.txt -exec sed -i 's/\r$//' {} +"
+Vm-Run "cd $W && sed -i 's/\r$//' *.sh *.exs grub-ab.cfg kiosk/kiosk.sh kiosk/kiosk-res.sh module-Makefile module-dts/* && find overlay -type f ! -name '*.png' ! -name '*.pgm' ! -name '*.ttf' ! -name alnasl-arkab-pin.txt -exec sed -i 's/\r$//' {} +"
 
 Write-Host "== base image + binfmt"
 Vm-Run "bash $W/prepare-base.sh"

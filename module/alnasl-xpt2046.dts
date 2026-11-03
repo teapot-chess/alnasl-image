@@ -1,0 +1,47 @@
+// Alnasl: the XPT2046 (ADS7846-compatible) resistive touch controller of 3.5-inch HDMI screens such as the
+// CUQI RPM-01 / MPI3508 type, on SPI0 chip select 1, pen interrupt on GPIO25 (pulled up). Applied at RUN TIME
+// through configfs by AlnaslSetup.SmallScreen, and only when alnasl-screen.txt says SCREEN=hdmi, TOUCH=xpt2046:
+// a box without the screen never has SPI switched on and keeps its pins free.
+// Values from the vendor's LCD-show MPI3508-show (dtoverlay=ads7846,cs=1,penirq=25,penirq_pull=2,speed=50000,
+// keep_vref_on=0,swapxy=0,pmax=255,xohms=150). No x/y min/max here: the raw 0..4095 range goes to libinput
+// and the calibration matrix does the rest (the vendor's 200..3900 were overridden by its X config anyway).
+// Labels: "spi" and "gpio" exist in the Pi 4 (downstream) and the Pi 3 (mainline) device trees alike.
+/dts-v1/;
+/plugin/;
+
+/ {
+	compatible = "brcm,bcm2835";
+
+	fragment@0 {
+		target = <&gpio>;
+		__overlay__ {
+			alnasl_xpt2046_pins: alnasl_xpt2046_pins {
+				brcm,pins = <25>;
+				brcm,function = <0>;	/* input */
+				brcm,pull = <2>;	/* pull-up */
+			};
+		};
+	};
+
+	fragment@1 {
+		target = <&spi>;
+		__overlay__ {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "okay";
+
+			alnasl_xpt2046: touchscreen@1 {
+				compatible = "ti,ads7846";
+				reg = <1>;
+				pinctrl-names = "default";
+				pinctrl-0 = <&alnasl_xpt2046_pins>;
+				spi-max-frequency = <50000>;
+				interrupt-parent = <&gpio>;
+				interrupts = <25 2>;		/* falling edge */
+				pendown-gpio = <&gpio 25 1>;	/* active low */
+				ti,x-plate-ohms = /bits/ 16 <150>;
+				ti,pressure-max = /bits/ 16 <255>;
+			};
+		};
+	};
+};

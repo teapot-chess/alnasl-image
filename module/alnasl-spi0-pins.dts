@@ -1,0 +1,33 @@
+// Alnasl: SPI0's pins, for a device tree whose SPI node has none (the mainline Pi 3 tree; the Pi 4's
+// downstream tree has spi0_pins/spi0_cs_pins and does not get this). The same as the downstream tree:
+// MISO/MOSI/SCLK (GPIO 9, 10, 11) on ALT0, the two chip selects (GPIO 8 = CE0, 7 = CE1) as GPIO outputs.
+// AlnaslSetup.SmallScreen applies it before the screen's own overlay, only when the live SPI node lacks pinctrl-0.
+/dts-v1/;
+/plugin/;
+
+/ {
+	compatible = "brcm,bcm2835";
+
+	fragment@0 {
+		target = <&gpio>;
+		__overlay__ {
+			alnasl_spi0_pins: alnasl_spi0_pins {
+				brcm,pins = <9 10 11>;
+				brcm,function = <4>;	/* alt0 */
+			};
+			alnasl_spi0_cs_pins: alnasl_spi0_cs_pins {
+				brcm,pins = <8 7>;
+				brcm,function = <1>;	/* output */
+			};
+		};
+	};
+
+	fragment@1 {
+		target = <&spi>;
+		__overlay__ {
+			pinctrl-names = "default";
+			pinctrl-0 = <&alnasl_spi0_pins &alnasl_spi0_cs_pins>;
+			cs-gpios = <&gpio 8 1>, <&gpio 7 1>;
+		};
+	};
+};

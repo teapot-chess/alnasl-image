@@ -1,0 +1,16 @@
+// Alnasl: the Pi 4's downstream tree has a "spidev" node on chip select 1, which would take CE1 before the
+// touch controller gets it ("chipselect 1 already in use"). Switched off, the way the vendor's overlays do it.
+// AlnaslSetup.SmallScreen applies this only when that node exists, and before the screen's own overlay.
+/dts-v1/;
+/plugin/;
+
+/ {
+	compatible = "brcm,bcm2835";
+
+	fragment@0 {
+		target-path = "/soc/spi@7e204000/spidev@1";
+		__overlay__ {
+			status = "disabled";
+		};
+	};
+};

@@ -1,0 +1,42 @@
+// Alnasl: the cheap 2.8/3.2-inch SPI screens with an ILI9341 and an XPT2046 (Waveshare 3.2" (B) wiring, LCD-show
+// "waveshare32b"/"tft9341"): 320x240, SPI0 CE0, DC on GPIO22, reset on GPIO27 (active low); touch on CE1, pen
+// on GPIO17. The backlight is wired to 3.3 V on these boards, so there is no pin to hold. The ILI9341 is a
+// portrait panel (240x320): the box's ROTATE=0 is driver rotation 90, landscape. NOT tried on hardware: the
+// touch defaults are the usual XPT2046 margins, and the on-screen calibration is the way to make them right.
+// One .dtbo per rotation (@ROTATION@), applied at run time like alnasl-waveshare35a (see there).
+/dts-v1/;
+/plugin/;
+
+/ {
+	compatible = "brcm,bcm2835";
+
+	fragment@0 {
+		target = <&spi>;
+		__overlay__ {
+			status = "okay";
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			alnasl_panel: display@0 {
+				compatible = "adafruit,yx240qv29";
+				reg = <0>;
+				spi-max-frequency = <32000000>;
+				dc-gpios = <&gpio 22 0>;
+				reset-gpios = <&gpio 27 1>;
+				rotation = <@ROTATION@>;
+			};
+
+			alnasl_touch: touch@1 {
+				compatible = "ti,ads7846";
+				reg = <1>;
+				spi-max-frequency = <2000000>;
+				interrupt-parent = <&gpio>;
+				interrupts = <17 2>;		/* falling edge */
+				pendown-gpio = <&gpio 17 1>;	/* active low */
+				ti,swap-xy;
+				ti,x-plate-ohms = /bits/ 16 <60>;
+				ti,pressure-max = /bits/ 16 <255>;
+			};
+		};
+	};
+};

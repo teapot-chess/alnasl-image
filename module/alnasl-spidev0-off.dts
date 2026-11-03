@@ -1,0 +1,17 @@
+// Alnasl: the same for chip select 0, where an SPI panel sits. Only the SPI panels need it (the 3.5-inch HDMI
+// screens put nothing on CE0). AlnaslSetup.SmallScreen applies it only when the node exists, before the panel's
+// overlay. A target-path, not the spidev0 label: the Pi 3's mainline tree has neither node nor label, and an
+// overlay that names a missing label is refused whole.
+/dts-v1/;
+/plugin/;
+
+/ {
+	compatible = "brcm,bcm2835";
+
+	fragment@0 {
+		target-path = "/soc/spi@7e204000/spidev@0";
+		__overlay__ {
+			status = "disabled";
+		};
+	};
+};

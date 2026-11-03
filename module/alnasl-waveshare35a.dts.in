@@ -1,0 +1,59 @@
+// Alnasl: the Waveshare 3.5-inch (A) type SPI screen and its clones ("3.5inch RPi LCD (A)", PiScreen wiring,
+// often sold as "2.8/3.5 inch XPT2046"): an ILI9486 behind a 16-bit shift register, 480x320, on SPI0 CE0,
+// DC on GPIO24, reset on GPIO25 (active low), backlight on GPIO22; the XPT2046 touch on CE1, pen on GPIO17.
+// Proven on a Pi 4B with this image's kernel: rotation 0 is landscape and the right way up, the stylus needs
+// ti,swap-xy. scripts/build-modules.sh makes one .dtbo per rotation from this file (@ROTATION@); the box
+// applies the one alnasl-screen.txt asks for at run time, through configfs (AlnaslSetup.SmallScreen), after
+// alnasl-spidev0-off / alnasl-spidev1-off (and alnasl-spi0-pins on a tree without SPI pins).
+// The DRM driver (ili9486) sends the panel's init sequence only when its display pipe is enabled: nothing
+// does that by itself while fbcon sits on HDMI, so the box unblanks the panel's fb and the kiosk's X opens
+// this card directly. Otherwise: a white screen with a perfectly healthy driver behind it.
+/dts-v1/;
+/plugin/;
+
+/ {
+	compatible = "brcm,bcm2835";
+
+	fragment@0 {
+		target = <&spi>;
+		__overlay__ {
+			status = "okay";
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			alnasl_panel: display@0 {
+				compatible = "waveshare,rpi-lcd-35";
+				reg = <0>;
+				spi-max-frequency = <16000000>;
+				dc-gpios = <&gpio 24 0>;
+				reset-gpios = <&gpio 25 1>;
+				rotation = <@ROTATION@>;
+			};
+
+			alnasl_touch: touch@1 {
+				compatible = "ti,ads7846";
+				reg = <1>;
+				spi-max-frequency = <2000000>;
+				interrupt-parent = <&gpio>;
+				interrupts = <17 2>;		/* falling edge */
+				pendown-gpio = <&gpio 17 1>;	/* active low */
+				ti,swap-xy;
+				ti,x-plate-ohms = /bits/ 16 <100>;
+				ti,pressure-max = /bits/ 16 <255>;
+			};
+		};
+	};
+
+	/* The backlight: no driver for it in this kernel (no gpio_backlight), so the pin is simply held high. */
+	fragment@1 {
+		target = <&gpio>;
+		__overlay__ {
+			alnasl_tft_led: alnasl_tft_led {
+				gpio-hog;
+				gpios = <22 0>;
+				output-high;
+				line-name = "alnasl-tft-led";
+			};
+		};
+	};
+};
