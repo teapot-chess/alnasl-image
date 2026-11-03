@@ -207,6 +207,16 @@ input.range { flex: 1; min-width: 180px; height: 44px; accent-color: var(--accen
   body.osk-open #app { padding-bottom: 168px; }
   .calib-hint { font-size: 14px; }
 }
+/* v7.4.1: a dialog on a short panel (480x320) never runs past the bottom: it scrolls inside itself and its
+   buttons stay in view. A list of choices drops the second line; the question under it still says what happens. */
+@media (max-height: 360px) {
+  #modal { align-items: flex-start; }
+  #modal .box { max-height: calc(100vh - 8px); overflow-y: auto; }
+  #modal .box > h2 { margin: 0 0 6px; }
+  #modal .box > .row { position: sticky; bottom: -10px; background: var(--panel); padding: 6px 0 10px; margin: 0; }
+  #modal .list .item .dim, #modal .list .item br { display: none; }
+  #modal .box p { margin: 6px 0; }
+}
 /* ==== end compact-screen ==== */
 
 /* v7.4: the compact screen (/compact, app.js compactPage). Only ever shown on a small panel, so it is sized

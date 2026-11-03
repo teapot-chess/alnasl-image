@@ -281,14 +281,6 @@ run_x() { # $1 = virtual terminal to run X on (vt1 = the kiosk's own, vt7 = fall
   Option "ShadowFB" "true"
 EndSection
 ' "$kms_card" > "$TMPD/xorg.conf"
-    # v7.4.1: an SPI panel's driver prefers 16-bit colour and X takes it; Chromium then draws a white window and
-    # nothing else. 24-bit here, the panel driver turns it into its own 16 bits on the way out.
-    [ "$SPI_PANEL" = 1 ] && printf 'Section "Screen"
-  Identifier "spi"
-  Device "kms"
-  DefaultDepth 24
-EndSection
-' >> "$TMPD/xorg.conf"
   else
     printf 'Section "Device"
   Identifier "fb"
@@ -350,13 +342,6 @@ src=xrandr
 [ -z "\$sz" ] && sz=1920,1080 && src=default
 echo "kiosk: X screen size \$sz (from \$src)"
 echo "path=x driver=$drv window-size=\$sz (from \$src) drm=${drm_size:-unknown} fb=${fb_virtual:-none} scale=$SCALE vt=$vt" > $STATE
-# v7.4.1: an SPI panel keeps its own picture memory and is only sent what X marks as changed. The browser's first
-# full picture went missing and the compact page never changes, so the boot screen stayed up for good. A repaint
-# with no background of its own (no flash) after the browser starts, then every 30 s, sends the whole picture again.
-if [ "$SPI_PANEL" = 1 ]; then
-  ( for s in 4 6 10; do sleep \$s; xrefresh -none 2>/dev/null; done
-    while sleep 30; do xrefresh -none 2>/dev/null || exit 0; done ) &
-fi
 if command -v matchbox-window-manager >/dev/null 2>&1; then
   matchbox-window-manager -use_titlebar no -use_cursor no &
   sleep 0.2
@@ -380,7 +365,10 @@ XCL
 
 run_x_any() {
   t0=$(date +%s)
-  if [ -n "$kms_card" ]; then
+  # v7.4.1: not on an SPI panel. Its modesetting X let Chromium show a white window for about six minutes before
+  # the first picture (the page itself is ready in 3 s); X on the panel's framebuffer shows it at once. The
+  # panel turns the picture itself (the overlay's rotation), so nothing needs modesetting there.
+  if [ -n "$kms_card" ] && [ "$SPI_PANEL" != 1 ]; then
     # Real KMS graphics (vc4): modesetting gives the full resolution and real mode switching (xrandr).
     run_x vt1 modesetting
     rc=$?
