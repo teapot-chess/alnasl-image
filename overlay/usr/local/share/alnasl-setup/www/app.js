@@ -356,7 +356,7 @@ function themeToggle() {
   const light = S.theme === "light";
   return h("button", { class: "btn sm", id: "theme-toggle", "aria-label": light ? t("theme_dark") : t("theme_light"),
     onclick: async () => { S.theme = light ? "dark" : "light"; applyTheme(S.theme); await api("/api/theme", { theme: S.theme }).catch(() => 0); route(); } },
-    light ? "☾ " + t("theme_dark") : "☀ " + t("theme_light"));
+    light ? t("theme_dark") : t("theme_light"));
 }
 function langToggle() {
   return h("div", { class: "row" }, ["en", "nl"].map((l) =>
@@ -420,7 +420,7 @@ function oskPreview(typed) {
   p.replaceChildren(
     lab ? h("span", { class: "l" }, lab.textContent) : null,
     h("span", { class: "v" + (v ? "" : " empty") }, v || el.placeholder || ""),
-    h("button", { type: "button", class: "w done", onpointerdown: (e) => { e.preventDefault(); closeOsk(); } }, "✓ " + t("done")));
+    h("button", { type: "button", class: "w done", onpointerdown: (e) => { e.preventDefault(); closeOsk(); } }, t("done")));
   const vs = p.querySelector(".v"); vs.scrollLeft = vs.scrollWidth;  // a long value shows its end, where the typing is
 }
 function closeOsk() { $("#osk").hidden = true; document.body.classList.remove("osk-open"); oskTarget = null; }
