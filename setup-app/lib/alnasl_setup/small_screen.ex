@@ -457,8 +457,11 @@ defmodule AlnaslSetup.SmallScreen do
   def udev_rule(m) do
     "# Written by alnasl-small-screen (AlnaslSetup.SmallScreen) at boot and after a calibration.\n" <>
       "# It lives in /run: the next boot makes it again from alnasl-screen.txt and the saved calibration.\n" <>
+      "# A touchscreen and nothing else: as a pointer or a touchpad libinput lets the stylus move the pointer\n" <>
+      "# and never click (v7.4; the module also says INPUT_PROP_DIRECT now).\n" <>
       ~s(ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="#{@touch_name}", ) <>
-      ~s(ENV{ID_INPUT_TOUCHSCREEN}="1", ENV{LIBINPUT_CALIBRATION_MATRIX}="#{matrix_text(m)}"\n)
+      ~s(ENV{ID_INPUT}="1", ENV{ID_INPUT_TOUCHSCREEN}="1", ENV{ID_INPUT_TOUCHPAD}="", ENV{ID_INPUT_TABLET}="", ) <>
+      ~s(ENV{ID_INPUT_MOUSE}="", ENV{ID_INPUT_JOYSTICK}="", ENV{LIBINPUT_CALIBRATION_MATRIX}="#{matrix_text(m)}"\n)
   end
 
   @doc """

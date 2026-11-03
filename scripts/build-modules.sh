@@ -27,6 +27,12 @@ for f in drivers/hid/hid-multitouch.c drivers/hid/hid-ids.h drivers/usb/class/cd
          drivers/gpu/drm/tiny/st7735r.c drivers/gpu/drm/tiny/ili9163.c drivers/gpu/drm/tiny/ili9225.c; do
   curl -fsSL --retry 3 -m 60 "$G/$f?h=v6.1.10" -o "$(basename $f)"
 done
+# v7.4: the stylus is a touchscreen, and says so. Mainline ads7846 never sets INPUT_PROP_DIRECT, so libinput can
+# take it for an absolute pointer with no button: the pointer follows the stylus and a tap clicks nothing (seen on
+# the first real waveshare35a). One line, after the BTN_TOUCH capability; the build stops if that line moved.
+grep -q '^	input_set_capability(input_dev, EV_KEY, BTN_TOUCH);$' ads7846.c || { echo "ads7846.c: the BTN_TOUCH line moved; the INPUT_PROP_DIRECT patch needs a look"; exit 1; }
+sed -i 's/^	input_set_capability(input_dev, EV_KEY, BTN_TOUCH);$/&\n	__set_bit(INPUT_PROP_DIRECT, input_dev->propbit);	\/* Alnasl: a touchscreen, not a pointer *\//' ads7846.c
+[ "$(grep -c 'INPUT_PROP_DIRECT' ads7846.c)" = 1 ] || { echo "ads7846.c: INPUT_PROP_DIRECT patch did not apply once"; exit 1; }
 cp $W/module-Makefile Makefile
 cp $W/module-dts/*.dts .
 for t in $W/module-dts/*.dts.in; do

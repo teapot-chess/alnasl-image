@@ -221,6 +221,17 @@ defmodule AlnaslSetup.SmallScreenTest do
       assert r =~ ~s(ATTRS{name}=="ADS7846 Touchscreen")
       assert r =~ ~s(ENV{LIBINPUT_CALIBRATION_MATRIX}="1.000000 0.000000 0.000000 0.000000 1.000000 0.000000")
     end
+
+    test "the udev rule makes the stylus a touchscreen only (a pointer or touchpad moves but never clicks)" do
+      r = S.udev_rule(S.identity())
+      assert r =~ ~s(ENV{ID_INPUT_TOUCHSCREEN}="1")
+
+      for tag <- ~w(ID_INPUT_TOUCHPAD ID_INPUT_TABLET ID_INPUT_MOUSE ID_INPUT_JOYSTICK),
+          do: assert(r =~ ~s(ENV{#{tag}}=""))
+
+      # one rule line, so udev applies it all to the same device
+      assert r |> String.split("\n", trim: true) |> Enum.reject(&String.starts_with?(&1, "#")) |> length() == 1
+    end
   end
 
   describe "a boot" do
