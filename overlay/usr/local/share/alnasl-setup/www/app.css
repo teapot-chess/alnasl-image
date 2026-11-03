@@ -216,6 +216,17 @@ input.range { flex: 1; min-width: 180px; height: 44px; accent-color: var(--accen
   #modal .box > .row { position: sticky; bottom: -10px; background: var(--panel); padding: 6px 0 10px; margin: 0; }
   #modal .list .item .dim, #modal .list .item br { display: none; }
   #modal .box p { margin: 6px 0; }
+  /* Pages: the back button and the page title share one row (the title is also in the top bar), the menu tiles
+     drop their second line, and the scrollbar is wide enough to grab with a stylus. */
+  .top { min-height: 42px; padding: 2px 8px; }
+  .page { padding: 6px 8px; }
+  .page > p:first-child { float: left; margin: 0 10px 6px 0; }
+  .page > p:first-child + h1 { font-size: 18px; line-height: 44px; margin: 0 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .page > p:first-child + h1 + * { clear: both; }
+  .tile { min-height: 46px; } .tile .d { display: none; }
+  .statusbar { padding: 4px 8px; margin-bottom: 6px; }
+  ::-webkit-scrollbar { width: 22px; }
+  ::-webkit-scrollbar-thumb { background: rgba(147, 161, 177, .6); border-radius: 11px; border: 4px solid transparent; background-clip: padding-box; min-height: 48px; }
 }
 /* ==== end compact-screen ==== */
 

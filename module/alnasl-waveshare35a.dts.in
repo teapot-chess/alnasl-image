@@ -40,6 +40,14 @@
 				ti,swap-xy;
 				ti,x-plate-ohms = /bits/ 16 <100>;
 				ti,pressure-max = /bits/ 16 <255>;
+				/* v7.4.1: a resistive panel jitters; with no filtering a drag scrolled in jerks. Average
+				   up to 10 samples, accept a reading when it repeats within 30 units, let the plates settle
+				   first and keep the reference on between samples. */
+				ti,debounce-max = /bits/ 16 <10>;
+				ti,debounce-tol = /bits/ 16 <30>;
+				ti,debounce-rep = /bits/ 16 <1>;
+				ti,settle-delay-usec = /bits/ 16 <150>;
+				ti,keep-vref-on;
 			};
 		};
 	};
