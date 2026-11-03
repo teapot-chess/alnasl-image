@@ -144,7 +144,7 @@ input.range { flex: 1; min-width: 180px; height: 44px; accent-color: var(--accen
   .tile { min-height: 72px; } .steps i { height: 4px; }
   #modal { align-items: flex-start; }
 }
-/* ==== compact-screen: 3.5 inch panels (480x320 landscape, 320x480 portrait). Nothing outside this block
+/* ==== compact-screen: small panels (480x320 landscape, 320x480 portrait, 320x240). Nothing outside this block
    changes the big-screen layout. Status first, every tap target at least 40 px, one scroll direction. ==== */
 .statusbar { display: none; }
 @media (max-width: 520px), (max-height: 360px) {
@@ -194,6 +194,18 @@ input.range { flex: 1; min-width: 180px; height: 44px; accent-color: var(--accen
 @media (max-width: 360px) {
   .grid { gap: 6px; } .tile .d { display: none; }
   .top .brand { display: none; }
+}
+/* v7.3: 320x240 (a 2.8/3.2-inch panel on the pins). 240 px tall does not hold the 3.5-inch keyboard and a field
+   to type in, so the keyboard gives up a few pixels per key and the big numbers shrink. Buttons keep 40 px. */
+@media (max-height: 260px) {
+  .top { min-height: 42px; padding: 2px 6px; }
+  .page { padding: 6px; }
+  .statusbar { padding: 4px 8px; margin-bottom: 6px; }
+  .tile { min-height: 48px; }
+  .helpcode, .big { font-size: 30px; }
+  #osk button { min-height: 34px; font-size: 15px; }
+  body.osk-open #app { padding-bottom: 168px; }
+  .calib-hint { font-size: 14px; }
 }
 /* ==== end compact-screen ==== */
 
