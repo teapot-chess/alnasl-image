@@ -7,8 +7,10 @@ Optional files to put in this folder before the first boot:
   alnasl-mode.txt          alnasl, arkab, polis or nunki on the first line: what this box is (see alnasl-mode.txt.example)
   alnasl-arkab-pin.txt     (already here) the remote PIN of an Arkab box: fill in the PIN= line; it is emptied again at boot
   alnasl-hotspot.txt       (already here) the password of the box's setup hotspot; leave PASSWORD= empty and the box makes one
+  alnasl-screen.txt        (already here) a small screen on the pins (SCREEN=waveshare35a, waveshare32b, hx8357d) or a
+                           3.5-inch HDMI screen with stylus touch; SCREEN=hdmi (the default) leaves the pins alone
 
-The first four are read at boot and deleted; alnasl-arkab-pin.txt stays and only has its PIN line emptied. Do not edit config.txt or the other files here.
+The first four are read at boot and deleted; alnasl-arkab-pin.txt stays and only has its PIN line emptied, alnasl-screen.txt stays as it is. Do not edit config.txt or the other files here.
 This box has no remote login (no ssh, no VPN): everything is done on its own screen, or, on a box with no screen and
 no network, on the setup page of its own Wi-Fi: a box that has no network after a minute opens "Alnasl-setup-XXXX"
 (WPA2; on Ethernet only for the first 10 minutes). Join it with a phone and the setup page opens by itself.

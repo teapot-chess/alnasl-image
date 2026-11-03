@@ -349,7 +349,7 @@ grep -q '^PRINTERS 200' <<<"$sto" && grep -q '^PRINTADD 400.*not_polis' <<<"$sto
 grep -q '^SOUND 200' <<<"$sto" && grep -q '^SOUNDSET 400.*not_nunki' <<<"$sto" && ok "sound: read anywhere, set only on a Nunki box (400 here)" || bad "sound API: $(grep '^SOUND' <<<"$sto" | tr '\n' ' ')"
 # The unit tests (ports of the old diag, bootlog, resolution, splash, update, hotspot and QR tests) ran in build-setup.sh: mix test on
 # arm64 before the release was built, a failure stops the build. Here, a few in the image itself, on its own libraries.
-ok "setup-app's ExUnit suites (diag, bootlog, resolution, splash, system update, hotspot, portal, QR, server) passed in build-setup.sh (mix test, arm64)"
+ok "setup-app's ExUnit suites (diag, bootlog, resolution, splash, system update, hotspot, portal, QR, small screen, server) passed in build-setup.sh (mix test, arm64)"
 echo "  -- redaction in the image (a wpa conf with a psk, a clear passphrase, a 64-hex key, a Tailscale key) --"
 exf <<'EX' && ok "redaction: no secret survives, SSIDs do (Diag.redact, Bootlog.redact in the image's release)" || bad "redaction in the image"
 hex = String.duplicate("0123456789abcdef", 4)
@@ -458,7 +458,7 @@ if [ -n "$dk" ]; then grep -q 'xset s off s noblank -dpms' <<<"$dk" && grep -q '
 echo "  -- display-path logic (shipped kiosk.sh + stub cage/xinit, in the arm64 kiosk container) --"
 install -m 0755 $W/test-kiosk-logic.sh $W/test-kiosk-logic.run
 docker run --rm --platform linux/arm64 -v $W/test-kiosk-logic.run:/test.sh:ro --entrypoint sh $KC /test.sh 2>&1 | sed 's/^/       /' | tee $W/kiosk-logic.out
-if grep -q 'FAIL' $W/kiosk-logic.out || ! grep -q 'no KMS card' $W/kiosk-logic.out; then bad "kiosk display-path logic test"; else ok "kiosk display-path logic: X default, X start-up budget, hung cage killed and replaced by X, working cage left alone"; fi
+if grep -q 'FAIL' $W/kiosk-logic.out || ! grep -q 'no KMS card' $W/kiosk-logic.out; then bad "kiosk display-path logic test"; else ok "kiosk display-path logic: X default, X start-up budget, hung cage killed and replaced by X, working cage left alone, SPI panel card, HDMI stylus mode/rotation"; fi
 rm -f $W/test-kiosk-logic.run
 E=$W/ext-check5; rm -rf $E; mkdir -p $E; docker run --rm --platform linux/arm64 --entrypoint tar $KC -C /opt -cf - kiosk-ext 2>/dev/null | tar -xf - -C $E
 cmount $R
@@ -1026,6 +1026,70 @@ png = QR.wifi_png("Alnasl-Setup-1a2b3c", pw)
 a.(binary_part(png, 0, 8) == <<137, 80, 78, 71, 13, 10, 26, 10>> and byte_size(png) > 200, "the QR code is a PNG")
 a.(QR.wifi_payload("a;b", "p:w") == ~S"WIFI:T:WPA;S:a\;b;P:p\:w;;", "the payload escapes ; and :")
 EX
+cumount $R
+
+
+echo "== v7.3: small screens on the pins (docs/spi-screens.md; qemu has no SPI bus, so no panel lights up here)"
+SU=$R/etc/systemd/system
+# The modules: built out of tree against this kernel, so the same vermagic as a stock module or modprobe says no.
+for m in ads7846 drm_mipi_dbi ili9486 ili9341 mi0283qt hx8357d st7735r ili9163 ili9225; do
+  v=$(chroot $R modinfo -k $KVER $m 2>/dev/null | awk '/^vermagic/{$1="";print}')
+  [ -n "$v" ] && [ "$v" = "$stock" ] && ok "$m: in /lib/modules/$KVER, vermagic$v" || bad "$m: missing or vermagic [$v] is not the stock [$stock]"
+done
+case "$stock" in *6.1.10-11.ph5*) ok "stock vermagic is 6.1.10-11.ph5" ;; *) bad "stock vermagic is not 6.1.10-11.ph5: [$stock]" ;; esac
+chroot $R modprobe -n -v -S $KVER ili9486 2>&1 | grep -q drm_mipi_dbi && ok "ili9486 pulls in drm_mipi_dbi (depmod knows the chain)" || bad "ili9486 does not resolve to drm_mipi_dbi"
+# The overlays: every one the program can ask for is in the image, and each is a real overlay (fragments, __fixups__).
+OV=$R/usr/lib/alnasl/overlays
+cmount $R
+want=$(exf <<'EX'
+IO.puts(Enum.join(AlnaslSetup.SmallScreen.all_overlays(), " "))
+EX
+)
+cumount $R
+[ -n "$want" ] && ok "the program names $(echo $want | wc -w) overlays" || bad "SmallScreen.all_overlays() said nothing"
+miss=""; for o in $want; do [ -s $OV/$o.dtbo ] || miss="$miss $o"; done
+[ -z "$miss" ] && ok "all of them are in /usr/lib/alnasl/overlays" || bad "missing overlays:$miss"
+nofix=""; for o in $want; do [ -s $OV/$o.dtbo ] && { grep -a -q '__fixups__\|fragment@' $OV/$o.dtbo || nofix="$nofix $o"; }; done
+[ -z "$nofix" ] && ok "each overlay has fragments (dtc -@)" || bad "not an overlay:$nofix"
+grep -a -q 'waveshare,rpi-lcd-35' $OV/alnasl-waveshare35a-r0.dtbo && grep -a -q 'adafruit,yx240qv29' $OV/alnasl-waveshare32b-r90.dtbo && grep -a -q 'adafruit,yx350hv15' $OV/alnasl-hx8357d-r90.dtbo \
+  && grep -a -q 'ti,ads7846' $OV/alnasl-waveshare35a-r0.dtbo && ! grep -a -q 'ti,ads7846' $OV/alnasl-hx8357d-r90.dtbo && ok "the panels' compatibles (ili9486, ili9341, hx8357d); touch where there is touch" || bad "an overlay has the wrong panel or touch"
+# The unit: enabled, before the kiosk, after the partitions and udev; the wrapper runs the release.
+s=$(chroot $R systemctl is-enabled alnasl-small-screen.service 2>&1 | tail -1); [ "$s" = enabled ] && ok "alnasl-small-screen enabled" || bad "alnasl-small-screen: $s"
+U=$SU/alnasl-small-screen.service
+grep -q '^Type=oneshot' $U && grep -q '^Before=alnasl-kiosk.service' $U && grep -q '^RequiresMountsFor=/boot/efi' $U && grep -q '^After=.*alnasl-data.service' $U && grep -q '^After=.*systemd-udevd.service' $U \
+  && grep -q '^ExecStart=/usr/local/sbin/alnasl-small-screen$' $U && ok "alnasl-small-screen: a oneshot, after the boot/data partitions and udev, before the kiosk" || bad "alnasl-small-screen.service ordering"
+W2=$R/usr/local/sbin/alnasl-small-screen
+[ -x $W2 ] && chroot $R sh -n /usr/local/sbin/alnasl-small-screen && grep -q "^exec /opt/alnasl-setup/bin/alnasl_setup eval 'AlnaslSetup.CLI.main()' -- small-screen \"\$@\"$" $W2 \
+  && ok "alnasl-small-screen: executable, sh -n in the image, runs the release's small-screen" || bad "alnasl-small-screen wrapper"
+grep -q 'KIOSK_CARD' $R/usr/local/sbin/alnasl-kiosk && grep -q '/run/alnasl-small-screen/kiosk.env' $R/usr/local/sbin/alnasl-kiosk && ok "alnasl-kiosk reads the small screen's kiosk.env" || bad "alnasl-kiosk does not read kiosk.env"
+# The boot file: there, CRLF, both languages, SCREEN=hdmi; and the template the program re-creates it from.
+F=$B/alnasl-screen.txt
+[ -f $F ] && grep -q 'ALNASL SMALL SCREEN ON THE PINS' $F && grep -q 'ALNASL KLEIN SCHERM OP DE PINNEN' $F && ok "boot partition: alnasl-screen.txt with its English and Dutch header" || bad "boot partition alnasl-screen.txt or its header"
+[ "$(tr -d '\r' < $F | grep -c '^SCREEN=hdmi$')" = 1 ] && ok "alnasl-screen.txt ships SCREEN=hdmi" || bad "the shipped alnasl-screen.txt is not SCREEN=hdmi"
+[ "$(grep -a -c -v $'\r$' $F)" = 0 ] && ok "alnasl-screen.txt is CRLF (Notepad)" || bad "alnasl-screen.txt has LF-only lines"
+[ "$(tr -d '\r' < $F | sha256sum)" = "$(tr -d '\r' < $R/usr/share/alnasl/defaults/boot-efi/alnasl-screen.txt | sha256sum)" ] && ok "the image keeps a copy to re-create it from" || bad "the template copy differs from the boot file"
+grep -q 'alnasl-screen.txt' $B/README-ALNASL.txt && ok "README-ALNASL.txt mentions alnasl-screen.txt" || bad "README-ALNASL.txt does not mention the small-screen file"
+# The default leaves SPI alone: the shipped file plans nothing; the presets plan what they should (the image's release).
+cp $F $R/tmp/verify-screen.txt
+cmount $R
+exf /tmp/verify-screen.txt <<'EX' && ok "SCREEN=hdmi (the shipped file): no overlay, no module, no touch; waveshare35a/piscreen/32b/hx8357d plan their overlays" || bad "small-screen plan in the image"
+alias AlnaslSetup.SmallScreen, as: S
+a = fn c, what -> unless c, do: (IO.puts(:stderr, "assert: #{what}"); System.halt(1)) end
+[f] = System.argv()
+pi4 = %{spi_pins: true, spidev0: true, spidev1: true}
+c = S.parse(File.read!(f))
+a.(c.screen == "hdmi" and c.preset == nil and c.touch == "off" and c.problems == [], "the shipped file: hdmi, nothing on, no problems (#{inspect(c)})")
+a.(S.plan(c, pi4) == %{overlays: [], modules: [], driver: nil}, "hdmi plans nothing")
+w = S.plan(S.parse("SCREEN=waveshare35a\n"), pi4)
+a.(w.overlays == ["alnasl-spidev0-off", "alnasl-spidev1-off", "alnasl-waveshare35a-r0"] and "ili9486" in w.modules, "waveshare35a on a Pi 4: #{inspect(w)}")
+a.(S.plan(S.parse("SCREEN=piscreen\r\nROTATE=180\r\n"), pi4).overlays |> List.last() == "alnasl-waveshare35a-r180", "piscreen is waveshare35a; CRLF and ROTATE read")
+a.(S.plan(S.parse("SCREEN=waveshare32b\n"), pi4).overlays |> List.last() == "alnasl-waveshare32b-r90", "waveshare32b: portrait panel, landscape picture")
+h = S.plan(S.parse("SCREEN=hx8357d\n"), %{spi_pins: false, spidev0: false, spidev1: false})
+a.(h.overlays == ["alnasl-spi0-pins", "alnasl-hx8357d-r90"], "hx8357d on a tree without SPI pins: #{inspect(h)}")
+x = S.plan(S.parse("TOUCH=xpt2046\n"), pi4)
+a.(List.last(x.overlays) == "alnasl-xpt2046" and "alnasl-spidev0-off" not in x.overlays, "the HDMI stylus screen keeps spidev0's chip select free of the panel helpers")
+EX
+rm -f $R/tmp/verify-screen.txt
 cumount $R
 
 echo "== sizes"

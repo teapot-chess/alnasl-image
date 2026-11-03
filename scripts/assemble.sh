@@ -162,7 +162,7 @@ rm -f $R/inside-snd.sh
 install -d $R/lib/modules/$KVER/extra
 install -m 0644 $W/modules-out/*.ko $R/lib/modules/$KVER/extra/
 chroot $R depmod -a $KVER
-chroot $R modinfo -k $KVER vc4 hid-multitouch cdc-acm ch341 2>&1 | grep -E '^(filename|vermagic)' || true
+chroot $R modinfo -k $KVER vc4 hid-multitouch cdc-acm ch341 ads7846 drm_mipi_dbi ili9486 ili9341 mi0283qt hx8357d st7735r ili9163 ili9225 2>&1 | grep -E '^(filename|vermagic)' || true
 # vc4 and everything it needs must resolve (v4 shipped without the sound modules: "Unknown symbol devm_snd_soc_register_component").
 chroot $R modprobe -n -v -S $KVER vc4 2>&1 | tee $W/vc4-chain.txt | sed 's/^/  vc4 chain: /'
 grep -q 'snd-soc-core\|snd_soc_core' $W/vc4-chain.txt || { echo "vc4 chain lacks snd-soc-core"; exit 1; }
@@ -203,6 +203,11 @@ chmod -R u=rwX,go=rX $R/opt/alnasl-setup
 chroot $R /opt/alnasl-setup/bin/alnasl_setup eval 'IO.puts("setup-app runs in the image: " <> System.otp_release())' || { echo "setup-app does not start in the image"; exit 1; }
 # v7.3: the hotspot file's template, for when someone deletes it from the card (alnasl-hotspot re-creates it).
 install -D -m 0644 $W/overlay/boot-efi/alnasl-hotspot.txt $R/usr/share/alnasl/defaults/boot-efi/alnasl-hotspot.txt
+# v7.3: the small-screen file, the same way (alnasl-small-screen re-creates it), and its device-tree overlays.
+install -D -m 0644 $W/overlay/boot-efi/alnasl-screen.txt $R/usr/share/alnasl/defaults/boot-efi/alnasl-screen.txt
+install -d $R/usr/lib/alnasl/overlays
+ls $W/modules-out/*.dtbo >/dev/null 2>&1 || { echo "no device-tree overlays in modules-out (build-modules.sh)"; exit 1; }
+install -m 0644 $W/modules-out/*.dtbo $R/usr/lib/alnasl/overlays/
 chmod 0755 $R/usr/local/bin/espeak-ng
 chmod 0600 $R/etc/wpa_supplicant/wpa_supplicant-wlan0.conf
 # Console keyboard: Belgian by default (the setup pages change it later).
@@ -428,7 +433,7 @@ systemctl enable alnasl-firewall.service alnasl-firstboot.service alnasl-wifi.se
   alnasl-splash.service alnasl-splash-reboot.service alnasl-splash-poweroff.service \
   alnasl-os-update.timer alnasl-reset-boot.service \
   alnasl-data.service alnasl-slot-check.service alnasl-upgrade-boot.service alnasl-mode.service \
-  alnasl-arkab-pin.service alnasl-system-update-check.timer alnasl-hotspot.service
+  alnasl-arkab-pin.service alnasl-system-update-check.timer alnasl-hotspot.service alnasl-small-screen.service
 # v6 A/B: Photon's first-boot resizefs grows / to 90 % of the card and adds a swap partition; both
 # would wreck the slot/data layout. The data partition grows instead (alnasl-data).
 systemctl mask resizefs.service
@@ -468,8 +473,8 @@ ls -la $R/var/lib/alnasl-image/
 
 # --- 11. the boot (FAT) partition: templates + a note ------------------------------------
 cp $W/overlay/boot-efi/* $B/
-# v7.3: the hotspot file is for Notepad, so CRLF (the build stripped it with everything else).
-sed -i 's/\r*$/\r/' $B/alnasl-hotspot.txt
+# v7.3: the hotspot and small-screen files are for Notepad, so CRLF (the build stripped them with everything else).
+sed -i 's/\r*$/\r/' $B/alnasl-hotspot.txt $B/alnasl-screen.txt
 # v6 A/B: grub's config on this partition chooses the slot (scripts/grub-ab.cfg; no slot's own
 # grub.cfg is read any more). Its environment block, 1024 bytes written in place by grub's save_env
 # and by alnasl-system-update, starts on slot A.
