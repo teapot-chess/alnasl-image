@@ -76,7 +76,41 @@ chroot $R tdnf --assumeno install linux 2>&1 | tail -4 | sed 's/^/       /'
 cumount $R
 rm -f $R/etc/resolv.conf; mv $R/etc/resolv.conf.keep $R/etc/resolv.conf; rm -f $R/etc/resolv.conf.v
 
+DBG=0; [ -e $R/etc/alnasl/debug-ssh ] && DBG=1
+if [ "${ALNASL_DEBUG_SSH:-0}" = 1 ] || [ $DBG = 1 ]; then
+echo "== v7.4 DEBUG SSH IMAGE (build.ps1 -DebugSsh): sshd on, root by key only. NEVER SHIP THIS IMAGE."
+echo "  ################################################################################"
+echo "  ##  DEBUG SSH IMAGE - never ship. sshd listens on 22 for the alnasl-debug key. ##"
+echo "  ################################################################################"
+[ "${ALNASL_RELEASE:-0}" = 1 ] && bad "a RELEASE build with debug ssh in it" || ok "not a release build"
+[ "${ALNASL_DEBUG_SSH:-0}" = 1 ] && [ $DBG = 1 ] && ok "asked for (ALNASL_DEBUG_SSH=1) and flagged (/etc/alnasl/debug-ssh)" || bad "debug ssh flag and build switch disagree"
+grep -q '^DEBUG_SSH=1$' $R/etc/alnasl/image-release && ok "image-release says DEBUG_SSH=1" || bad "image-release lacks DEBUG_SSH=1"
+for u in sshd.service sshd-keygen.service; do
+  s=$(chroot $R systemctl is-enabled $u 2>&1 | tail -1); [ "$s" = enabled ] && ok "$u enabled" || bad "$u: $s"
+done
+[ -x $R/usr/sbin/sshd ] && ok "sshd binary present" || bad "no sshd binary"
+ls $R/etc/ssh/ssh_host_* 2>/dev/null && bad "host keys baked in (they are made on the box)" || ok "no ssh host keys baked in (sshd-keygen makes them at the first start)"
+A=$R/root/.ssh/authorized_keys
+want="$(tr -d '\r' < $W/debug-ssh.pub)"
+[ -f $A ] && [ "$(cat $A)" = "$want" ] && [ "$(wc -l < $A)" = 1 ] && ok "root's authorized_keys is exactly the debug key (${want##* })" || bad "authorized_keys is not exactly the debug key"
+[ "$(stat -c %a $R/root/.ssh)" = 700 ] && [ "$(stat -c %a $A)" = 600 ] && ok "/root/.ssh 700, authorized_keys 600" || bad "ssh permissions: $(stat -c %a $R/root/.ssh) $(stat -c %a $A)"
+k=$(find $R/root $R/home $R/etc/ssh -name 'authorized_keys*' ! -path "$R/root/.ssh/authorized_keys" 2>/dev/null)
+[ -z "$k" ] && ok "no other authorized_keys" || bad "other authorized_keys: $k"
+# The effective configuration, as this sshd reads it (a throwaway host key: -T needs one). Should sshd -T not run
+# under qemu, the first value of each keyword in the file decides (sshd keeps the first), which is the same answer.
+chroot $R /usr/bin/ssh-keygen -q -t ed25519 -N '' -f /tmp/verify-hostkey >/dev/null 2>&1
+T=$(chroot $R /usr/sbin/sshd -T -f /etc/ssh/sshd_config -h /tmp/verify-hostkey 2>&1)
+rm -f $R/tmp/verify-hostkey $R/tmp/verify-hostkey.pub
+if ! echo "$T" | grep -q '^port 22$'; then
+  echo "  (sshd -T did not run here: $(echo "$T" | head -n 1 | cut -c1-120); reading the file's first values)"
+  T=$(awk 'NF >= 2 && $1 !~ /^#/ { k = tolower($1); if (!(k in s)) { s[k] = 1; v = tolower($2); if (k == "permitrootlogin" && v == "prohibit-password") v = "without-password"; print k " " v } }' $R/etc/ssh/sshd_config)
+fi
+echo "$T" | grep -q -x -E 'permitrootlogin (without-password|prohibit-password)' && echo "$T" | grep -q -x 'passwordauthentication no' && echo "$T" | grep -q -x 'kbdinteractiveauthentication no' \
+  && echo "$T" | grep -q -x 'pubkeyauthentication yes' && echo "$T" | grep -q -x 'authenticationmethods publickey' && echo "$T" | grep -q -x 'permitemptypasswords no' \
+  && ok "sshd -T: root by key only (prohibit-password), no passwords, no keyboard-interactive" || bad "sshd -T: $(echo "$T" | grep -E '^(permitrootlogin|passwordauthentication|kbdinteractiveauthentication|pubkeyauthentication|authenticationmethods)' | tr '\n' ' ')$(echo "$T" | head -c 300)"
+else
 echo "== v6 lockdown: no ssh, no Tailscale, nothing inbound but the hall's"
+grep -q '^DEBUG_SSH' $R/etc/alnasl/image-release && bad "image-release says DEBUG_SSH in a normal image" || ok "image-release: no DEBUG_SSH"
 for u in sshd.service sshd.socket sshd-keygen.service; do
   s=$(chroot $R systemctl is-enabled $u 2>&1 | tail -1)
   case "$s" in masked|*"No such file"*|*"not found"*|*"does not exist"*) ok "$u: ${s:0:40}" ;; *) bad "$u is $s (must be absent or masked)" ;; esac
@@ -89,16 +123,23 @@ else ok "no sshd binary"; fi
 k=$(find $R/root $R/home $R/etc/ssh -name 'authorized_keys*' 2>/dev/null)
 [ -z "$k" ] && ok "no authorized_keys anywhere" || bad "authorized_keys found: $k"
 ls $R/etc/ssh/ssh_host_* 2>/dev/null && bad "host keys baked in" || ok "no ssh host keys baked in"
+fi
 # v7: the ports depend on the role (/run/alnasl-mode/role); each role's ruleset, as the script makes it.
 fwrole() { # role -> both rulesets
   local d; d=$(mktemp -d); [ -n "$1" ] && echo "$1" > $d/role
-  bash -c "source <(sed -n '/^CHAIN=/p;/^log()/p;/^ROLE=/,/^app_rule()/p;/^rules_v4()/,/^}/p;/^rules_v6()/,/^}/p' $R/usr/local/sbin/alnasl-firewall | sed 's#/run/alnasl-mode/role#$d/role#'); rules_v4; rules_v6"
+  bash -c "source <(sed -n '/^CHAIN=/p;/^log()/p;/^ROLE=/,/^app_rule()/p;/^rules_v4()/,/^}/p;/^rules_v6()/,/^}/p' $R/usr/local/sbin/alnasl-firewall | sed 's#/run/alnasl-mode/role#$d/role#;s#/etc/alnasl/debug-ssh#$R/etc/alnasl/debug-ssh#'); rules_v4; rules_v6"
   rm -rf $d
 }
 fw=$(for r in alnasl arkab polis nunki; do fwrole $r; done)
-echo "$fw" | grep -q -E -- '--dport 22( |$)' && bad "firewall lets port 22 in" || ok "firewall: port 22 closed"
+if [ $DBG = 1 ]; then
+  # v7.4 debug image: 22 for every role, on any interface but behind the hotspot's wlan0 DROP (checked with the hotspot below).
+  [ "$(echo "$fw" | grep -c -x -- '-A ALNASL-IN -p tcp --dport 22 -j ACCEPT')" = 8 ] && ok "firewall (DEBUG IMAGE): port 22 open for all four roles, IPv4 and IPv6" || bad "firewall (DEBUG IMAGE): port 22 rule missing or odd"
+else
+  echo "$fw" | grep -q -E -- '--dport 22( |$)' && bad "firewall lets port 22 in" || ok "firewall: port 22 closed"
+fi
 echo "$fw" | grep -q -i -E 'tailscale|41641' && bad "firewall still has the Tailscale rules" || ok "firewall: no Tailscale rules"
-ports() { fwrole "$1" | grep -o -- '-p tcp --dport [0-9]* -j ACCEPT' | awk '{print $4}' | sort -u | tr '\n' ' '; }
+# (the debug image's 22 is counted above; the roles' own ports are the same in both)
+ports() { fwrole "$1" | grep -o -- '-p tcp --dport [0-9]* -j ACCEPT' | awk '$4 != 22 {print $4}' | sort -u | tr '\n' ' '; }
 [ "$(ports alnasl)" = "4040 " ] && ok "firewall, alnasl box: only 4040 (Alnasl) let in" || bad "firewall, alnasl box: tcp ports '$(ports alnasl)'"
 [ "$(ports "")" = "4040 " ] && ok "firewall, no role file: as an alnasl box" || bad "firewall, no role file: tcp ports '$(ports "")'"
 [ "$(ports arkab)" = "4050 " ] && ok "firewall, arkab box: only 4050 (Arkab's page) let in" || bad "firewall, arkab box: tcp ports '$(ports arkab)'"
@@ -937,7 +978,7 @@ grep -q '^DynamicUser=yes' $P && grep -q '^CapabilityBoundingSet=CAP_NET_BIND_SE
 # The firewall: 53/67/80 only with the hotspot flag, only on wlan0, never on Ethernet; the hotspot's phones get nothing else.
 fwhs() { # role flag(1/0) -> both rulesets
   local d; d=$(mktemp -d); echo "$1" > $d/role; [ "$2" = 1 ] && touch $d/active
-  bash -c "source <(sed -n '/^CHAIN=/p;/^log()/p;/^ROLE=/,/^app_rule()/p;/^rules_v4()/,/^}/p;/^rules_v6()/,/^}/p' $R/usr/local/sbin/alnasl-firewall | sed 's#/run/alnasl-mode/role#$d/role#;s#/run/alnasl-hotspot/active#$d/active#'); rules_v4; rules_v6"
+  bash -c "source <(sed -n '/^CHAIN=/p;/^log()/p;/^ROLE=/,/^app_rule()/p;/^rules_v4()/,/^}/p;/^rules_v6()/,/^}/p' $R/usr/local/sbin/alnasl-firewall | sed 's#/run/alnasl-mode/role#$d/role#;s#/run/alnasl-hotspot/active#$d/active#;s#/etc/alnasl/debug-ssh#$R/etc/alnasl/debug-ssh#'); rules_v4; rules_v6"
   rm -rf $d
 }
 for r in alnasl arkab polis nunki; do
@@ -950,6 +991,10 @@ for r in alnasl arkab polis nunki; do
   a=$(grep -n -- '-i wlan0 -j DROP' <<<"$v4" | cut -d: -f1); b=$(grep -n -E -- '--dport (4040|4050) -j ACCEPT|-p icmp -j ACCEPT$|--dport 5353' <<<"$v4" | grep -v -- '-i wlan0' | head -1 | cut -d: -f1)
   [ -n "$a" ] && [ "$a" -lt "${b:-999}" ] && [ "$(grep -c -- '-i wlan0 -j DROP' <<<"$on")" = 2 ] && ok "firewall, $r, hotspot: the phones get nothing else (wlan0 DROP before the role's rules, IPv6 too)" || bad "firewall, $r: hotspot DROP missing or late"
   [ "$(grep -c -- '^-A ALNASL-IN -j DROP$' <<<"$on")" = 2 ] && [ "$(grep -c '^$' <<<"$on")" = 0 ] || bad "firewall, $r, hotspot: no final DROP or blank lines"
+  if [ $DBG = 1 ]; then
+    c=$(grep -n -- '--dport 22 -j ACCEPT' <<<"$v4" | cut -d: -f1)
+    [ -n "$c" ] && [ "$a" -lt "$c" ] && ok "firewall, $r, hotspot (DEBUG IMAGE): 22 only after the wlan0 DROP, so not for the hotspot's phones" || bad "firewall, $r: debug 22 reachable from the hotspot"
+  fi
 done
 if command -v iptables-restore >/dev/null; then
   for r in alnasl arkab; do
@@ -1054,6 +1099,22 @@ nofix=""; for o in $want; do [ -s $OV/$o.dtbo ] && { grep -a -q '__fixups__\|fra
 [ -z "$nofix" ] && ok "each overlay has fragments (dtc -@)" || bad "not an overlay:$nofix"
 grep -a -q 'waveshare,rpi-lcd-35' $OV/alnasl-waveshare35a-r0.dtbo && grep -a -q 'adafruit,yx240qv29' $OV/alnasl-waveshare32b-r90.dtbo && grep -a -q 'adafruit,yx350hv15' $OV/alnasl-hx8357d-r90.dtbo \
   && grep -a -q 'ti,ads7846' $OV/alnasl-waveshare35a-r0.dtbo && ! grep -a -q 'ti,ads7846' $OV/alnasl-hx8357d-r90.dtbo && ok "the panels' compatibles (ili9486, ili9341, hx8357d); touch where there is touch" || bad "an overlay has the wrong panel or touch"
+# v7.4: the stylus must click, not just move the pointer. The module was built from a source that sets
+# INPUT_PROP_DIRECT (build-modules.sh patches it), the image has that very module, and the udev rule makes it a
+# touchscreen and nothing else.
+grep -q '__set_bit(INPUT_PROP_DIRECT, input_dev->propbit);' $W/modsrc/ads7846.c && ok "ads7846 built with INPUT_PROP_DIRECT (a touchscreen, so a tap clicks)" || bad "ads7846.c in modsrc lacks the INPUT_PROP_DIRECT patch"
+ko=$(find $R/lib/modules/$KVER -name 'ads7846.ko*' | head -n 1)
+[ -n "$ko" ] && [ "$(sha256sum < $ko)" = "$(sha256sum < $W/modules-out/ads7846.ko)" ] && ok "the image's ads7846.ko is the patched build (${ko#$R})" || bad "the image's ads7846.ko is not the one just built"
+cmount $R
+exf <<'EX' && ok "udev rule: the stylus is a touchscreen only (touchpad/tablet/mouse/joystick tags cleared) and keeps its calibration matrix" || bad "udev rule for the stylus"
+r = AlnaslSetup.SmallScreen.udev_rule(AlnaslSetup.SmallScreen.identity())
+ok = String.contains?(r, ~s(ENV{ID_INPUT_TOUCHSCREEN}="1")) and String.contains?(r, "LIBINPUT_CALIBRATION_MATRIX") and
+  Enum.all?(~w(ID_INPUT_TOUCHPAD ID_INPUT_TABLET ID_INPUT_MOUSE ID_INPUT_JOYSTICK), &String.contains?(r, ~s(ENV{#{&1}}="")))
+unless ok, do: (IO.puts(:stderr, r); System.halt(1))
+EX
+cumount $R
+docker run --rm --platform linux/arm64 --entrypoint grep alnasl-kiosk:latest -q 'MatchIsTouchscreen "on"' /kiosk.sh \
+  && ok "the kiosk's X takes touchscreens through libinput (MatchIsTouchscreen)" || bad "the kiosk's X has no touchscreen InputClass"
 # The unit: enabled, before the kiosk, after the partitions and udev; the wrapper runs the release.
 s=$(chroot $R systemctl is-enabled alnasl-small-screen.service 2>&1 | tail -1); [ "$s" = enabled ] && ok "alnasl-small-screen enabled" || bad "alnasl-small-screen: $s"
 U=$SU/alnasl-small-screen.service

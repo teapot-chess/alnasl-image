@@ -4,7 +4,7 @@
 #   powershell -File build.ps1 [-Vm root@172.16.63.81] [-Key ~/.ssh/photon_openpair]
 #                              [-AlnasLRepo "..\Alnasl"] [-ArkabRepo "..\arkab"] [-PolisRepo "..\polis"] [-NunkiRepo "..\nunki"]
 #                              [-Skip alnasl,arkab,polis,nunki,setup,espeak,modules,iw,hostapd,kiosk]
-#                              [-Version 7.0] [-Release] [-MinFrom 6.2] [-Notes "..."]
+#                              [-Version 7.0] [-Release] [-MinFrom 6.2] [-Notes "..."] [-DebugSsh]
 #
 # -Version: the image's version within its train (v7 -> 7.0, 7.1 ...); written into the image
 # (/etc/alnasl/image-release) and read back from there by make-release.sh.
@@ -13,6 +13,9 @@
 # last release is merged in when it is there). They are NOT signed and NOT published: sign them with
 # scripts/sign-release.sh on the machine that holds the private key, then upload them by hand.
 # A release build refuses the placeholder update key (ALNASL_RELEASE=1 in assemble/verify).
+# -DebugSsh: a DEBUG image with sshd on, root by key only (scripts/debug-ssh.pub; the private half stays on the
+# PC) and port 22 open off the hotspot. For a box nobody can otherwise reach; never shipped: -Release refuses
+# it, and so do assemble.sh and verify.sh. docs/debug-ssh.md.
 #
 # What it does: ships the Alnasl, Arkab, Polis and Nunki sources (git archive of the tag in versions.json; nothing is built from HEAD, and
 # Arkab must equal the tag Alnasl's mix.exs and mix.lock pin) and the scripts to
@@ -31,14 +34,16 @@ param(
   [string]$Version = "7.0",
   [switch]$Release,
   [string]$MinFrom = "",
-  [string]$Notes = ""
+  [string]$Notes = "",
+  [switch]$DebugSsh
 )
 if ($Version -notmatch '^[0-9]+\.[0-9]+(\.[0-9]+)?$') { throw "-Version must look like 6.1" }
 if ($MinFrom -and $MinFrom -notmatch '^[0-9]+\.[0-9]+(\.[0-9]+)?$') { throw "-MinFrom must look like 6.1" }
 if ($Notes -match "['`"\\]|\r|\n") { throw "-Notes: no quotes, backslashes or line breaks" }
 $Train = "v" + $Version.Split(".")[0]
 $Img = "photon-alnasl-$Train.img"
-$RelEnv = if ($Release) { "ALNASL_RELEASE=1" } else { "ALNASL_RELEASE=0" }
+if ($Release -and $DebugSsh) { throw "-DebugSsh is for test images only: a -Release build never has ssh in it" }
+$RelEnv = $(if ($Release) { "ALNASL_RELEASE=1" } else { "ALNASL_RELEASE=0" }) + $(if ($DebugSsh) { " ALNASL_DEBUG_SSH=1" } else { " ALNASL_DEBUG_SSH=0" })
 $ErrorActionPreference = "Stop"
 $here = $PSScriptRoot
 $W = "/root/w-photon-img5"
@@ -89,7 +94,7 @@ Vm-Run "rm -rf $W/kiosk/ext"
 & scp -r @ssh (Join-Path $here "kiosk\ext") "$Vm`:$W/kiosk/"
 $scripts = @("build-alnasl.sh", "build-arkab.sh", "build-polis.sh", "build-nunki.sh", "build-setup.sh", "build-espeak.sh", "build-modules.sh", "build-kiosk.sh", "build-iw.sh", "build-hostapd.sh",
   "test-kiosk-logic.sh", "test-scripts.sh", "test-compact-css.sh", "verify.sh", "qemu-smoke.sh", "assemble.sh", "lib-chroot.sh", "prepare-base.sh", "bootscreen.sh", "uboot-env.exs",
-  "grub-ab.cfg", "make-release.sh", "release-index.exs")
+  "grub-ab.cfg", "make-release.sh", "release-index.exs", "debug-ssh.pub")
 & scp @ssh @($scripts | ForEach-Object { Join-Path $here "scripts\$_" }) "$Vm`:$W/"
 & scp @ssh (Join-Path $here "module\Makefile") "$Vm`:$W/module-Makefile"
 # v7.3: the small screens' device-tree overlays (build-modules.sh compiles them, *.dts.in once per rotation).

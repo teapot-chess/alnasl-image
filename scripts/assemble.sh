@@ -246,6 +246,11 @@ cat > $R/etc/alnasl/image-release <<REL
 ALNASL_TRAIN=$ALNASL_TRAIN
 ALNASL_VERSION=$ALNASL_VERSION
 REL
+# v7.4: a debug image says so where the version lives (ALNASL_VERSION itself stays a plain version: the updater parses it).
+[ "${ALNASL_DEBUG_SSH:-0}" = 1 ] && cat >> $R/etc/alnasl/image-release <<REL
+# DEBUG SSH IMAGE (build.ps1 -DebugSsh): never ship.
+DEBUG_SSH=1
+REL
 if grep -q 'ALNASL-PLACEHOLDER' $R/etc/alnasl/update-key.pub; then
   echo "WARNING: update-key.pub is the PLACEHOLDER: a box with this image installs no system update"
   [ "${ALNASL_RELEASE:-0}" = 1 ] && { echo "ALNASL_RELEASE=1 needs the real public key in overlay/etc/alnasl/update-key.pub"; exit 1; }
@@ -363,6 +368,41 @@ rm -f $R/tmp/espeak-test.wav
 # --- 7. v6 lockdown: no ssh server, no baked key, no host keys ---------------------------
 # Photon's base image comes with sshd. It goes; if something insists on keeping the package,
 # the units are masked so nothing can start it.
+# v7.4: EXCEPT in a debug image (build.ps1 -DebugSsh, ALNASL_DEBUG_SSH=1; docs/debug-ssh.md): sshd stays, root by
+# the one debug key only, host keys made on the box at its first start. Never with ALNASL_RELEASE=1.
+if [ "${ALNASL_DEBUG_SSH:-0}" = 1 ]; then
+  [ "${ALNASL_RELEASE:-0}" = 1 ] && { echo "ALNASL_DEBUG_SSH=1 with ALNASL_RELEASE=1: a release never has ssh in it"; exit 1; }
+  PUB=$(tr -d '\r' < $W/debug-ssh.pub)
+  case "$PUB" in "ssh-ed25519 "*" alnasl-debug-image") ;; *) echo "debug-ssh.pub is not the debug ed25519 public key"; exit 1 ;; esac
+  echo "######## DEBUG SSH IMAGE: sshd on, root by key only, port 22 open off the hotspot. NEVER SHIP THIS. ########"
+  chroot $R /bin/bash <<'IN'
+rpm -q openssh-server >/dev/null 2>&1 || { echo "openssh-server is not in the base image"; exit 1; }
+for u in sshd.service sshd.socket sshd-keygen.service sshd@.service; do systemctl unmask "$u" >/dev/null 2>&1 || true; done
+systemctl disable sshd.socket >/dev/null 2>&1 || true
+systemctl enable sshd-keygen.service sshd.service
+IN
+  # First match wins in sshd_config, so ours go on top; the stock lines below can no longer loosen them.
+  { cat <<'CFG'
+# --- Alnasl DEBUG SSH IMAGE (build.ps1 -DebugSsh): root by key only. Never in a shipped image. ---
+PermitRootLogin prohibit-password
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+ChallengeResponseAuthentication no
+PermitEmptyPasswords no
+PubkeyAuthentication yes
+AuthenticationMethods publickey
+# ---
+CFG
+    grep -v -E '^(PermitRootLogin|PasswordAuthentication|KbdInteractiveAuthentication|ChallengeResponseAuthentication|PermitEmptyPasswords|PubkeyAuthentication|AuthenticationMethods)[[:space:]]' $R/etc/ssh/sshd_config
+  } > $R/etc/ssh/sshd_config.alnasl && mv $R/etc/ssh/sshd_config.alnasl $R/etc/ssh/sshd_config
+  chmod 0600 $R/etc/ssh/sshd_config
+  install -d -m 0700 $R/root/.ssh
+  printf '%s\n' "$PUB" > $R/root/.ssh/authorized_keys
+  chmod 0600 $R/root/.ssh/authorized_keys
+  rm -f $R/etc/ssh/ssh_host_*
+  # The flag the firewall reads (port 22) and the mark verify.sh and anyone on the box can see.
+  printf '%s\n' "DEBUG SSH IMAGE (build.ps1 -DebugSsh): sshd on, root by key only. Never ship this image." > $R/etc/alnasl/debug-ssh
+else
 chroot $R /bin/bash <<'IN'
 if rpm -q openssh-server >/dev/null 2>&1; then
   rpm -e openssh-server 2>&1 || tdnf -y --disablerepo='*' erase openssh-server 2>&1 || echo "openssh-server could not be removed; masked instead"
@@ -370,7 +410,8 @@ fi
 for u in sshd.service sshd.socket sshd-keygen.service sshd@.service; do systemctl mask "$u" >/dev/null 2>&1 || true; done
 rpm -q openssh-server 2>&1 | sed 's/^/  ssh server package: /'
 IN
-rm -f $R/root/.ssh/authorized_keys $R/etc/ssh/ssh_host_* $R/etc/ssh/alnasl-sshd.conf
+rm -f $R/root/.ssh/authorized_keys $R/etc/ssh/ssh_host_* $R/etc/ssh/alnasl-sshd.conf $R/etc/alnasl/debug-ssh
+fi
 [ "$(chroot $R rpm -q linux)" = "linux-6.1.10-11.ph5.aarch64" ] || { echo "KERNEL PACKAGE CHANGED by the ssh removal"; exit 1; }
 
 # --- 7b. no Python on the box --------------------------------------------------------------------
