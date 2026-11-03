@@ -782,12 +782,14 @@ done
 for u in alnasl-kiosk.service alnasl-kiosk-load.service; do
   [ -z "$(cond $u)" ] && ok "$u: every role (the screen shows the role's page)" || bad "$u still has a role condition: $(cond $u)"
 done
+chroot $R runuser -u alnasl -- test -x /opt/alnasl/current/bin/alnasl && ok "user alnasl can reach and run /opt/alnasl/current/bin/alnasl" || bad "user alnasl cannot run its program (/opt closed? 203/EXEC: the box answers nothing on the LAN)"
 # The apps: each installed by its own install.sh, shipped switched off (a new box is an alnasl box).
 for a in arkab polis nunki; do
   V=$(cat $R/opt/$a/current/VERSION 2>/dev/null)
   [ -n "$V" ] && [ -x $R/opt/$a/current/bin/$a ] && ok "$a $V installed in /opt/$a (current)" || bad "$a is not in the image (/opt/$a/current/bin/$a)"
   if chroot $R /bin/bash -c "ldd /opt/$a/current/erts-*/bin/beam.smp | grep -q 'not found'"; then bad "$a's runtime misses a library on Photon"; else ok "$a's runtime: every library found on Photon"; fi
   chroot $R getent passwd $a >/dev/null && ok "user $a" || bad "no user $a"
+  chroot $R runuser -u $a -- test -x /opt/$a/current/bin/$a && ok "user $a can reach and run its own program" || bad "user $a cannot run /opt/$a/current/bin/$a (a closed /opt? 203/EXEC on the box)"
   for u in $a.service $a-update.path; do
     st=$(chroot $R systemctl is-enabled $u 2>&1 | tail -1); [ "$st" = disabled ] && ok "$u ships disabled (alnasl-mode enables it on a $a box)" || bad "$u: $st (disabled expected)"
   done

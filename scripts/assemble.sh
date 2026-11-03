@@ -199,6 +199,9 @@ rm -rf $R/opt/alnasl-setup
 tar -xzf $W/alnasl-setup-linux-aarch64.tar.gz -C $R/opt
 chown -R 0:0 $R/opt/alnasl-setup
 chmod -R u=rwX,go=rX $R/opt/alnasl-setup
+# Photon ships /opt as 750 root: the role users (alnasl, arkab, polis, nunki) could not reach their own programs,
+# so every role app failed with "Permission denied" (203/EXEC) and the box answered nothing on the LAN (7.3, 7.4).
+chmod 0755 $R/opt
 [ -x $R/opt/alnasl-setup/bin/alnasl_setup ] && [ -x $R/opt/alnasl-setup/bin/alnasl-fbtool ] || { echo "setup-app release incomplete"; exit 1; }
 chroot $R /opt/alnasl-setup/bin/alnasl_setup eval 'IO.puts("setup-app runs in the image: " <> System.otp_release())' || { echo "setup-app does not start in the image"; exit 1; }
 # v7.3: the hotspot file's template, for when someone deletes it from the card (alnasl-hotspot re-creates it).
