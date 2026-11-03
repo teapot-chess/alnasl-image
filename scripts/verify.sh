@@ -628,7 +628,7 @@ grep -q 'ConditionPathExists=/boot/efi/alnasl-reset.txt' $R/etc/systemd/system/a
 grep -q 'rm -f "$TRIGGER"' $R/usr/local/sbin/alnasl-reset && ! grep -q -E 'mkfs|/boot/efi/\*|rm -rf /boot' $R/usr/local/sbin/alnasl-reset && ok "reset removes only its trigger from the boot partition" || bad "alnasl-reset and the boot partition"
 [ -f $B/alnasl-reset.txt.example ] && [ ! -f $B/alnasl-reset.txt ] && ok "boot partition: reset example, no live trigger" || bad "boot partition reset files"
 src server.ex "\"/api/reset\"" && grep -q 'reset-hold' $R/usr/local/share/alnasl-setup/www/app.js && ok "menu: Erase this box (hold to confirm)" || bad "reset missing from the menu"
-for key in reset reset_d reset_hold; do n=$(grep -c "$key:" $R/usr/local/share/alnasl-setup/www/app.js); [ "$n" = 2 ] && ok "app.js: $key in EN and NL" || bad "app.js: $key found $n times (2 expected)"; done
+for key in reset reset_d reset_hold; do n=$(grep -c -E "(^|[^A-Za-z0-9_])$key:" $R/usr/local/share/alnasl-setup/www/app.js); [ "$n" = 2 ] && ok "app.js: $key in EN and NL" || bad "app.js: $key found $n times (2 expected)"; done
 
 echo "== v6 A/B: card layout, data partition, system updates, train rule"
 DISK_ID=416c6e73
@@ -1041,7 +1041,8 @@ chroot $R modprobe -n -v -S $KVER ili9486 2>&1 | grep -q drm_mipi_dbi && ok "ili
 # The overlays: every one the program can ask for is in the image, and each is a real overlay (fragments, __fixups__).
 OV=$R/usr/lib/alnasl/overlays
 cmount $R
-want=$(exf <<'EX'
+# (only the names: the release's ERTS may print a socket warning on stdout first)
+want=$(exf <<'EX' | grep -o -E 'alnasl-[a-z0-9-]+' | tr '\n' ' '
 IO.puts(Enum.join(AlnaslSetup.SmallScreen.all_overlays(), " "))
 EX
 )
