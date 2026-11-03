@@ -103,12 +103,12 @@ CHROMIUM_FLAGS="--kiosk --no-sandbox --user-data-dir=$TMPD/chromium --disk-cache
 
 echo "kiosk: start at t=$(upt)s since boot, mode=$MODE"
 # v7.3: an SPI panel: its card only (HDMI, connected or not, is left to the console and the boot screen).
-CARDS="card*"; FBDEV=/dev/fb0
+CARDS="card*"; FBDEV=/dev/fb0; SPI_PANEL=0
 case "${KIOSK_CARD:-}" in
   '') ;;
   card[0-9]|card[0-9][0-9])
     if [ -e "$DRM/$KIOSK_CARD" ]; then
-      CARDS=$KIOSK_CARD
+      CARDS=$KIOSK_CARD; SPI_PANEL=1
       case "${KIOSK_FB:-}" in /dev/fb[0-9]|/dev/fb[0-9][0-9]) FBDEV=$KIOSK_FB ;; esac
       echo "kiosk: small SPI screen on $KIOSK_CARD (${FBDEV#/dev/}): the picture goes there (alnasl-screen.txt)"
     else
@@ -342,6 +342,13 @@ src=xrandr
 [ -z "\$sz" ] && sz=1920,1080 && src=default
 echo "kiosk: X screen size \$sz (from \$src)"
 echo "path=x driver=$drv window-size=\$sz (from \$src) drm=${drm_size:-unknown} fb=${fb_virtual:-none} scale=$SCALE vt=$vt" > $STATE
+# v7.4.1: an SPI panel keeps its own picture memory and is only sent what X marks as changed. The browser's first
+# full picture went missing and the compact page never changes, so the boot screen stayed up for good. A repaint
+# with no background of its own (no flash) after the browser starts, then every 30 s, sends the whole picture again.
+if [ "$SPI_PANEL" = 1 ]; then
+  ( for s in 4 6 10; do sleep \$s; xrefresh -none 2>/dev/null; done
+    while sleep 30; do xrefresh -none 2>/dev/null || exit 0; done ) &
+fi
 if command -v matchbox-window-manager >/dev/null 2>&1; then
   matchbox-window-manager -use_titlebar no -use_cursor no &
   sleep 0.2
