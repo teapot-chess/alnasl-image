@@ -281,6 +281,14 @@ run_x() { # $1 = virtual terminal to run X on (vt1 = the kiosk's own, vt7 = fall
   Option "ShadowFB" "true"
 EndSection
 ' "$kms_card" > "$TMPD/xorg.conf"
+    # v7.4.1: an SPI panel's driver prefers 16-bit colour and X takes it; Chromium then draws a white window and
+    # nothing else. 24-bit here, the panel driver turns it into its own 16 bits on the way out.
+    [ "$SPI_PANEL" = 1 ] && printf 'Section "Screen"
+  Identifier "spi"
+  Device "kms"
+  DefaultDepth 24
+EndSection
+' >> "$TMPD/xorg.conf"
   else
     printf 'Section "Device"
   Identifier "fb"
