@@ -6,7 +6,7 @@ cd /root/w-photon-img5/setup
 rm -rf src && mkdir src && tar -xf setup-src.tar -C src
 # The tests read a few repository files (../../overlay/..., ../../scripts/grub-ab.cfg): stage them in the build context.
 rm -rf overlay scripts
-for f in boot-efi/alnasl-hotspot.txt etc/alnasl/update-key.pub; do mkdir -p "overlay/$(dirname "$f")"; cp "../overlay/$f" "overlay/$f"; done
+for f in boot-efi/alnasl-hotspot.txt boot-efi/alnasl-screen.txt etc/alnasl/update-key.pub; do mkdir -p "overlay/$(dirname "$f")"; cp "../overlay/$f" "overlay/$f"; done
 mkdir -p overlay/usr/share/alnasl scripts
 cp -r ../overlay/usr/share/alnasl/splash overlay/usr/share/alnasl/
 cp ../grub-ab.cfg scripts/grub-ab.cfg

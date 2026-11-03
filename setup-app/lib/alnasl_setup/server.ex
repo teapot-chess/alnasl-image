@@ -16,7 +16,7 @@ defmodule AlnaslSetup.Server do
   never logged; the access log holds only method, path and status.
   """
   use Supervisor
-  alias AlnaslSetup.{Diag, Http, Json, Lock, Sys, Wifi}
+  alias AlnaslSetup.{Diag, Http, Json, Lock, SmallScreen, Sys, Wifi}
   alias AlnaslSetup.Server.{Box, Help, Net, PortalApi, Printers, Py, Resolution, State}
 
   @port 4041
@@ -240,11 +240,16 @@ defmodule AlnaslSetup.Server do
           "alnasl_up" => Box.alnasl_up?(),
           "mode" => Box.mode_status(),
           "role_up" => Box.role_up?(),
-          "role_port" => Box.role_port()[Box.running_role()]
+          "role_port" => Box.role_port()[Box.running_role()],
+          # v7.3: the stylus of a small screen (alnasl-screen.txt), for Settings > Touch screen
+          "touch" => SmallScreen.read_state()["touch"] || "off"
         }
 
       "/api/resolution" ->
         Resolution.status()
+
+      "/api/touch" ->
+        SmallScreen.touch_status()
 
       "/api/net" ->
         Net.net_status()
@@ -371,6 +376,18 @@ defmodule AlnaslSetup.Server do
 
       "/api/resolution/undo" ->
         Resolution.cancel()
+
+      # v7.3, Settings > Touch screen: {"samples": [[cross x, cross y, tap x, tap y] x4]}, fractions of the screen.
+      # The new matrix is in the udev database at once; X reads it when it starts, so the screen restarts.
+      "/api/touch/calibrate" ->
+        {_c, res} = SmallScreen.save_calibration(g(b, "samples"))
+        Box.restart_kiosk()
+        %{"ok" => true, "error_pct" => Float.round(res * 100, 1)}
+
+      "/api/touch/reset" ->
+        SmallScreen.reset_calibration()
+        Box.restart_kiosk()
+        %{"ok" => true}
 
       "/api/finish" ->
         finish(b)

@@ -1,0 +1,97 @@
+# ALNASL SMALL SCREEN ON THE PINS
+#
+# This file is ONLY for small screens that sit on the Pi's pins. Any ordinary
+# screen on HDMI, with or without touch, needs nothing here: leave SCREEN=hdmi.
+# The box cannot detect such a screen by itself, so you name it:
+#
+#   SCREEN=hdmi          the default: nothing changes, the pins stay free
+#   SCREEN=waveshare35a  3.5-inch SPI screen, 480x320, stylus touch (Waveshare
+#                        "3.5inch RPi LCD (A)" and its many clones, often sold
+#                        as "3.5 inch XPT2046"; PiScreen boards: SCREEN=piscreen,
+#                        the same thing)
+#   SCREEN=waveshare32b  2.8 or 3.2-inch SPI screen, 320x240, stylus touch
+#                        (ILI9341 chip; Waveshare 3.2" (B) and its clones)
+#   SCREEN=hx8357d       Adafruit 3.5-inch PiTFT type, 480x320, picture only:
+#                        its touch chip is not supported, so no stylus
+#
+# With an SPI screen the box's own screen is the small one; an HDMI screen
+# plugged in as well shows only the start-up picture and the text console.
+#
+# A 3.5-inch screen that takes its PICTURE over HDMI and only has its stylus
+# on the pins (CUQI RPM-01, "MPI3508", "3.5inch HDMI LCD"): keep SCREEN=hdmi
+# and set TOUCH=xpt2046 (SCREEN=mpi3508 does the same). For those only:
+#   MODE=640x480         what the Pi sends; the screen scales it to its
+#                        480x320. 480x320 is sharper, but a Pi 4 often cannot
+#                        send it; auto = what the screen asks for.
+#
+# For every screen above:
+#   ROTATE=0             0, 90, 180 or 270 degrees clockwise. The picture and
+#                        the stylus turn together. 90 and 270 make it upright.
+#   CALIBRATION=         only if the stylus is off and the calibration on the
+#                        screen does not help: four numbers x min, x max,
+#                        y min, y max for ROTATE=0, e.g. 390 3750 3700 400,
+#                        and SWAPXY=1 if the two axes are swapped. Leave both
+#                        empty for the built-in values of the screen.
+# Calibrating on the screen itself: menu > Settings > Touch screen, tap the four
+# crosses with the stylus. The box keeps that result (through updates) and it
+# wins over the CALIBRATION= line; "Back to the defaults" there undoes it.
+#
+# A change here is used from the next start of the box. If this file is damaged
+# or says something the box does not understand, the box starts with
+# SCREEN=hdmi.
+#
+# -----------------------------------------------------------------------------
+#
+# ALNASL KLEIN SCHERM OP DE PINNEN
+#
+# Dit bestand is ALLEEN voor kleine schermpjes die op de pinnen van de Pi
+# zitten. Een gewoon scherm op HDMI, met of zonder aanraking, heeft hier niets
+# nodig: laat SCREEN=hdmi staan. De kast kan zo'n scherm niet zelf herkennen,
+# dus je geeft het een naam:
+#
+#   SCREEN=hdmi          de standaard: er verandert niets, de pinnen blijven vrij
+#   SCREEN=waveshare35a  3,5-inch SPI-scherm, 480x320, stylus-aanraking
+#                        (Waveshare "3.5inch RPi LCD (A)" en zijn vele klonen,
+#                        vaak verkocht als "3.5 inch XPT2046"; PiScreen-bordjes:
+#                        SCREEN=piscreen, hetzelfde)
+#   SCREEN=waveshare32b  2,8- of 3,2-inch SPI-scherm, 320x240, stylus-aanraking
+#                        (ILI9341-chip; Waveshare 3.2" (B) en zijn klonen)
+#   SCREEN=hx8357d       Adafruit 3,5-inch PiTFT-type, 480x320, alleen beeld:
+#                        zijn aanraakchip wordt niet ondersteund, dus geen stylus
+#
+# Met een SPI-scherm is het kleine scherm het scherm van de kast; een HDMI-
+# scherm dat er ook aan hangt, toont alleen het startbeeld en de tekstconsole.
+#
+# Een 3,5-inch scherm dat zijn BEELD via HDMI krijgt en alleen zijn stylus op
+# de pinnen heeft (CUQI RPM-01, "MPI3508", "3.5inch HDMI LCD"): laat
+# SCREEN=hdmi staan en zet TOUCH=xpt2046 (SCREEN=mpi3508 doet hetzelfde).
+# Alleen daarvoor:
+#   MODE=640x480         wat de Pi stuurt; het scherm schaalt het naar zijn
+#                        480x320. 480x320 is scherper, maar een Pi 4 kan dat
+#                        vaak niet sturen; auto = wat het scherm vraagt.
+#
+# Voor elk scherm hierboven:
+#   ROTATE=0             0, 90, 180 of 270 graden met de klok mee. Het beeld en
+#                        de stylus draaien samen. 90 en 270 zetten het rechtop.
+#   CALIBRATION=         alleen als de stylus ernaast zit en de kalibratie op
+#                        het scherm niet helpt: vier getallen x min, x max,
+#                        y min, y max voor ROTATE=0, bv. 390 3750 3700 400, en
+#                        SWAPXY=1 als de twee assen omgewisseld zijn. Laat ze
+#                        allebei leeg voor de ingebouwde waarden van het scherm.
+# Kalibreren op het scherm zelf: menu > Instellingen > Aanraakscherm, tik met de
+# stylus de vier kruisjes aan. Dat resultaat houdt de kast bij (ook na updates)
+# en het gaat voor op de regel CALIBRATION=; "Terug naar de standaard" daar
+# maakt het ongedaan.
+#
+# Een wijziging hier geldt vanaf de volgende start van de kast. Is dit bestand
+# beschadigd of staat er iets in dat de kast niet begrijpt, dan start de kast
+# met SCREEN=hdmi.
+#
+# -----------------------------------------------------------------------------
+
+SCREEN=hdmi
+TOUCH=auto
+ROTATE=0
+MODE=640x480
+CALIBRATION=
+SWAPXY=

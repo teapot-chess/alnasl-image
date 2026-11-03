@@ -5,8 +5,8 @@ defmodule AlnaslSetup.CLI do
 
       /opt/alnasl-setup/bin/alnasl_setup eval 'AlnaslSetup.CLI.main()' -- <program> <args...>
 
-  /usr/local/sbin/alnasl-splash and /usr/local/sbin/alnasl-system-update are three-line shell scripts that
-  do exactly that. Programs: `splash`, `system-update`, `hotspot` (`--stop`, `--prepare`).
+  /usr/local/sbin/alnasl-splash, alnasl-system-update and alnasl-small-screen are three-line shell scripts that
+  do exactly that. Programs: `splash`, `system-update`, `hotspot` (`--stop`, `--prepare`), `small-screen` (`--status`).
   The exit code is the program's.
   """
 
@@ -27,6 +27,7 @@ defmodule AlnaslSetup.CLI do
         ["splash" | rest] -> AlnaslSetup.Splash.main(rest)
         ["system-update" | rest] -> AlnaslSetup.SystemUpdate.main(rest)
         ["hotspot" | rest] -> AlnaslSetup.Hotspot.main(rest)
+        ["small-screen" | rest] -> AlnaslSetup.SmallScreen.main(rest)
         _ -> usage()
       end
 
@@ -34,7 +35,11 @@ defmodule AlnaslSetup.CLI do
   end
 
   defp usage do
-    IO.puts(:stderr, "usage: alnasl_setup eval 'AlnaslSetup.CLI.main()' -- splash|system-update|hotspot [args]")
+    IO.puts(
+      :stderr,
+      "usage: alnasl_setup eval 'AlnaslSetup.CLI.main()' -- splash|system-update|hotspot|small-screen [args]"
+    )
+
     2
   end
 end

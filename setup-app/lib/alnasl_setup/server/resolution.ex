@@ -60,7 +60,9 @@ defmodule AlnaslSetup.Server.Resolution do
       "pending" => pend,
       "seconds_left" => if(pend, do: max(0, trunc(p.deadline - Sys.now())), else: 0),
       "confirm_seconds" => confirm_seconds(),
-      "kiosk_running" => Box.unit_state("alnasl-kiosk.service")["active"]
+      "kiosk_running" => Box.unit_state("alnasl-kiosk.service")["active"],
+      # v7.3: a small screen on the pins (alnasl-screen.txt) sets the picture; this setting stands aside
+      "forced" => AlnaslSetup.SmallScreen.forced?()
     }
   end
 
@@ -104,6 +106,9 @@ defmodule AlnaslSetup.Server.Resolution do
   end
 
   def set(mode) do
+    if AlnaslSetup.SmallScreen.forced?(),
+      do: raise(ArgumentError, "A small screen on the pins sets the picture (alnasl-screen.txt on the SD card).")
+
     {conn, modes} = drm_connector()
     if mode != "auto" and mode not in modes, do: raise(ArgumentError, "The screen does not offer that resolution.")
     p = pending()

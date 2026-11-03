@@ -347,6 +347,8 @@ defmodule AlnaslSetup.ServerTest do
   describe "state, language, keyboard" do
     test "/api/state has everything the wizard needs" do
       s = json("/api/state")
+      # v7.3: no small screen has run
+      assert s["touch"] == "off"
       assert s["done"] == false and s["lang"] == "en"
       assert length(s["layouts"]) == 10
       assert hd(s["layouts"]) == %{"id" => "be", "label" => "Belgian (AZERTY)"}
@@ -367,6 +369,38 @@ defmodule AlnaslSetup.ServerTest do
                "running" => "master",
                "running_role" => "alnasl"
              }
+    end
+
+    test "v7.3 Settings > Touch screen: the state of the boot, a calibration refused while the stylus is off" do
+      t = json("/api/touch")
+      assert t["touch"] == "off" and t["status"] == "not_started" and t["screen"] == "hdmi" and t["stored"] == false
+
+      Box.put(
+        "/run/alnasl-small-screen/state.json",
+        ~s({"screen": "waveshare35a", "preset": "waveshare35a", "touch": "xpt2046", "status": "ready", "rotate": 0, "card": "card1", "size": "480x320", "source": "default", "device": "/dev/input/event0"})
+      )
+
+      t = json("/api/touch")
+      assert t["touch"] == "xpt2046" and t["status"] == "ready" and t["mode"] == "480x320" and t["device"] == true
+      assert json("/api/state")["touch"] == "xpt2046"
+      assert json("/api/resolution")["forced"] == true
+      r = post("/api/resolution", %{"mode" => "auto"})
+      assert r.status == 400 and r.json["error"] =~ "alnasl-screen.txt"
+
+      Box.put("/run/alnasl-small-screen/state.json", ~s({"screen": "hdmi", "touch": "off", "status": "off"}))
+
+      r =
+        post("/api/touch/calibrate", %{
+          "samples" => [
+            [0.15, 0.15, 0.15, 0.15],
+            [0.85, 0.15, 0.85, 0.15],
+            [0.85, 0.85, 0.85, 0.85],
+            [0.15, 0.85, 0.15, 0.85]
+          ]
+        })
+
+      assert r.status == 400 and r.json["error"] =~ "touch screen is off"
+      assert ok!(post("/api/touch/reset", %{})) == %{"ok" => true}
     end
 
     test "POST /api/lang" do
