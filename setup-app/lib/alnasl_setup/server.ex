@@ -28,7 +28,7 @@ defmodule AlnaslSetup.Server do
     ".svg" => "image/svg+xml",
     ".png" => "image/png"
   }
-  @spa ~w(/ /setup /menu /settings /info /diag /help /compact)
+  @spa ~w(/ /setup /menu /settings /info /diag /compact /help)
 
   # ------------------------------------------------------------------------------------ process --
 
