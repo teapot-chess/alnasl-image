@@ -619,6 +619,20 @@ defmodule AlnaslSetup.Wifi do
     Py.log("a Wi-Fi network was handed to the hotspot daemon to try")
   end
 
+  @doc "The box's own screen asks for the hotspot now, not after the wait. The daemon reads and deletes it."
+  def hotspot_start_request do
+    dir = Sys.path(@hotspot_run)
+
+    if not File.dir?(dir) do
+      File.mkdir_p!(dir)
+      File.chmod!(dir, 0o700)
+    end
+
+    AlnaslSetup.Server.Box.write_private(@hotspot_run <> "/start", "1")
+    Py.log("the hotspot was asked for on the box's screen")
+    %{"ok" => true}
+  end
+
   @doc """
   While the AP is up: a scan in AP mode if the chip allows it (brcmfmac often does not), otherwise the
   list the hotspot daemon saved just before it took the radio.

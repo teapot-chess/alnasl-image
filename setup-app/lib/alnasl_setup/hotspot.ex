@@ -48,6 +48,8 @@ defmodule AlnaslSetup.Hotspot do
   @status @run <> "/status.json"
   # written by the setup server (0600), read and deleted at once here
   @join_req @run <> "/join.json"
+  # written by the setup server when the box's own screen says "start it now"; read and deleted at once
+  @start_req @run <> "/start"
   # the last client-mode scan, for the page while the AP is up
   @scan_cache @run <> "/scan.json"
   @hostapd_conf @run <> "/hostapd.conf"
@@ -655,6 +657,33 @@ defmodule AlnaslSetup.Hotspot do
     end
   end
 
+  @doc false
+  # The screen's "start it now": the same hold a failed join gets, so the next pass turns the AP on.
+  def take_start do
+    path = Sys.path(@start_req)
+
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular}} ->
+        File.rm(path)
+        true
+
+      _ ->
+        false
+    end
+  end
+
+  @doc """
+  When the hotspot will come on by itself, as a Unix time, or nil when it will not (it is on, the box has
+  a network, there is no Wi-Fi). The screen counts down to it instead of promising "a moment".
+  """
+  def starts_at(%__MODULE__{} = s) do
+    case s.reason do
+      "waiting" -> s.no_net_since + if(s.had_network, do: @regrace, else: @boot_grace)
+      "boot_grace" -> s.boot + @boot_grace
+      _ -> nil
+    end
+  end
+
   defp truthy?(v), do: v not in [nil, false, 0, 0.0, "", [], %{}]
 
   defp py_str(v) when is_binary(v), do: v
@@ -747,6 +776,7 @@ defmodule AlnaslSetup.Hotspot do
       "portal" => "http://#{@ap_addr}/",
       "last_join" => s.last_join,
       "enabled" => s.enabled,
+      "starts_at" => starts_at(s),
       "updated" => Sys.now()
     })
   end
@@ -792,6 +822,14 @@ defmodule AlnaslSetup.Hotspot do
         {join(s, req), 0}
 
       nil ->
+        s =
+          if take_start() do
+            log("the hotspot was asked for on the box's screen; on for at least 10 minutes")
+            %{s | hold_until: now + @hold_after_fail}
+          else
+            s
+          end
+
         has_wlan = exists?("/sys/class/net/" <> @iface) and s.password != nil
         s = if has_wlan and not truthy?(s.ssid), do: setup_identity(s), else: s
         e = eth_up?()

@@ -53,7 +53,8 @@ defmodule AlnaslSetup.Compact do
         %{"kind" => "url", "text" => url, "url" => url}
 
       true ->
-        %{"kind" => "none"}
+        at = hs["starts_at"]
+        %{"kind" => "none", "starts_in" => if(is_number(at), do: max(0, round(at - i.now)), else: nil)}
     end
   end
 

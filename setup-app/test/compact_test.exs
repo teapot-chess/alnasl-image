@@ -51,6 +51,13 @@ defmodule AlnaslSetup.CompactTest do
       assert C.qr_target(i(%{port: nil}))["kind"] == "none"
     end
 
+    test "no code yet but a hotspot on its way: how many seconds until it comes on by itself" do
+      wait = Map.merge(@hs, %{"active" => false, "starts_at" => 1250.4})
+      assert %{"kind" => "none", "starts_in" => 250} = C.qr_target(i(%{hotspot: wait, addrs: []}))
+      assert C.qr_target(i(%{hotspot: Map.put(wait, "starts_at", 900.0), addrs: []}))["starts_in"] == 0
+      assert C.qr_target(i(%{hotspot: Map.delete(wait, "starts_at"), addrs: []}))["starts_in"] == nil
+    end
+
     test "the code is drawn from rows of 0 and 1, square" do
       r = C.rows("http://192.168.0.50:4040/")
       assert length(r) >= 21 and Enum.all?(r, &(String.length(&1) == length(r) and &1 =~ ~r/\A[01]+\z/))

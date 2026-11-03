@@ -35,7 +35,8 @@ defmodule AlnaslSetup.Server.PortalApi do
       "active" => Wifi.hotspot_active?(),
       "ssid" => s["ssid"],
       "portal" => "http://10.42.0.1/",
-      "reason" => s["reason"]
+      "reason" => s["reason"],
+      "starts_at" => s["starts_at"]
     }
 
     if out["active"] do

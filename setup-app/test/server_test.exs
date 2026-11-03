@@ -1408,7 +1408,8 @@ defmodule AlnaslSetup.ServerTest do
                "active" => false,
                "ssid" => nil,
                "portal" => "http://10.42.0.1/",
-               "reason" => nil
+               "reason" => nil,
+               "starts_at" => nil
              }
 
       Box.put("/run/alnasl-hotspot/active", "")
@@ -1419,11 +1420,19 @@ defmodule AlnaslSetup.ServerTest do
                "ssid" => "Alnasl-setup-AB12",
                "portal" => "http://10.42.0.1/",
                "reason" => "no_network",
+               "starts_at" => nil,
                "password" => "hallpass99"
              }
 
       Box.put("/boot/efi/alnasl-hotspot.txt", "password=short\n")
       assert json("/api/hotspot")["password"] == nil
+    end
+
+    test "/api/hotspot/start: the screen's start-it-now leaves a request for the daemon, the portal does not pass it" do
+      assert post("/api/hotspot/start", %{}).json == %{"ok" => true}
+      assert File.read!(Sys.path("/run/alnasl-hotspot/start")) == "1"
+      assert AlnaslSetup.Hotspot.take_start()
+      refute AlnaslSetup.Hotspot.take_start()
     end
 
     test "/api/portal: what the phone page shows, no secrets" do

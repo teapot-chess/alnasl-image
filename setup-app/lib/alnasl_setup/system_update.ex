@@ -1409,8 +1409,11 @@ defmodule AlnaslSetup.SystemUpdate do
     after
       30_000 ->
         case Port.info(port, :os_pid) do
-          {:os_pid, pid} -> System.cmd("sh", ["-c", "kill -9 \"$1\"", "sh", Integer.to_string(pid)], stderr_to_stdout: true)
-          _ -> :ok
+          {:os_pid, pid} ->
+            System.cmd("sh", ["-c", "kill -9 \"$1\"", "sh", Integer.to_string(pid)], stderr_to_stdout: true)
+
+          _ ->
+            :ok
         end
 
         receive do
@@ -2117,7 +2120,9 @@ defmodule AlnaslSetup.SystemUpdate do
       not none?(env_get(env, "alnasl_failed")) ->
         record(
           "rolled_back",
-          "the update to #{tv} did not start properly #{@tries} times; back on #{version} (slot #{cur})", version: tv)
+          "the update to #{tv} did not start properly #{@tries} times; back on #{version} (slot #{cur})",
+          version: tv
+        )
 
         env
         |> env_put(

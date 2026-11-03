@@ -141,6 +141,7 @@ const TX = {
     upd_url: "Where updates come from", upd_url_d: "An https:// address of a release index. Keep the default unless the Alnasl team tells you otherwise.",
     cmp_menu: "Menu", cmp_qr_setup: "Scan to set up this box", cmp_qr_in: "Scan to reach this box", cmp_qr_url: "Scan for %s",
     cmp_qr_none: "No network yet", cmp_qr_none_d: "Plug in Ethernet, or wait: the setup hotspot comes back when no network works.",
+    cmp_qr_in_t: "Setup hotspot in %s", cmp_qr_in_d: "The box waits a few minutes first, in case the network comes back.", cmp_qr_now: "Start it now",
     cmp_qr_wait: "Starting the setup hotspot", cmp_qr_wait_d: "A QR code appears here in a moment. No Wi-Fi adapter? Plug in Ethernet.",
     cmp_status_in: "Status in %s", cmp_status: "Status", cmp_none: "none", cmp_hotspot: "setup hotspot", cmp_running: "running", cmp_stopped: "stopped",
     cmp_wait: "Waiting for the box...", cmp_t_role: "Use", cmp_t_pin: "Remote PIN", cmp_t_qr: "Show the QR code", cmp_pin_done: "Saved.",
@@ -282,6 +283,7 @@ const TX = {
     upd_url: "Waar updates vandaan komen", upd_url_d: "Een https://-adres van een release-index. Laat de standaard staan tenzij het Alnasl-team iets anders zegt.",
     cmp_menu: "Menu", cmp_qr_setup: "Scan om deze kast in te stellen", cmp_qr_in: "Scan om deze kast te bereiken", cmp_qr_url: "Scan voor %s",
     cmp_qr_none: "Nog geen netwerk", cmp_qr_none_d: "Steek een netwerkkabel in, of wacht: de installatiehotspot komt terug als geen netwerk werkt.",
+    cmp_qr_in_t: "Installatiehotspot over %s", cmp_qr_in_d: "De kast wacht eerst een paar minuten, voor het geval het netwerk terugkomt.", cmp_qr_now: "Nu starten",
     cmp_qr_wait: "De installatiehotspot start", cmp_qr_wait_d: "Zo meteen verschijnt hier een QR-code. Geen wifi-adapter? Steek een netwerkkabel in.",
     cmp_status_in: "Status over %s", cmp_status: "Status", cmp_none: "geen", cmp_hotspot: "installatiehotspot", cmp_running: "draait", cmp_stopped: "gestopt",
     cmp_wait: "Wachten op de kast...", cmp_t_role: "Gebruik", cmp_t_pin: "Pincode op afstand", cmp_t_qr: "Toon de QR-code", cmp_pin_done: "Opgeslagen.",
@@ -509,6 +511,16 @@ function compactQr(r) {
   } else if (q.kind === "url") {
     title = tf("cmp_qr_url", ROLE_NAME[canonRole(r.role) || "alnasl"]);
     lines = [h("p", { class: "cmp-big cmp-url" }, q.url.replace(/^http:\/\//, "").replace(/\/$/, ""))];
+  } else if (q.starts_in > 0) {
+    // The box waits before it takes the radio (a hall router that reboots comes back); say how long,
+    // and let a finger skip the wait.
+    title = tf("cmp_qr_in_t", mmss(q.starts_in));
+    lines = [h("p", { class: "dim" }, t("cmp_qr_in_d")),
+      r.touch ? h("button", { class: "btn primary cmp-menu", id: "cmp-hs-now", onclick: async (e) => {
+        e.currentTarget.disabled = true;
+        await api("/api/hotspot/start", {}).catch(() => 0);
+        compactDraw();
+      } }, t("cmp_qr_now")) : null];
   } else {
     title = r.done ? t("cmp_qr_none") : t("cmp_qr_wait");
     lines = [h("p", { class: "dim" }, r.done ? t("cmp_qr_none_d") : t("cmp_qr_wait_d"))];

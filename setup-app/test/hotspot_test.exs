@@ -632,4 +632,18 @@ defmodule AlnaslSetup.HotspotTest do
       assert File.exists?(target)
     end
   end
+
+  describe "starts_at: when the screen may promise the hotspot" do
+    test "waiting after a lost network: five minutes from the loss; never had one: the boot grace" do
+      s = %{Hotspot.new_state() | boot: 100.0, no_net_since: 1000.0, reason: "waiting", had_network: true}
+      assert Hotspot.starts_at(s) == 1300.0
+      assert Hotspot.starts_at(%{s | had_network: false}) == 1060.0
+      assert Hotspot.starts_at(%{s | reason: "boot_grace"}) == 160.0
+    end
+
+    test "on, on a network, or no Wi-Fi: no promise" do
+      for r <- ["no_network", "ethernet", "wifi_client", "no_wlan", "hold", "disabled"],
+          do: assert(Hotspot.starts_at(%{Hotspot.new_state() | reason: r}) == nil)
+    end
+  end
 end

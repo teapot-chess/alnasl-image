@@ -466,6 +466,10 @@ defmodule AlnaslSetup.Server do
       "/api/portal/join" ->
         PortalApi.portal_join(obj!(b))
 
+      # v7.4.1: the compact screen's "start it now"; the portal never passes this one on (it is on the hotspot already)
+      "/api/hotspot/start" ->
+        Wifi.hotspot_start_request()
+
       # v7.4: the compact screen's number pad; the same rules and the same hand-over as the setup page's
       "/api/compact/arkab-pin" ->
         PortalApi.portal_arkab_pin(obj!(b))
