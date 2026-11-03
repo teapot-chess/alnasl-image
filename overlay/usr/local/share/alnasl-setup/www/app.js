@@ -332,6 +332,8 @@ function busy(text) { return h("p", {}, h("span", { class: "spin" }), text); }
 
 function shell(title, body, opts = {}) {
   const top = h("div", { class: "top" },
+    // v7.4.1: on a short screen the back button lives here and the page drops its own back row and title.
+    opts.back ? h("button", { class: "btn sm top-back", id: "top-back", onclick: () => go(opts.back[0]) }, "← " + opts.back[1]) : null,
     h("div", { class: "brand" }, "Alnasl"),
     h("div", { class: "dim" }, title),
     h("div", { class: "sp" }),
@@ -888,7 +890,7 @@ async function rerun() { await api("/api/reopen", {}); sessionStorage.setItem("w
 function sub(title, body, back) {
   // v7.4.1: a page opened from the compact screen's menu goes back there, not to Settings it never came through.
   const back_to = qget("from") === "compact" ? ["/compact", t("back")] : ["/settings", t("settings")];
-  shell(title, [h("p", {}, h("button", { class: "btn sm", id: "sub-back", onclick: () => go(back_to[0]) }, "← " + back_to[1])), h("h1", {}, title), body], { home: true });
+  shell(title, [h("p", {}, h("button", { class: "btn sm", id: "sub-back", onclick: () => go(back_to[0]) }, "← " + back_to[1])), h("h1", {}, title), body], { home: true, back: back_to });
 }
 
 /* ---------------------------------------------------------- keyboard ----- */

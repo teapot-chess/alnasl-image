@@ -108,9 +108,8 @@ echo "-- 7. an SPI panel (v7.3: KIOSK_CARD / KIOSK_FB from alnasl-small-screen),
 echo quick > $T/xmode
 mkdir -p $T/drm/card1 $T/drm/card1-SPI-1; echo connected > $T/drm/card1-SPI-1/status; echo 480x320 > $T/drm/card1-SPI-1/modes; : > $T/dri/card1
 run x KIOSK_CARD=card1 KIOSK_FB=/dev/fb1 KIOSK_RES=1280x720 ; rc=$?
-grep -q 'small SPI screen on card1 (fb1)' $T/out.log && grep -q 'starting X (modesetting driver, .*/card1)' $T/out.log && ok "the SPI card is the screen although HDMI is connected (modesetting on card1)" || bad "SPI card not chosen"
-grep -q 'kmsdev" ".*/card1"' $T/xorg.1.conf && grep -q 'AutoAddGPU" "false"' $T/xorg.1.conf && [ "$(grep -c 'Section "ServerFlags"' $T/xorg.1.conf)" = 1 ] && ok "xorg.conf: kmsdev card1, no second GPU, one ServerFlags section" || bad "SPI xorg.conf"
-grep -q 'Option "fbdev" "/dev/fb1"' $T/xorg.2.conf && ok "the fbdev fallback uses the panel's fb1" || bad "fbdev fallback not on fb1"
+grep -q 'small SPI screen on card1 (fb1)' $T/out.log && grep -q 'starting X (fbdev driver' $T/out.log && ! grep -q 'starting X (modesetting' $T/out.log && ok "the SPI panel is the screen although HDMI is connected (v7.4.1: X on its framebuffer, not modesetting)" || bad "SPI card not chosen"
+grep -q 'Option "fbdev" "/dev/fb1"' $T/xorg.1.conf && grep -q 'AutoAddGPU" "false"' $T/xorg.1.conf && [ "$(grep -c 'Section "ServerFlags"' $T/xorg.1.conf)" = 1 ] && ok "xorg.conf: fbdev on the panel's fb1, no second GPU, one ServerFlags section" || bad "SPI xorg.conf"
 grep -q 'connector card1-SPI-1 connected' $T/out.log && ! grep -q 'connector card0-HDMI-A-1' $T/out.log && grep -q 'resolution setting=auto connector=SPI-1' $T/out.log && ok "only the panel's connector counts; a saved HDMI resolution is not used" || bad "HDMI connector or resolution leaked in"
 run x KIOSK_CARD=card7 KIOSK_FB=/dev/fb7 ; rc=$?
 grep -q 'small SPI screen card7 is not there; the screen is HDMI' $T/out.log && grep -q 'kmsdev" ".*/card0"' $T/xorg.1.conf && ! grep -q AutoAddGPU $T/xorg.1.conf && ok "a card that is not there: HDMI as before" || bad "missing card not handled"

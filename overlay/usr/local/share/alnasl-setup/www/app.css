@@ -18,6 +18,7 @@ p { margin: 0 0 12px; } .dim { color: var(--dim); } .small { font-size: 16px; }
 .top { display: flex; align-items: center; gap: 16px; padding: 18px 28px; border-bottom: 1px solid var(--line); }
 .top .brand { font-weight: 700; letter-spacing: .04em; font-size: 22px; }
 .top .sp { flex: 1; }
+.top-back { display: none; }
 .page { width: 100%; max-width: 1100px; margin: 0 auto; padding: 26px 28px; flex: 1; }
 .steps { display: flex; gap: 8px; margin: 0 0 22px; }
 .steps i { flex: 1; height: 6px; border-radius: 3px; background: var(--line); }
@@ -216,17 +217,28 @@ input.range { flex: 1; min-width: 180px; height: 44px; accent-color: var(--accen
   #modal .box > .row { position: sticky; bottom: -10px; background: var(--panel); padding: 6px 0 10px; margin: 0; }
   #modal .list .item .dim, #modal .list .item br { display: none; }
   #modal .box p { margin: 6px 0; }
-  /* Pages: the back button and the page title share one row (the title is also in the top bar), the menu tiles
+  /* Pages: the back button and the page title move into the top bar (which already names the page), the menu tiles
      drop their second line, and the scrollbar is wide enough to grab with a stylus. */
   .top { min-height: 42px; padding: 2px 8px; }
   .page { padding: 6px 8px; }
-  .page > p:first-child { float: left; margin: 0 10px 6px 0; }
-  .page > p:first-child + h1 { font-size: 18px; line-height: 44px; margin: 0 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .page > p:first-child + h1 + * { clear: both; }
+  .top-back { display: inline-flex; align-items: center; } .top .brand { display: none; }
+  .page > p:first-child:has(> #sub-back), .page > p:first-child:has(> #sub-back) + h1 { display: none; }
   .tile { min-height: 46px; } .tile .d { display: none; }
   .statusbar { padding: 4px 8px; margin-bottom: 6px; }
   ::-webkit-scrollbar { width: 22px; }
   ::-webkit-scrollbar-thumb { background: rgba(147, 161, 177, .6); border-radius: 11px; border: 4px solid transparent; background-clip: padding-box; min-height: 48px; }
+  /* Key/value lists side by side (label left, value right): Network > Status went from eight lines to four. */
+  .kv { grid-template-columns: auto 1fr; gap: 2px 10px; align-items: baseline; margin: 0; } .kv dt { font-size: 12px; } .kv dd { margin: 0; }
+  .tabs { margin-bottom: 6px; } .tab { min-height: 38px; }
+  .card { padding: 8px 10px; margin-bottom: 6px; }
+  label.f { margin-bottom: 4px; } input[type=text], input[type=password], select { min-height: 38px; }
+  .note { margin: 2px 0 4px; font-size: 12px; }
+  .card > .btn.sm, .card > .row { margin-top: 2px; }
+  /* One field and its Save (the box name): the button beside the field, not under it. */
+  .card:has(> label.f + .note + .btn) { display: grid; grid-template-columns: 1fr auto; column-gap: 8px; align-items: end; }
+  .card:has(> label.f + .note + .btn) > label.f { grid-column: 1; grid-row: 1; margin: 0; }
+  .card:has(> label.f + .note + .btn) > .btn { grid-column: 2; grid-row: 1; min-height: 38px; }
+  .card:has(> label.f + .note + .btn) > :not(label.f):not(.btn) { grid-column: 1 / -1; }
 }
 /* ==== end compact-screen ==== */
 
