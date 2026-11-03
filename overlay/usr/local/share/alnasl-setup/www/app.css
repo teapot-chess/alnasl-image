@@ -86,6 +86,16 @@ input:focus, select:focus { border-color: var(--accent); outline: 2px solid #4aa
 #osk button:active { background: var(--accent-d); }
 #osk button.w { max-width: 150px; flex: 1.6; font-size: 17px; } #osk button.spc { max-width: 440px; flex: 6; }
 #osk button.on { background: var(--accent-d); }
+#osk .pre { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding: 0 2px 0 8px; min-height: 40px;
+  border: 1px solid var(--accent); border-radius: 9px; background: var(--bg); }
+#osk .pre .l { color: var(--dim); font-size: 13px; white-space: nowrap; }
+#osk .pre .v { flex: 1; min-width: 0; font: 17px/1.2 "DejaVu Sans Mono", monospace; white-space: nowrap; overflow: hidden; }
+#osk .pre .v::after { content: ""; display: inline-block; width: 2px; height: 1.1em; margin-left: 1px; vertical-align: -2px;
+  background: var(--accent); animation: osk-caret 1s steps(1) infinite; }
+#osk .pre .v.empty { color: var(--dim); }
+#osk .pre button.done { flex: 0 0 auto; max-width: none; min-height: 34px; padding: 0 12px; background: var(--accent-d); }
+@keyframes osk-caret { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { #osk .pre .v::after { animation: none; } }
 body.osk-open #app { padding-bottom: 300px; }
 .note { font-size: 15px; color: var(--dim); margin-top: 6px; }
 .center { text-align: center; } .big { font-size: 64px; }
@@ -206,6 +216,7 @@ input.range { flex: 1; min-width: 180px; height: 44px; accent-color: var(--accen
   .helpcode, .big { font-size: 30px; }
   #osk button { min-height: 34px; font-size: 15px; }
   body.osk-open #app { padding-bottom: 168px; }
+  #osk .pre { min-height: 32px; margin-bottom: 3px; } #osk .pre button.done { min-height: 28px; font-size: 14px; }
   .calib-hint { font-size: 14px; }
 }
 /* v7.4.1: a dialog on a short panel (480x320) never runs past the bottom: it scrolls inside itself and its

@@ -10,7 +10,7 @@ const TX = {
     keyboard: "Keyboard layout", keyboard_d: "Used by the screen and by a keyboard plugged into the box.", kbd_test: "Try it here",
     kbd_saved: "Saved. The display restarts to apply it.", kbd_saved_w: "Saved.",
     network: "Network", status: "Status", wifi: "Wi-Fi", ip_settings: "IP settings", ethernet: "Ethernet",
-    link_up: "connected", link_down: "no cable", link_down_wifi: "not connected", hotspot_on: "setup hotspot", not_present: "not present", no_ip: "no address yet",
+    link_up: "connected", done: "Done", link_down: "no cable", link_down_wifi: "not connected", hotspot_on: "setup hotspot", not_present: "not present", no_ip: "no address yet",
     address: "Address", gateway: "Gateway", dns: "DNS servers", hostname: "Name of this box",
     hostname_note: "Letters, digits and hyphens. Applies fully after a restart.",
     scan: "Scan for networks", scanning: "Scanning...", hidden_net: "Hidden network",
@@ -151,7 +151,7 @@ const TX = {
     keyboard: "Toetsenbordindeling", keyboard_d: "Geldt voor het scherm en voor een toetsenbord dat je op de box aansluit.", kbd_test: "Probeer het hier",
     kbd_saved: "Opgeslagen. Het scherm herstart om het toe te passen.", kbd_saved_w: "Opgeslagen.",
     network: "Netwerk", status: "Status", wifi: "Wifi", ip_settings: "IP-instellingen", ethernet: "Ethernet",
-    link_up: "verbonden", link_down: "geen kabel", link_down_wifi: "niet verbonden", hotspot_on: "installatiehotspot", not_present: "niet aanwezig", no_ip: "nog geen adres",
+    link_up: "verbonden", done: "Klaar", link_down: "geen kabel", link_down_wifi: "niet verbonden", hotspot_on: "installatiehotspot", not_present: "niet aanwezig", no_ip: "nog geen adres",
     address: "Adres", gateway: "Gateway", dns: "DNS-servers", hostname: "Naam van deze box",
     hostname_note: "Letters, cijfers en koppeltekens. Volledig actief na een herstart.",
     scan: "Netwerken zoeken", scanning: "Zoeken...", hidden_net: "Verborgen netwerk",
@@ -365,6 +365,7 @@ function oskDraw() {
   const key = (c) => h("button", { type: "button", onpointerdown: (e) => { e.preventDefault(); oskType(oskShift && !oskSym ? c.toUpperCase() : c); } }, oskShift && !oskSym ? c.toUpperCase() : c);
   const num = oskSym ? null : h("div", { class: "kr" }, [..."1234567890"].map(key));
   o.replaceChildren(
+    h("div", { class: "pre", id: "osk-pre" }),
     num,
     ...rows.map((r, i) => h("div", { class: "kr" },
       i === 2 && !oskSym ? h("button", { type: "button", class: "w" + (oskShift ? " on" : ""), onpointerdown: (e) => { e.preventDefault(); oskShift = !oskShift; oskDraw(); } }, "Shift") : null,
@@ -375,6 +376,7 @@ function oskDraw() {
       key("@"), key("."), key("-"), key("_"),
       h("button", { type: "button", class: "spc", onpointerdown: (e) => { e.preventDefault(); oskType(" "); } }, "space"),
       h("button", { type: "button", class: "w", onpointerdown: (e) => { e.preventDefault(); closeOsk(); } }, "▾")));
+  oskPreview(false);  // a redraw (Shift, 123/#) must not blank the line that shows the typing
 }
 function oskType(c) {
   const el = oskTarget; if (!el) return;
@@ -383,6 +385,27 @@ function oskType(c) {
   else el.setRangeText(c, s, e, "end");
   el.dispatchEvent(new Event("input", { bubbles: true }));
   if (oskShift) { oskShift = false; oskDraw(); }
+  oskPreview(c !== "\b");
+}
+// The keyboard covers most of a small screen, field included, so it repeats the field on its own
+// top line: its label, what has been typed, and a Done key. A password shows dots, the last key
+// typed stays readable for a moment, the way phones do it.
+let oskPeek = null;
+function oskPreview(typed) {
+  const p = $("#osk-pre"), el = oskTarget; if (!p || !el) return;
+  const lab = el.closest("label") && el.closest("label").querySelector("span");
+  let v = el.value;
+  if (el.type === "password") {
+    clearTimeout(oskPeek);
+    const last = typed && v.length ? v.slice(-1) : "";
+    v = "•".repeat(Math.max(0, v.length - (last ? 1 : 0))) + last;
+    if (last) oskPeek = setTimeout(() => oskPreview(false), 1200);
+  }
+  p.replaceChildren(
+    lab ? h("span", { class: "l" }, lab.textContent) : null,
+    h("span", { class: "v" + (v ? "" : " empty") }, v || el.placeholder || ""),
+    h("button", { type: "button", class: "w done", onpointerdown: (e) => { e.preventDefault(); closeOsk(); } }, "✓ " + t("done")));
+  const vs = p.querySelector(".v"); vs.scrollLeft = vs.scrollWidth;  // a long value shows its end, where the typing is
 }
 function closeOsk() { $("#osk").hidden = true; document.body.classList.remove("osk-open"); oskTarget = null; }
 function openOsk(el) { oskTarget = el; oskDraw(); $("#osk").hidden = false; document.body.classList.add("osk-open"); setTimeout(() => el.scrollIntoView({ block: "center", behavior: "smooth" }), 50); }
