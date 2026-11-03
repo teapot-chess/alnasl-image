@@ -1151,8 +1151,30 @@ a.(h.overlays == ["alnasl-spi0-pins", "alnasl-hx8357d-r90"], "hx8357d on a tree 
 x = S.plan(S.parse("TOUCH=xpt2046\n"), pi4)
 a.(List.last(x.overlays) == "alnasl-xpt2046" and "alnasl-spidev0-off" not in x.overlays, "the HDMI stylus screen keeps spidev0's chip select free of the panel helpers")
 EX
+# v7.4 compact screen: who gets it (any SPI preset, or UI=compact), and the two-minute QR after every start.
+exf /tmp/verify-screen.txt <<'EX' && ok "compact screen: UI=auto ships; SPI presets and UI=compact get it, HDMI does not; QR first for 120 s, always before setup" || bad "compact screen selection or timer in the image"
+alias AlnaslSetup.Compact, as: C
+a = fn c, what -> unless c, do: (IO.puts(:stderr, "assert: #{what}"); System.halt(1)) end
+[f] = System.argv()
+c = AlnaslSetup.SmallScreen.parse(File.read!(f))
+a.(c.ui == "auto" and AlnaslSetup.SmallScreen.ui_mode(c) == "normal", "the shipped file: UI=auto, normal pages (#{inspect(c)})")
+a.(AlnaslSetup.SmallScreen.ui_mode(AlnaslSetup.SmallScreen.parse("SCREEN=waveshare35a\n")) == "compact", "waveshare35a is compact")
+a.(AlnaslSetup.SmallScreen.ui_mode(AlnaslSetup.SmallScreen.parse("SCREEN=hdmi\r\nUI=compact\r\n")) == "compact", "HDMI with UI=compact")
+a.(AlnaslSetup.SmallScreen.ui_mode(AlnaslSetup.SmallScreen.parse("SCREEN=waveshare35a\nUI=normal\n")) == "normal", "UI=normal wins over the preset")
+i = %{done: true, since: 1000, now: 1000, force_qr: false, hotspot: %{}, addrs: [%{"iface" => "eth0", "ip" => "10.0.0.5"}], port: 4040}
+a.(C.qr_seconds() == 120 and C.decide(i)["view"] == "qr" and C.decide(i)["qr_left"] == 120, "QR at start")
+a.(C.decide(%{i | now: 1119})["view"] == "qr" and C.decide(%{i | now: 1120})["view"] == "stats", "stats after 120 s")
+a.(C.decide(%{i | now: 5000, done: false})["view"] == "qr", "not set up: always the QR")
+a.(C.decide(%{i | now: 5000})["qr"]["text"] == "http://10.0.0.5:4040/", "the role's page as the QR without a hotspot")
+EX
 rm -f $R/tmp/verify-screen.txt
 cumount $R
+[ "$(tr -d '\r' < $F | grep -c '^UI=auto$')" = 1 ] && ok "alnasl-screen.txt ships UI=auto" || bad "the shipped alnasl-screen.txt lacks UI=auto"
+J=$R/usr/local/share/alnasl-setup/www/app.js
+grep -q 'function compactPage' $J && grep -q 'p === "/compact"' $J && grep -q '/api/compact' $J && ok "app.js: the compact page and its route" || bad "app.js lacks the compact page"
+for key in cmp_menu cmp_qr_setup cmp_qr_in cmp_qr_url cmp_status_in cmp_t_role cmp_t_pin cmp_t_qr cmp_pin_done; do
+  n=$(grep -c -E "(^|[^A-Za-z0-9_])$key:" $J); [ "$n" = 2 ] && ok "app.js: $key in EN and NL" || bad "app.js: $key found $n times (2 expected)"
+done
 
 echo "== sizes"
 df -h $R | tail -1

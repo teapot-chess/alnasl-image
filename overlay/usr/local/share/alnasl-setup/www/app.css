@@ -209,6 +209,53 @@ input.range { flex: 1; min-width: 180px; height: 44px; accent-color: var(--accen
 }
 /* ==== end compact-screen ==== */
 
+/* v7.4: the compact screen (/compact, app.js compactPage). Only ever shown on a small panel, so it is sized
+   for 480x320 and 320x240 outright, in vw/vh, and nothing on it needs a finger except the one Menu button. */
+.cmp { position: fixed; inset: 0; display: flex; gap: 3vw; padding: 3vh 3vw; background: var(--bg); overflow: hidden; }
+.cmp-qr { align-items: center; }
+.cmp-code { flex: none; border-radius: 6px; image-rendering: pixelated; }
+.cmp-nocode { width: 42vw; height: 42vw; max-height: 90vh; max-width: 90vh; display: flex; align-items: center; justify-content: center;
+  background: var(--panel); border: 1px solid var(--line); }
+.cmp-side { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1.5vh; }
+.cmp-side h2 { margin: 0; font-size: clamp(15px, 5vw, 26px); line-height: 1.15; }
+.cmp-side p { margin: 0; }
+.cmp-brand { color: var(--accent); font-weight: 700; letter-spacing: .04em; font-size: clamp(12px, 3.4vw, 16px); }
+.cmp-big { font-size: clamp(15px, 5vw, 24px); font-weight: 600; overflow-wrap: anywhere; }
+.cmp-url { font-family: ui-monospace, monospace; font-size: clamp(13px, 4.2vw, 20px); }
+.cmp-pw { font-family: ui-monospace, monospace; color: var(--text); overflow-wrap: anywhere; }
+.cmp-count { color: var(--dim); font-size: clamp(12px, 3.6vw, 16px); }
+.cmp-menu { min-height: 60px; min-width: 120px; font-size: 18px; margin-top: auto; align-self: flex-start; }
+.cmp-stats { flex-direction: column; gap: 2vh; }
+.cmp-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 1.5vh; border-bottom: 1px solid var(--line); }
+.cmp-role { font-size: clamp(22px, 8vw, 40px); font-weight: 700; line-height: 1; }
+.cmp-head .pill { font-size: clamp(13px, 4vw, 18px); padding: 4px 12px; white-space: nowrap; }
+.cmp-rows { display: flex; flex-direction: column; gap: 1.2vh; }
+.cmp-row { display: flex; align-items: center; gap: 10px; min-height: 9vh; padding: 0 12px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; font-size: clamp(14px, 4.4vw, 20px); }
+.cmp-row .dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--bad); }
+.cmp-row .dot.ok { background: var(--ok); }
+.cmp-k { color: var(--dim); min-width: 28%; }
+.cmp-v { font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+.cmp-foot { margin-top: auto; display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
+.cmp-foot .cmp-menu { margin-top: 0; }
+.cmp-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+.cmp-tiles .tile { min-height: 60px; padding: 10px 8px; border-radius: 12px; }
+.cmp-tiles .tile .t { font-size: 17px; } .cmp-tiles .tile .d { font-size: 12px; }
+/* The PIN pad: five wide, three high, the readout in the first two cells. 3 x 60 px fits a 240 px panel. */
+.cmp-pad { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+.cmp-pin { grid-column: span 2; display: flex; align-items: center; justify-content: center; min-height: 60px; font-size: 26px;
+  letter-spacing: .2em; font-family: ui-monospace, monospace; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.cmp-key { min-height: 60px; min-width: 0; font-size: 22px; padding: 0; }
+.cmp-key-x { font-size: 13px; }
+.cmp-pin-out:empty { display: none; }
+.cmp-pin-out { margin-top: 6px; }
+#modal .box:has(.cmp-pad), #modal .box:has(.cmp-tiles) { padding: 8px; }
+@media (orientation: portrait) {
+  .cmp-qr { flex-direction: column; justify-content: center; }
+  .cmp-side { flex: none; width: 100%; align-items: center; text-align: center; }
+  .cmp-menu { align-self: center; }
+}
+
 /* v7.3: the stylus calibration (Settings > Touch screen): the whole screen, black, one cross at a time. */
 .calib { position: fixed; inset: 0; z-index: 9999; background: #000; touch-action: none; user-select: none; -webkit-user-select: none; }
 .calib-x { position: absolute; width: 48px; height: 48px; margin: -24px 0 0 -24px; pointer-events: none; }

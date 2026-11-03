@@ -1,4 +1,4 @@
-# Small screens on the pins (v7.3)
+# Small screens on the pins (v7.3, compact screen v7.4)
 
 A hall box does not need a 24-inch monitor to show its menu. A 3.5-inch panel on the Pi's GPIO header
 does, if somebody tells the box it is there: SPI panels do not announce themselves, so the box cannot
@@ -82,6 +82,30 @@ The matrix libinput gets is `rotation(ROTATE) ∘ C`. C comes from, first to las
 
 The calibration page restarts the kiosk; the udev rule is rewritten and the device retriggered.
 
+## The compact screen (v7.4)
+
+A 3.5-inch panel can show the menu, in the sense that a postage stamp can show a map. So with a small screen
+the box shows the compact screen (`/compact`, `AlnaslSetup.Compact`, `compactPage` in app.js) instead of the
+menu and the role's own page. It needs nobody to touch it:
+
+- **Who gets it.** `UI=` in `alnasl-screen.txt`: `auto` (shipped) means compact for any `SCREEN=` preset on
+  the pins and the normal pages for HDMI; `compact` forces it (the 3.5-inch HDMI stylus screen); `normal`
+  never. A boot without a working panel (`no_panel`) falls back to the normal pages.
+- **Not set up:** always a big QR code plus one line. The setup hotspot's Wi-Fi while it is up (a phone that
+  joins gets the setup page by itself), with the SSID and password in text beside it.
+- **Set up:** after every start the QR code for two minutes (with a countdown), then the status: the role and
+  whether its app runs, the Ethernet and Wi-Fi addresses, the hotspot if it is on, host name and version.
+  Without the hotspot (a set-up box on Wi-Fi, or on Ethernet past its first ten minutes) the QR code is the
+  role's own page on the hall network, `http://<address>:<port>/`; the setup itself listens on localhost only.
+- **With a working stylus** one Menu button (60 px) opens six tiles at most: Use (the role), Remote PIN (Arkab
+  only, a number pad), Wi-Fi (the network page and its on-screen keyboard; the phone through the QR code does
+  the same), Show the QR code, Touch screen (calibration), Restart or shut down (asks first). Everything else
+  stays on the phone. Without a stylus there is no button and nothing is missed.
+- Tournament and board counts are not on it: nothing cheap to ask for them.
+
+The page polls `/api/compact` every four seconds; the two minutes count from this boot's first poll.
+`compact_test.exs` covers the selection and the timer; `verify.sh` runs the same in the image.
+
 ## Measured, and not
 
 - waveshare35a: the overlay, the white-panel trap and the raw touch ranges were measured on a real panel
@@ -111,3 +135,10 @@ SD-kaart. `SCREEN=hdmi` (standaard) laat de pinnen met rust. `SCREEN=waveshare35
 laat `SCREEN=hdmi` staan en zet `TOUCH=xpt2046`. `ROTATE=` draait beeld en stylus samen. Kom je met de stylus
 naast wat je bedoelt, kalibreer dan in het menu: Instellingen > Aanraakscherm, vier kruisjes. Een wijziging in
 het bestand geldt vanaf de volgende start.
+
+Met een klein scherm toont de kast het compacte scherm in plaats van het menu (`UI=auto`; `UI=compact` zet het
+ook aan voor het 3,5-inch HDMI-scherm, `UI=normal` nooit). Is de kast nog niet ingesteld, dan zie je altijd een
+grote QR-code: scan hem met je telefoon, je komt op de hotspot en de instelpagina. Is ze wel ingesteld, dan zie
+je na elke start twee minuten de QR-code en daarna de status: rol, of de app draait, de adressen, versie. Werkt
+de stylus, dan opent de knop Menu een paar grote tegels: gebruik, pincode (Arkab), wifi, QR-code, aanraakscherm,
+herstarten of afsluiten. De rest doe je met je telefoon.

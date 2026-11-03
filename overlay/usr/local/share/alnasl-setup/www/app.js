@@ -139,6 +139,11 @@ const TX = {
     touch_timeout: "Nothing was tapped for 30 seconds, so the calibration stopped.", touch_saving: "Saving...", touch_saved: "Saved. The screen restarts with the new calibration.",
     res_forced: "A small screen is switched on in alnasl-screen.txt on the SD card: it sets the picture (a screen on the pins has one size; a 3.5-inch HDMI screen takes MODE=).",
     upd_url: "Where updates come from", upd_url_d: "An https:// address of a release index. Keep the default unless the Alnasl team tells you otherwise.",
+    cmp_menu: "Menu", cmp_qr_setup: "Scan to set up this box", cmp_qr_in: "Scan to reach this box", cmp_qr_url: "Scan for %s",
+    cmp_qr_none: "No network yet", cmp_qr_none_d: "Plug in Ethernet, or wait: the setup hotspot comes back when no network works.",
+    cmp_qr_wait: "Starting the setup hotspot", cmp_qr_wait_d: "A QR code appears here in a moment. No Wi-Fi adapter? Plug in Ethernet.",
+    cmp_status_in: "Status in %s", cmp_status: "Status", cmp_none: "none", cmp_hotspot: "setup hotspot", cmp_running: "running", cmp_stopped: "stopped",
+    cmp_wait: "Waiting for the box...", cmp_t_role: "Use", cmp_t_pin: "Remote PIN", cmp_t_qr: "Show the QR code", cmp_pin_done: "Saved.",
   },
   nl: {
     welcome: "Welkom bij je Alnasl-box", welcome_d: "Nog een paar korte stappen en de box is klaar voor de zaal. Je kunt alles later wijzigen via het menu.",
@@ -275,6 +280,11 @@ const TX = {
     touch_timeout: "Er werd 30 seconden niets aangetikt, dus de kalibratie is gestopt.", touch_saving: "Opslaan...", touch_saved: "Opgeslagen. Het scherm herstart met de nieuwe kalibratie.",
     res_forced: "Er staat een klein scherm aan in alnasl-screen.txt op de SD-kaart: dat bepaalt het beeld (een scherm op de pinnen heeft één formaat; een 3,5-inch HDMI-scherm neemt MODE=).",
     upd_url: "Waar updates vandaan komen", upd_url_d: "Een https://-adres van een release-index. Laat de standaard staan tenzij het Alnasl-team iets anders zegt.",
+    cmp_menu: "Menu", cmp_qr_setup: "Scan om deze kast in te stellen", cmp_qr_in: "Scan om deze kast te bereiken", cmp_qr_url: "Scan voor %s",
+    cmp_qr_none: "Nog geen netwerk", cmp_qr_none_d: "Steek een netwerkkabel in, of wacht: de installatiehotspot komt terug als geen netwerk werkt.",
+    cmp_qr_wait: "De installatiehotspot start", cmp_qr_wait_d: "Zo meteen verschijnt hier een QR-code. Geen wifi-adapter? Steek een netwerkkabel in.",
+    cmp_status_in: "Status over %s", cmp_status: "Status", cmp_none: "geen", cmp_hotspot: "installatiehotspot", cmp_running: "draait", cmp_stopped: "gestopt",
+    cmp_wait: "Wachten op de kast...", cmp_t_role: "Gebruik", cmp_t_pin: "Pincode op afstand", cmp_t_qr: "Toon de QR-code", cmp_pin_done: "Opgeslagen.",
   },
 };
 let LANG = "en";
@@ -326,7 +336,7 @@ function shell(title, body, opts = {}) {
     h("div", { class: "dim" }, title),
     h("div", { class: "sp" }),
     opts.langToggle === false ? null : langToggle(),
-    opts.home ? h("button", { class: "btn sm", onclick: () => go("/menu") }, t("menu")) : null);
+    opts.home ? h("button", { class: "btn sm", onclick: () => go(S.compact ? "/compact" : "/menu") }, t("menu")) : null);
   app.replaceChildren(top, h("div", { class: "page" }, body));
   closeOsk();
 }
@@ -414,6 +424,8 @@ async function route() {
     LANG = S.lang || LANG;
   } catch (e) { shell("", [msg("bad", t("error")), h("button", { class: "btn", onclick: route }, t("retry"))], { langToggle: false }); return; }
   ping();
+  compactStop();
+  if (p === "/compact") return compactPage();
   if (p === "/setup") {
     WIZ = true;
     const st = Number(qget("step") ?? sessionStorage.getItem("wizstep") ?? 0);
@@ -437,6 +449,113 @@ function hotspotCard() {
       h("dl", { class: "kv" }, h("dt", {}, t("hs_ssid")), h("dd", {}, s.ssid), h("dt", {}, t("hs_pw")), h("dd", {}, s.password))));
   }).catch(() => 0);
   return holder;
+}
+
+/* ------------------------------------------------------ compact screen -- */
+// v7.4 (docs/spi-screens.md): a panel on the pins shows this instead of the menu and the role's page. It has to
+// work with nobody touching it: a QR code (always before setup, and for two minutes after every start), then the
+// box's status, both refreshed by themselves. The server decides which (AlnaslSetup.Compact); a working stylus
+// adds one Menu button, and the menu's tiles lead to the pages that already fit a small screen.
+let CMP_TIMER = null, CMP_FORCE_QR = false;
+function compactStop() { if (CMP_TIMER) { clearInterval(CMP_TIMER); CMP_TIMER = null; } }
+function qrCanvas(rows) {
+  const n = rows.length, quiet = 4;
+  const W = window.innerWidth, H = window.innerHeight;   // portrait: the code on top, the text below
+  const room = H > W ? Math.min(W - 16, Math.floor(H * 0.55)) : Math.min(H - 16, Math.floor(W * 0.58));
+  const m = Math.max(1, Math.floor(room / (n + 2 * quiet)));
+  const side = m * (n + 2 * quiet);
+  const c = h("canvas", { class: "cmp-code", id: "cmp-code", width: side, height: side, "aria-label": "QR" });
+  const g = c.getContext("2d");
+  g.fillStyle = "#fff"; g.fillRect(0, 0, side, side);
+  g.fillStyle = "#000";
+  rows.forEach((r, y) => { for (let x = 0; x < n; x++) if (r[x] === "1") g.fillRect((x + quiet) * m, (y + quiet) * m, m, m); });
+  return c;
+}
+const mmss = (s) => Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+function cmpMenuBtn(r) {
+  return r.touch ? h("button", { class: "btn cmp-menu", id: "cmp-menu", onclick: () => compactMenu(r) }, t("cmp_menu")) : null;
+}
+function compactQr(r) {
+  const q = r.qr || {};
+  let title, lines;
+  if (q.kind === "hotspot") {
+    title = r.done ? t("cmp_qr_in") : t("cmp_qr_setup");
+    lines = [h("p", { class: "cmp-big" }, q.ssid), h("p", { class: "dim" }, t("hs_pw") + ": ", h("b", { class: "cmp-pw" }, q.password))];
+  } else if (q.kind === "url") {
+    title = tf("cmp_qr_url", ROLE_NAME[canonRole(r.role) || "alnasl"]);
+    lines = [h("p", { class: "cmp-big cmp-url" }, q.url.replace(/^http:\/\//, "").replace(/\/$/, ""))];
+  } else {
+    title = r.done ? t("cmp_qr_none") : t("cmp_qr_wait");
+    lines = [h("p", { class: "dim" }, r.done ? t("cmp_qr_none_d") : t("cmp_qr_wait_d"))];
+  }
+  const foot = r.qr_left > 0 ? h("p", { class: "cmp-count", id: "cmp-count" }, tf("cmp_status_in", mmss(r.qr_left))) :
+    CMP_FORCE_QR ? h("button", { class: "btn cmp-menu", id: "cmp-back", onclick: () => { CMP_FORCE_QR = false; compactDraw(); } }, t("cmp_status")) : null;
+  return h("div", { class: "cmp cmp-qr", id: "cmp-qr" },
+    q.kind === "none" ? h("div", { class: "cmp-code cmp-nocode" }, h("span", { class: "spin" })) : qrCanvas(r.rows || []),
+    h("div", { class: "cmp-side" }, h("div", { class: "cmp-brand" }, "Alnasl"), h("h2", {}, title), lines, foot, CMP_FORCE_QR ? null : cmpMenuBtn(r)));
+}
+function cmpRow(ok, label, value) {
+  return h("div", { class: "cmp-row" }, h("i", { class: "dot " + (ok ? "ok" : "bad") }), h("span", { class: "cmp-k" }, label), h("span", { class: "cmp-v" }, value));
+}
+function compactStats(r) {
+  const role = canonRole(r.role) || "alnasl";
+  const eth = (r.addrs || []).filter((a) => a.iface === "eth0").map((a) => a.ip);
+  const wl = (r.addrs || []).filter((a) => a.iface === "wlan0").map((a) => a.ip);
+  return h("div", { class: "cmp cmp-stats", id: "cmp-stats" },
+    h("div", { class: "cmp-head" },
+      h("div", {}, h("div", { class: "cmp-role" }, ROLE_NAME[role]), h("div", { class: "dim small" }, t("m_" + role + "_d"))),
+      h("span", { class: "pill " + (r.role_up ? "ok" : "bad"), id: "cmp-app" }, r.role_up ? t("st_up") : t("st_down"))),
+    h("div", { class: "cmp-rows" },
+      cmpRow(eth.length > 0, t("ethernet"), eth.join("  ") || t("cmp_none")),
+      cmpRow(wl.length > 0, t("wifi"), wl.join("  ") || (r.hotspot && r.hotspot.active ? t("cmp_hotspot") + " " + (r.hotspot.ssid || "") : t("cmp_none"))),
+      r.role_port ? cmpRow(r.role_up, ROLE_NAME[role], r.role_up ? t("cmp_running") : t("cmp_stopped")) : null),
+    h("div", { class: "cmp-foot" },
+      h("span", { class: "dim small" }, (r.hostname || "") + (r.version ? "  |  v" + r.version : "") + (r.debug_ssh ? "  |  DEBUG SSH" : "")),
+      cmpMenuBtn(r)));
+}
+async function compactDraw() {
+  let r;
+  try { r = await api("/api/compact" + (CMP_FORCE_QR ? "?qr=1" : "")); }
+  catch (e) { app.replaceChildren(h("div", { class: "cmp" }, h("p", {}, h("span", { class: "spin" }), t("cmp_wait")))); return; }
+  if (location.pathname !== "/compact" || !$("#modal").hidden) return;   // a menu or dialog is open: leave it be
+  app.replaceChildren(r.view === "stats" ? compactStats(r) : compactQr(r));
+}
+function compactPage() {
+  compactStop();
+  closeOsk();
+  compactDraw();
+  CMP_TIMER = setInterval(compactDraw, 4000);
+}
+// The stylus menu: few, big tiles. Everything else (tournaments, updates, logs, a reset) is the phone's, via the QR.
+function compactMenu(r) {
+  const role = canonRole(r.role) || "alnasl";
+  const done = (fn) => () => { close(); fn(); };
+  const close = modal([h("div", { class: "cmp-tiles", id: "cmp-tiles" },
+    tile(t("cmp_t_role"), ROLE_NAME[role], done(modeDialog)),
+    role === "arkab" ? tile(t("cmp_t_pin"), "", done(pinPad)) : null,
+    tile(t("wifi"), "", done(() => go("/settings/network?tab=wifi"))),
+    tile(t("cmp_t_qr"), "", done(() => { CMP_FORCE_QR = true; compactDraw(); })),
+    tile(t("touch"), "", done(() => go("/settings/touch"))),
+    tile(t("power"), "", done(powerDialog))),
+    h("button", { class: "btn cmp-menu", id: "cmp-close", onclick: () => close() }, t("close"))]);
+}
+// Arkab's remote PIN, digits only on this pad (the setup page takes any text); the same hand-over as there.
+// Five keys wide and three high, so the whole pad fits a 320x240 panel with every key 60 px tall.
+function pinPad() {
+  let pin = "";
+  const show = h("div", { class: "cmp-pin", id: "cmp-pin" }, "");
+  const out = h("div", { class: "cmp-pin-out" });
+  const draw = () => { show.textContent = pin.replace(/./g, "*") || "----"; ok.disabled = pin.length < 4; };
+  const key = (k) => h("button", { class: "btn cmp-key", onclick: () => { if (pin.length < 12) { pin += k; draw(); } } }, k);
+  const ok = h("button", { class: "btn primary cmp-key", id: "cmp-pin-ok", onclick: async () => {
+    ok.disabled = true;
+    try { await api("/api/compact/arkab-pin", { pin }); out.replaceChildren(msg("ok", t("cmp_pin_done"))); setTimeout(() => close(), 2500); }
+    catch (e) { out.replaceChildren(msg("bad", errText(e))); draw(); }
+  } }, "OK");
+  const close = modal([h("div", { class: "cmp-pad", id: "cmp-pad" }, show, [..."1234567890"].map(key),
+    h("button", { class: "btn cmp-key", onclick: () => { pin = pin.slice(0, -1); draw(); } }, "⌫"),
+    h("button", { class: "btn cmp-key cmp-key-x", onclick: () => close() }, t("cancel")), ok), out]);
+  draw();
 }
 
 /* -------------------------------------------------------------- menu ---- */

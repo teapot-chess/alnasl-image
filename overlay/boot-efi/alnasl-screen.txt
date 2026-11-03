@@ -36,6 +36,15 @@
 # crosses with the stylus. The box keeps that result (through updates) and it
 # wins over the CALIBRATION= line; "Back to the defaults" there undoes it.
 #
+# The pages the screen shows:
+#   UI=auto              a screen on the pins gets the compact pages, HDMI the
+#                        normal ones. Compact: a big QR code (the setup Wi-Fi,
+#                        or the box's own page on the network) after every
+#                        start for two minutes and always before setup, then
+#                        the box's status. No touching needed; with a working
+#                        stylus there is a small menu as well.
+#   UI=compact           the compact pages on any screen; UI=normal never.
+#
 # A change here is used from the next start of the box. If this file is damaged
 # or says something the box does not understand, the box starts with
 # SCREEN=hdmi.
@@ -83,6 +92,16 @@
 # en het gaat voor op de regel CALIBRATION=; "Terug naar de standaard" daar
 # maakt het ongedaan.
 #
+# De pagina's op het scherm:
+#   UI=auto              een scherm op de pinnen krijgt de compacte pagina's,
+#                        HDMI de gewone. Compact: een grote QR-code (de setup-
+#                        wifi, of de pagina van de kast op het netwerk) na
+#                        elke start twee minuten lang en altijd zolang de kast
+#                        niet ingesteld is, daarna de toestand van de kast. Je
+#                        hoeft niets aan te raken; met een werkende stylus is
+#                        er ook een klein menu.
+#   UI=compact           de compacte pagina's op elk scherm; UI=normal nooit.
+#
 # Een wijziging hier geldt vanaf de volgende start van de kast. Is dit bestand
 # beschadigd of staat er iets in dat de kast niet begrijpt, dan start de kast
 # met SCREEN=hdmi.
@@ -95,3 +114,4 @@ ROTATE=0
 MODE=640x480
 CALIBRATION=
 SWAPXY=
+UI=auto

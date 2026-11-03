@@ -245,6 +245,19 @@ defmodule AlnaslSetup.ServerTest do
       assert Sys.exists?("/run/alnasl-kiosk/painted")
     end
 
+    test "/ sends a small screen's kiosk to the compact page, set up or not; /api/compact says what to show" do
+      Box.put("/run/alnasl-small-screen/state.json", ~s({"ui": "compact", "status": "ready"}))
+      assert get("/").headers["location"] == "/compact"
+      done!()
+      assert get("/").headers["location"] == "/compact"
+      assert get("/compact").status == 200
+      r = get("/api/compact")
+      assert r.status == 200 and r.body =~ ~s("view") and r.body =~ ~s("qr_left") and r.body =~ ~s("rows")
+      # a panel that never came up: the picture is on HDMI, and so are the big pages
+      Box.put("/run/alnasl-small-screen/state.json", ~s({"ui": "compact", "status": "no_panel"}))
+      assert get("/").headers["location"] == "/menu"
+    end
+
     test "/ sends a set-up box to the menu when its app is not up" do
       done!()
       assert get("/").headers["location"] == "/menu"

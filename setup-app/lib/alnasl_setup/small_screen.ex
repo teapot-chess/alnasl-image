@@ -126,11 +126,20 @@ defmodule AlnaslSetup.SmallScreen do
   What alnasl-screen.txt says, from its bytes (nil: no file). Pure, never raises: a file nobody can read says
   SCREEN=hdmi. The first line of each key counts.
 
-  `%{screen, preset, touch, rotate, mode, manual, problems}`: `screen` is the word the box acts on ("hdmi" or
+  `%{screen, preset, touch, rotate, mode, manual, ui, problems}`: `screen` is the word the box acts on ("hdmi" or
   a preset), `preset` the key of `presets/0` in use (nil for a plain HDMI screen), `touch` "xpt2046" or "off".
   """
   def parse(data) do
-    out = %{screen: "hdmi", preset: nil, touch: "off", rotate: 0, mode: @default_mode, manual: nil, problems: []}
+    out = %{
+      screen: "hdmi",
+      preset: nil,
+      touch: "off",
+      rotate: 0,
+      mode: @default_mode,
+      manual: nil,
+      ui: "auto",
+      problems: []
+    }
 
     cond do
       data == nil ->
@@ -210,7 +219,25 @@ defmodule AlnaslSetup.SmallScreen do
 
     {manual, p} = manual(Map.get(seen, "CALIBRATION", ""), Map.get(seen, "SWAPXY", ""), preset, p)
 
-    %{out | screen: screen, preset: preset, touch: touch, rotate: rotate, mode: mode, manual: manual, problems: p}
+    u = seen |> Map.get("UI", "auto") |> String.downcase()
+    u = if u == "", do: "auto", else: u
+
+    {ui, p} =
+      if u in ~w(auto compact normal),
+        do: {u, p},
+        else: {"auto", p ++ ["UI=#{short(u)} is not auto, compact or normal; auto"]}
+
+    %{
+      out
+      | screen: screen,
+        preset: preset,
+        touch: touch,
+        rotate: rotate,
+        mode: mode,
+        manual: manual,
+        ui: ui,
+        problems: p
+    }
   end
 
   defp manual("", _swap, _preset, p), do: {nil, p}
@@ -278,6 +305,23 @@ defmodule AlnaslSetup.SmallScreen do
       )
 
     %{overlays: overlays, modules: pr.modules, driver: pr.driver}
+  end
+
+  @doc """
+  The screen's pages (v7.4): "compact" (the zero-touch QR and status page, AlnaslSetup.Compact) or "normal" (the
+  menu and the role's own page). UI=compact and UI=normal decide; UI=auto means compact on a panel on the pins
+  (480x320 and smaller do not hold the big pages) and normal on HDMI, the 3.5-inch HDMI stylus screen included.
+  """
+  def ui_mode(%{ui: "compact"}), do: "compact"
+  def ui_mode(%{ui: "normal"}), do: "normal"
+  def ui_mode(%{preset: key}) when is_binary(key), do: if(@presets[key].kind == :spi, do: "compact", else: "normal")
+  def ui_mode(_), do: "normal"
+
+  @doc "The kiosk shows the compact pages (what this boot decided; no state yet: normal). A panel that never came up
+  leaves the picture on HDMI, and the big pages with it."
+  def compact_ui? do
+    st = read_state()
+    st["ui"] == "compact" and st["status"] != "no_panel"
   end
 
   @doc "The driver's `rotation` for a preset and the file's ROTATE (both in degrees)."
@@ -648,6 +692,7 @@ defmodule AlnaslSetup.SmallScreen do
       "touch" => cfg.touch,
       "rotate" => cfg.rotate,
       "mode" => cfg.mode,
+      "ui" => ui_mode(cfg),
       "problems" => cfg.problems,
       "at" => now()
     }

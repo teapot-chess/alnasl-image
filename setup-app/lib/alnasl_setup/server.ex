@@ -16,7 +16,7 @@ defmodule AlnaslSetup.Server do
   never logged; the access log holds only method, path and status.
   """
   use Supervisor
-  alias AlnaslSetup.{Diag, Http, Json, Lock, SmallScreen, Sys, Wifi}
+  alias AlnaslSetup.{Compact, Diag, Http, Json, Lock, SmallScreen, Sys, Wifi}
   alias AlnaslSetup.Server.{Box, Help, Net, PortalApi, Printers, Py, Resolution, State}
 
   @port 4041
@@ -28,7 +28,7 @@ defmodule AlnaslSetup.Server do
     ".svg" => "image/svg+xml",
     ".png" => "image/png"
   }
-  @spa ~w(/ /setup /menu /settings /info /diag /help)
+  @spa ~w(/ /setup /menu /settings /info /diag /help /compact)
 
   # ------------------------------------------------------------------------------------ process --
 
@@ -179,6 +179,10 @@ defmodule AlnaslSetup.Server do
         Py.log("start page: returning to #{back}")
         reply(302, "", "application/json", [{"Location", back}])
 
+      # v7.4: a small screen shows the compact page, set up or not: the QR code and the status, no touch needed.
+      SmallScreen.compact_ui?() ->
+        reply(302, "", "application/json", [{"Location", "/compact"}])
+
       # Where the kiosk starts: the wizard until setup is done, then the role's own page (Alnasl, Arkab,
       # Polis or Nunki); the menu, which says what is wrong, when that is not up.
       not Box.setup_done?() ->
@@ -242,7 +246,9 @@ defmodule AlnaslSetup.Server do
           "role_up" => Box.role_up?(),
           "role_port" => Box.role_port()[Box.running_role()],
           # v7.3: the stylus of a small screen (alnasl-screen.txt), for Settings > Touch screen
-          "touch" => SmallScreen.read_state()["touch"] || "off"
+          "touch" => SmallScreen.read_state()["touch"] || "off",
+          # v7.4: the kiosk's home is the compact page (Home buttons go there through /)
+          "compact" => SmallScreen.compact_ui?()
         }
 
       "/api/resolution" ->
@@ -250,6 +256,10 @@ defmodule AlnaslSetup.Server do
 
       "/api/touch" ->
         SmallScreen.touch_status()
+
+      # v7.4: the compact screen's picture (?qr=1: the QR code, asked for from its menu)
+      "/api/compact" ->
+        Compact.status(Map.has_key?(Py.parse_qs(q), "qr"))
 
       "/api/net" ->
         Net.net_status()
@@ -455,6 +465,10 @@ defmodule AlnaslSetup.Server do
       # The setup page on the hotspot (the portal passes these three on, and nothing else that changes anything).
       "/api/portal/join" ->
         PortalApi.portal_join(obj!(b))
+
+      # v7.4: the compact screen's number pad; the same rules and the same hand-over as the setup page's
+      "/api/compact/arkab-pin" ->
+        PortalApi.portal_arkab_pin(obj!(b))
 
       "/api/portal/arkab-pin" ->
         PortalApi.portal_arkab_pin(obj!(b))
