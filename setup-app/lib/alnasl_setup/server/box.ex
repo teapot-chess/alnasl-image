@@ -128,6 +128,8 @@ defmodule AlnaslSetup.Server.Box do
 
   def lang, do: Map.get(get_state(), "lang", "en")
 
+  def theme, do: if(Map.get(get_state(), "theme") == "light", do: "light", else: "dark")
+
   def setup_done?, do: Sys.exists?(@done)
 
   def sysctl(args), do: Sys.run(["systemctl" | args], timeout: 60)

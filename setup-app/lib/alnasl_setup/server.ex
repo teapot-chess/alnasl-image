@@ -237,6 +237,7 @@ defmodule AlnaslSetup.Server do
         %{
           "done" => Box.setup_done?(),
           "lang" => Box.lang(),
+          "theme" => Box.theme(),
           "layouts" => for({id, label, _, _, _} <- Box.layouts(), do: %{"id" => id, "label" => label}),
           "keyboard" => Box.get_keyboard(),
           "services" => Box.services_status(),
@@ -344,6 +345,11 @@ defmodule AlnaslSetup.Server do
     case path do
       "/api/lang" ->
         if g(b, "lang") in ["en", "nl"], do: Box.set_state(lang: b["lang"])
+        %{"ok" => true}
+
+      # v7.4.1: dark or light, for the whole box like the language (a screen in a sunny hall wants light)
+      "/api/theme" ->
+        if g(b, "theme") in ["dark", "light"], do: Box.set_state(theme: b["theme"])
         %{"ok" => true}
 
       "/api/keyboard" ->

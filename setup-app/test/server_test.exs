@@ -1428,6 +1428,14 @@ defmodule AlnaslSetup.ServerTest do
       assert json("/api/hotspot")["password"] == nil
     end
 
+    test "/api/theme: dark or light for the whole box, anything else leaves it be" do
+      assert json("/api/state")["theme"] == "dark"
+      assert post("/api/theme", %{"theme" => "light"}).json == %{"ok" => true}
+      assert json("/api/state")["theme"] == "light"
+      post("/api/theme", %{"theme" => "neon"})
+      assert json("/api/state")["theme"] == "light"
+    end
+
     test "/api/hotspot/start: the screen's start-it-now leaves a request for the daemon, the portal does not pass it" do
       assert post("/api/hotspot/start", %{}).json == %{"ok" => true}
       assert File.read!(Sys.path("/run/alnasl-hotspot/start")) == "1"

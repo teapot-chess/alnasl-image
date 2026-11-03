@@ -10,7 +10,7 @@ const TX = {
     keyboard: "Keyboard layout", keyboard_d: "Used by the screen and by a keyboard plugged into the box.", kbd_test: "Try it here",
     kbd_saved: "Saved. The display restarts to apply it.", kbd_saved_w: "Saved.",
     network: "Network", status: "Status", wifi: "Wi-Fi", ip_settings: "IP settings", ethernet: "Ethernet",
-    link_up: "connected", done: "Done", link_down: "no cable", link_down_wifi: "not connected", hotspot_on: "setup hotspot", not_present: "not present", no_ip: "no address yet",
+    link_up: "connected", done: "Done", theme_dark: "Dark", theme_light: "Light", cmp_t_dark: "Dark screen", cmp_t_light: "Light screen", link_down: "no cable", link_down_wifi: "not connected", hotspot_on: "setup hotspot", not_present: "not present", no_ip: "no address yet",
     address: "Address", gateway: "Gateway", dns: "DNS servers", hostname: "Name of this box",
     hostname_note: "Letters, digits and hyphens. Applies fully after a restart.",
     scan: "Scan for networks", scanning: "Scanning...", hidden_net: "Hidden network",
@@ -136,7 +136,7 @@ const TX = {
     touch_now: "Rotation %s degrees, picture %s, calibration: %s.", touch_src_default: "built in", touch_src_file: "from alnasl-screen.txt", touch_src_screen: "made on this screen",
     touch_cal: "Calibrate", touch_reset: "Back to the defaults", touch_reset_done: "Done. The screen restarts with the defaults.",
     touch_tap_n: "Tap the centre of the cross with the stylus (%s of %s)",
-    touch_timeout: "Nothing was tapped for 30 seconds, so the calibration stopped.", touch_saving: "Saving...", touch_saved: "Saved. The screen restarts with the new calibration.",
+    touch_timeout: "Nothing was tapped for 30 seconds, so the calibration stopped.", touch_saving: "Saving...", touch_saved: "Saved. The screen goes black for about 20 seconds while it restarts; the boards and the relay keep running.",
     res_forced: "A small screen is switched on in alnasl-screen.txt on the SD card: it sets the picture (a screen on the pins has one size; a 3.5-inch HDMI screen takes MODE=).",
     upd_url: "Where updates come from", upd_url_d: "An https:// address of a release index. Keep the default unless the Alnasl team tells you otherwise.",
     cmp_menu: "Menu", cmp_qr_setup: "Scan to set up this box", cmp_qr_in: "Scan to reach this box", cmp_qr_url: "Scan for %s",
@@ -152,7 +152,7 @@ const TX = {
     keyboard: "Toetsenbordindeling", keyboard_d: "Geldt voor het scherm en voor een toetsenbord dat je op de box aansluit.", kbd_test: "Probeer het hier",
     kbd_saved: "Opgeslagen. Het scherm herstart om het toe te passen.", kbd_saved_w: "Opgeslagen.",
     network: "Netwerk", status: "Status", wifi: "Wifi", ip_settings: "IP-instellingen", ethernet: "Ethernet",
-    link_up: "verbonden", done: "Klaar", link_down: "geen kabel", link_down_wifi: "niet verbonden", hotspot_on: "installatiehotspot", not_present: "niet aanwezig", no_ip: "nog geen adres",
+    link_up: "verbonden", done: "Klaar", theme_dark: "Donker", theme_light: "Licht", cmp_t_dark: "Donker scherm", cmp_t_light: "Licht scherm", link_down: "geen kabel", link_down_wifi: "niet verbonden", hotspot_on: "installatiehotspot", not_present: "niet aanwezig", no_ip: "nog geen adres",
     address: "Adres", gateway: "Gateway", dns: "DNS-servers", hostname: "Naam van deze box",
     hostname_note: "Letters, cijfers en koppeltekens. Volledig actief na een herstart.",
     scan: "Netwerken zoeken", scanning: "Zoeken...", hidden_net: "Verborgen netwerk",
@@ -278,7 +278,7 @@ const TX = {
     touch_now: "Rotatie %s graden, beeld %s, kalibratie: %s.", touch_src_default: "ingebouwd", touch_src_file: "uit alnasl-screen.txt", touch_src_screen: "op dit scherm gemaakt",
     touch_cal: "Kalibreren", touch_reset: "Terug naar de standaard", touch_reset_done: "Klaar. Het scherm herstart met de standaardwaarden.",
     touch_tap_n: "Tik met de stylus het midden van het kruisje aan (%s van %s)",
-    touch_timeout: "Er werd 30 seconden niets aangetikt, dus de kalibratie is gestopt.", touch_saving: "Opslaan...", touch_saved: "Opgeslagen. Het scherm herstart met de nieuwe kalibratie.",
+    touch_timeout: "Er werd 30 seconden niets aangetikt, dus de kalibratie is gestopt.", touch_saving: "Opslaan...", touch_saved: "Opgeslagen. Het scherm is zo een twintigtal seconden zwart terwijl het herstart; de borden en de doorgifte blijven gewoon werken.",
     res_forced: "Er staat een klein scherm aan in alnasl-screen.txt op de SD-kaart: dat bepaalt het beeld (een scherm op de pinnen heeft één formaat; een 3,5-inch HDMI-scherm neemt MODE=).",
     upd_url: "Waar updates vandaan komen", upd_url_d: "Een https://-adres van een release-index. Laat de standaard staan tenzij het Alnasl-team iets anders zegt.",
     cmp_menu: "Menu", cmp_qr_setup: "Scan om deze kast in te stellen", cmp_qr_in: "Scan om deze kast te bereiken", cmp_qr_url: "Scan voor %s",
@@ -339,10 +339,24 @@ function shell(title, body, opts = {}) {
     h("div", { class: "brand" }, "Alnasl"),
     h("div", { class: "dim" }, title),
     h("div", { class: "sp" }),
-    opts.langToggle === false ? null : langToggle(),
+    S.compact ? themeToggle() : opts.langToggle === false ? null : langToggle(),
     opts.home ? h("button", { class: "btn sm", onclick: () => go(S.compact ? "/compact" : "/menu") }, t("menu")) : null);
   app.replaceChildren(top, h("div", { class: "page" }, body));
   closeOsk();
+}
+// Dark or light. The choice is the box's (the server keeps it); this browser remembers it too, so the
+// first paint after a restart is already the right one instead of a dark flash.
+function applyTheme(th) {
+  const light = th === "light";
+  document.documentElement.toggleAttribute("data-light", light);
+  try { localStorage.setItem("alnasl-theme", light ? "light" : "dark"); } catch (e) { /* ignore */ }
+}
+try { applyTheme(localStorage.getItem("alnasl-theme")); } catch (e) { /* ignore */ }
+function themeToggle() {
+  const light = S.theme === "light";
+  return h("button", { class: "btn sm", id: "theme-toggle", "aria-label": light ? t("theme_dark") : t("theme_light"),
+    onclick: async () => { S.theme = light ? "dark" : "light"; applyTheme(S.theme); await api("/api/theme", { theme: S.theme }).catch(() => 0); route(); } },
+    light ? "☾ " + t("theme_dark") : "☀ " + t("theme_light"));
 }
 function langToggle() {
   return h("div", { class: "row" }, ["en", "nl"].map((l) =>
@@ -448,7 +462,9 @@ async function route() {
   const p = location.pathname;
   try {
     S = Object.assign(S, await api("/api/state"));
-    LANG = S.lang || LANG;
+    // v7.4.1: the small panel is always English (no room for a language switch, and none was wanted there)
+    LANG = S.compact ? "en" : (S.lang || LANG);
+    applyTheme(S.theme);
   } catch (e) { shell("", [msg("bad", t("error")), h("button", { class: "btn", onclick: route }, t("retry"))], { langToggle: false }); return; }
   ping();
   compactStop();
@@ -573,7 +589,11 @@ function compactMenu(r) {
     tile(t("wifi"), "", done(() => go("/settings/network?tab=wifi&from=compact"))),
     tile(t("cmp_t_qr"), "", done(() => { CMP_FORCE_QR = true; compactDraw(); })),
     tile(t("touch"), "", done(() => go("/settings/touch?from=compact"))),
-    tile(t("power"), "", done(powerDialog))),
+    tile(t("power"), "", done(powerDialog)),
+    tile(S.theme === "light" ? t("cmp_t_dark") : t("cmp_t_light"), "", done(async () => {
+      S.theme = S.theme === "light" ? "dark" : "light"; applyTheme(S.theme);
+      await api("/api/theme", { theme: S.theme }).catch(() => 0);
+    }))),
     h("button", { class: "btn cmp-menu", id: "cmp-close", onclick: () => close() }, t("close"))]);
 }
 // Arkab's remote PIN, digits only on this pad (the setup page takes any text); the same hand-over as there.
@@ -1290,7 +1310,7 @@ function wizard(step) {
   let body;
   if (name === "welcome") {
     body = [h("h1", {}, t("welcome")), h("p", { class: "dim" }, t("welcome_d")), hotspotCard(), h("h2", { style: "margin-top:24px" }, t("language")),
-      h("div", { class: "row" }, ["en", "nl"].map((l) => h("button", { class: "btn" + (LANG === l ? " primary" : ""), onclick: async () => { LANG = l; await api("/api/lang", { lang: l }).catch(() => 0); wizard(step); } }, l === "en" ? "English" : "Nederlands"))),
+      S.compact ? null : h("div", { class: "row" }, ["en", "nl"].map((l) => h("button", { class: "btn" + (LANG === l ? " primary" : ""), onclick: async () => { LANG = l; await api("/api/lang", { lang: l }).catch(() => 0); wizard(step); } }, l === "en" ? "English" : "Nederlands"))),
       nav(() => wizard(stepAfter(step)), t("next"))];
   } else if (name === "mode") {
     const choice = (id) => {
