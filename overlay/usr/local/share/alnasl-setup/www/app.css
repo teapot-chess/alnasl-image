@@ -271,6 +271,14 @@ input.range { flex: 1; min-width: 180px; height: 44px; accent-color: var(--accen
   .card:has(> h2 + label.f + div + .btn) > div { grid-column: 1 / -1; }
   /* the last few pixels: no padding under the page, so a page that fits does not grow a scrollbar */
   #app { padding-bottom: 0; }  /* the keyboard rule above is more specific and still wins */
+  /* Wi-Fi: the four controls on one line, the country code without its label (the field says BE) */
+  #wifi-bar { flex-wrap: nowrap; gap: 6px; margin-bottom: 6px !important; align-items: center; }
+  #wifi-bar .btn { min-height: 38px; padding: 0 12px; font-size: 15px; }
+  #wifi-bar > div { width: 64px !important; flex: none; }
+  #wifi-bar label.f { margin: 0; } #wifi-bar label.f > span { display: none; }
+  #wifi-bar input { min-height: 38px; padding: 0 8px; text-align: center; }
+  #saved-head { margin: 6px 0 4px !important; font-size: 15px; }
+  #saved-head + .list .item { min-height: 40px; padding: 2px 6px 2px 12px; }
   /* the role dialog: four uses, the one-line warning and the buttons in 320 px, no scrolling */
   #modal .box { padding: 8px 10px; }
   #modal .box > h2 { margin: 0 0 4px; font-size: 17px; }

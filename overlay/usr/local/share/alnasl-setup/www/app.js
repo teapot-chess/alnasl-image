@@ -10,7 +10,7 @@ const TX = {
     keyboard: "Keyboard layout", keyboard_d: "Used by the screen and by a keyboard plugged into the box.", kbd_test: "Try it here",
     kbd_saved: "Saved. The display restarts to apply it.", kbd_saved_w: "Saved.",
     network: "Network", status: "Status", wifi: "Wi-Fi", ip_settings: "IP settings", ethernet: "Ethernet",
-    link_up: "connected", done: "Done", theme_dark: "Dark", theme_light: "Light", cmp_t_dark: "Dark screen", cmp_t_light: "Light screen", link_down: "no cable", link_down_wifi: "not connected", hotspot_on: "setup hotspot", not_present: "not present", no_ip: "no address yet",
+    link_up: "connected", done: "Done", theme_dark: "Dark", theme_light: "Light", scan_short: "Scan", hidden_short: "Hidden", cmp_t_dark: "Dark screen", cmp_t_light: "Light screen", link_down: "no cable", link_down_wifi: "not connected", hotspot_on: "setup hotspot", not_present: "not present", no_ip: "no address yet",
     address: "Address", gateway: "Gateway", dns: "DNS servers", hostname: "Name of this box",
     hostname_note: "Letters, digits and hyphens. Applies fully after a restart.",
     scan: "Scan for networks", scanning: "Scanning...", hidden_net: "Hidden network",
@@ -152,7 +152,7 @@ const TX = {
     keyboard: "Toetsenbordindeling", keyboard_d: "Geldt voor het scherm en voor een toetsenbord dat je op de box aansluit.", kbd_test: "Probeer het hier",
     kbd_saved: "Opgeslagen. Het scherm herstart om het toe te passen.", kbd_saved_w: "Opgeslagen.",
     network: "Netwerk", status: "Status", wifi: "Wifi", ip_settings: "IP-instellingen", ethernet: "Ethernet",
-    link_up: "verbonden", done: "Klaar", theme_dark: "Donker", theme_light: "Licht", cmp_t_dark: "Donker scherm", cmp_t_light: "Licht scherm", link_down: "geen kabel", link_down_wifi: "niet verbonden", hotspot_on: "installatiehotspot", not_present: "niet aanwezig", no_ip: "nog geen adres",
+    link_up: "verbonden", done: "Klaar", theme_dark: "Donker", theme_light: "Licht", scan_short: "Zoeken", hidden_short: "Verborgen", cmp_t_dark: "Donker scherm", cmp_t_light: "Licht scherm", link_down: "geen kabel", link_down_wifi: "niet verbonden", hotspot_on: "installatiehotspot", not_present: "niet aanwezig", no_ip: "nog geen adres",
     address: "Adres", gateway: "Gateway", dns: "DNS-servers", hostname: "Naam van deze box",
     hostname_note: "Letters, cijfers en koppeltekens. Volledig actief na een herstart.",
     scan: "Netwerken zoeken", scanning: "Zoeken...", hidden_net: "Verborgen netwerk",
@@ -1254,11 +1254,13 @@ async function tabWifi(redraw) {
     (hidden ? name.input : secured ? pw.input : go1).focus();
     form.scrollIntoView({ behavior: "smooth", block: "start" });
   }
-  const savedList = saved.saved.length ? [h("h2", { style: "margin-top:20px" }, t("saved_nets")), h("div", { class: "list" }, saved.saved.map((n) =>
+  const savedList = saved.saved.length ? [h("h2", { style: "margin-top:20px", id: "saved-head" }, t("saved_nets")), h("div", { class: "list" }, saved.saved.map((n) =>
     h("div", { class: "item", style: "cursor:default" }, h("span", { class: "grow" }, n.ssid), h("span", { class: "pill" }, n.secured ? t("secured") : t("open_net")),
       h("button", { class: "btn sm", onclick: async () => { await api("/api/wifi/forget", { ssid: n.ssid }).catch(() => 0); redraw(); } }, t("forget")))))] : [];
-  wrap.append(h("div", { class: "row", style: "margin-bottom:14px" },
-    h("button", { class: "btn primary", onclick: scan }, t("scan")), h("button", { class: "btn", onclick: () => connectForm("", true, true) }, t("hidden_net")),
+  // v7.4.1: one short row on the small panel (Scan, Hidden, country, Save), so the saved networks fit under it
+  wrap.append(h("div", { class: "row", id: "wifi-bar", style: "margin-bottom:14px" },
+    h("button", { class: "btn primary", onclick: scan }, S.compact ? t("scan_short") : t("scan")),
+    h("button", { class: "btn", onclick: () => connectForm("", true, true) }, S.compact ? t("hidden_short") : t("hidden_net")),
     h("div", { style: "width:120px" }, country.el), h("button", { class: "btn sm", onclick: async () => { await api("/api/wifi/country", { country: country.input.value }).catch(() => 0); } }, t("save"))),
     form, results, ...savedList);
   return wrap;
