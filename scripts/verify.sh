@@ -96,6 +96,9 @@ want="$(tr -d '\r' < $W/debug-ssh.pub)"
 [ "$(stat -c %a $R/root/.ssh)" = 700 ] && [ "$(stat -c %a $A)" = 600 ] && ok "/root/.ssh 700, authorized_keys 600" || bad "ssh permissions: $(stat -c %a $R/root/.ssh) $(stat -c %a $A)"
 k=$(find $R/root $R/home $R/etc/ssh -name 'authorized_keys*' ! -path "$R/root/.ssh/authorized_keys" 2>/dev/null)
 [ -z "$k" ] && ok "no other authorized_keys" || bad "other authorized_keys: $k"
+# An expired root password lets the key in and then PAM refuses the session ("password change required", 7.4 on the Pi).
+IFS=: read -r _ _ lc _ mx _ _ ex _ < <(grep '^root:' $R/etc/shadow)
+[ -n "$lc" ] && [ "$lc" != 0 ] && { [ -z "$mx" ] || [ "$mx" -ge 99999 ]; } && [ -z "$ex" ] && ok "root's password never expires (lastchg $lc, max ${mx:-none})" || bad "root's password ages or is expired (lastchg '$lc' max '$mx' expire '$ex'): key logins get refused"
 # The effective configuration, as this sshd reads it (a throwaway host key: -T needs one). Should sshd -T not run
 # under qemu, the first value of each keyword in the file decides (sshd keeps the first), which is the same answer.
 chroot $R /usr/bin/ssh-keygen -q -t ed25519 -N '' -f /tmp/verify-hostkey >/dev/null 2>&1

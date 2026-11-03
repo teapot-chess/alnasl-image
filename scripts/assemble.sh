@@ -380,6 +380,9 @@ rpm -q openssh-server >/dev/null 2>&1 || { echo "openssh-server is not in the ba
 for u in sshd.service sshd.socket sshd-keygen.service sshd@.service; do systemctl unmask "$u" >/dev/null 2>&1 || true; done
 systemctl disable sshd.socket >/dev/null 2>&1 || true
 systemctl enable sshd-keygen.service sshd.service
+# Photon ships root with its password marked expired (lastchg 0): sshd accepts the key, then PAM's account check
+# demands a new password and, with no TTY, refuses the login. A key-only root never changes a password; no ageing.
+chage -d "$(date +%F)" -m 0 -M -1 -I -1 -E -1 root
 IN
   # First match wins in sshd_config, so ours go on top; the stock lines below can no longer loosen them.
   { cat <<'CFG'
