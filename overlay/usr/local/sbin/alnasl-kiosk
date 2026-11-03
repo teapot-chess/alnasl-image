@@ -53,18 +53,29 @@ while true; do
   KBD_LAYOUT=be KBD_VARIANT="" KIOSK_SCALE=100 KIOSK_RES=auto KIOSK_PATH=x
   [ -r /etc/alnasl/keyboard.conf ] && . /etc/alnasl/keyboard.conf
   [ -r /etc/alnasl/kiosk.conf ] && . /etc/alnasl/kiosk.conf
+  # v7.3: a small screen on the pins (alnasl-screen.txt; alnasl-small-screen writes this at boot). An SPI panel names
+  # its DRM card and fb (X drives that card, not HDMI); a 3.5-inch HDMI stylus screen fixes the mode and the
+  # rotation. Anything but the expected words is dropped here and again in kiosk.sh.
+  KIOSK_CARD="" KIOSK_FB="" KIOSK_FORCE_MODE="" KIOSK_ROTATE=normal
+  [ -r /run/alnasl-small-screen/kiosk.env ] && . /run/alnasl-small-screen/kiosk.env
+  case "$KIOSK_CARD" in card[0-9]|card[0-9][0-9]) ;; *) KIOSK_CARD="" ;; esac
+  case "$KIOSK_FB" in /dev/fb[0-9]|/dev/fb[0-9][0-9]) ;; *) KIOSK_FB="" ;; esac
+  case "$KIOSK_FORCE_MODE" in ""|[0-9]*x[0-9]*) ;; *) KIOSK_FORCE_MODE="" ;; esac
+  case "$KIOSK_FORCE_MODE" in *[!0-9x]*) KIOSK_FORCE_MODE="" ;; esac
+  case "$KIOSK_ROTATE" in normal|right|inverted|left) ;; *) KIOSK_ROTATE=normal ;; esac
   mkdir -p /run/alnasl-kiosk
   case "$KIOSK_PATH" in cage) mode=cage ;; *) mode=x ;; esac
   # v7: the page the screen shows is the role's own app; the watchdog inside watches that one.
   case "$(cat /run/alnasl-mode/role 2>/dev/null)" in
     arkab) app_port=4050 ;; polis) app_port=4061 ;; nunki) app_port=4062 ;; *) app_port=4040 ;;
   esac
-  echo "kiosk: starting container (mode $mode, keyboard $KBD_LAYOUT/$KBD_VARIANT, scale $KIOSK_SCALE, resolution $KIOSK_RES)"
+  echo "kiosk: starting container (mode $mode, keyboard $KBD_LAYOUT/$KBD_VARIANT, scale $KIOSK_SCALE, resolution $KIOSK_RES${KIOSK_CARD:+, small screen on $KIOSK_CARD}${KIOSK_FORCE_MODE:+, small screen $KIOSK_FORCE_MODE}, rotation $KIOSK_ROTATE)"
   docker run --rm --name "$NAME" --privileged --network host --ipc host \
     -v /dev:/dev -v /run/udev:/run/udev:ro -v /run/alnasl-kiosk:/run/alnasl-kiosk \
     --tmpfs /tmp:exec,size=256m --shm-size=256m \
     -e KIOSK_MODE="$mode" -e KIOSK_URL=http://localhost:4041/boot -e KIOSK_APP_PORT="$app_port" \
     -e KBD_LAYOUT="$KBD_LAYOUT" -e KBD_VARIANT="$KBD_VARIANT" -e KIOSK_SCALE="$KIOSK_SCALE" -e KIOSK_RES="$KIOSK_RES" \
+    -e KIOSK_CARD="$KIOSK_CARD" -e KIOSK_FB="$KIOSK_FB" -e KIOSK_FORCE_MODE="$KIOSK_FORCE_MODE" -e KIOSK_ROTATE="$KIOSK_ROTATE" \
     "$IMG"
   rc=$?
   /usr/local/sbin/alnasl-splash --once

@@ -50,6 +50,16 @@
 #    way to ship a box people plug a mouse into. The root window gets an empty cursor as the very first
 #    thing the X client does (no X in the middle of the boot screen), the boot page says cursor: none,
 #    and every other page gets Chromium's arrow back.
+#
+# v7.3 (small screens on the pins, alnasl-screen.txt; alnasl-kiosk passes what alnasl-small-screen wrote):
+#  - KIOSK_CARD / KIOSK_FB: an SPI panel (cardN, /dev/fbN). Only that card's connector counts, X's modesetting
+#    driver opens that card (kmsdev) and no other GPU is added, the fbdev fallback uses that fb. A drm/tiny panel
+#    initialises only when its display pipe is enabled, so X really has to drive it: a white panel otherwise.
+#    It has one mode and the driver does the rotation; the Resolution setting has no say.
+#  - KIOSK_FORCE_MODE / KIOSK_ROTATE: a 3.5-inch HDMI stylus screen: that mode whether the screen lists it or
+#    not, turned with xrandr.
+#  The stylus is turned to match by its calibration matrix on the host (udev), which X's libinput picks up
+#  from /run/udev.
 URL=${KIOSK_URL:-http://localhost:4041/boot}
 BASE=http://localhost:4041
 MODE=${KIOSK_MODE:-x}   # x (default) | cage (with watchdog, falls back to x) | auto (= x)
@@ -92,9 +102,24 @@ CHROMIUM_FLAGS="--kiosk --no-sandbox --user-data-dir=$TMPD/chromium --disk-cache
  --disable-save-password-bubble --disable-component-update --disable-sync --disable-background-networking  --num-raster-threads=4 --disable-features=Translate,MediaRouter,DisableLoadExtensionCommandLineSwitch,AutofillServerCommunication,PasswordLeakDetection  --force-device-scale-factor=$SCALE"
 
 echo "kiosk: start at t=$(upt)s since boot, mode=$MODE"
+# v7.3: an SPI panel: its card only (HDMI, connected or not, is left to the console and the boot screen).
+CARDS="card*"; FBDEV=/dev/fb0
+case "${KIOSK_CARD:-}" in
+  '') ;;
+  card[0-9]|card[0-9][0-9])
+    if [ -e "$DRM/$KIOSK_CARD" ]; then
+      CARDS=$KIOSK_CARD
+      case "${KIOSK_FB:-}" in /dev/fb[0-9]|/dev/fb[0-9][0-9]) FBDEV=$KIOSK_FB ;; esac
+      echo "kiosk: small SPI screen on $KIOSK_CARD (${FBDEV#/dev/}): the picture goes there (alnasl-screen.txt)"
+    else
+      echo "kiosk: small SPI screen $KIOSK_CARD is not there; the screen is HDMI"
+    fi ;;
+  *) echo "kiosk: ignoring a malformed KIOSK_CARD" ;;
+esac
+FBN=${FBDEV#/dev/}
 # --- what does the hardware say the screen is? (logged for the next report) ---
 drm_size=""; kms_card=""
-for d in $DRM/card*-*; do
+for d in $DRM/$CARDS-*; do
   [ -r "$d/status" ] && [ "$(cat "$d/status")" = connected ] || continue
   m=$(head -n 1 "$d/modes" 2>/dev/null)
   echo "kiosk: connector ${d##*/} connected, preferred mode ${m:-unknown}"
@@ -102,13 +127,13 @@ for d in $DRM/card*-*; do
   [ -z "$kms_card" ] && { c=${d##*/}; kms_card=$DEVDRI/${c%%-*}; }
 done
 [ -n "$kms_card" ] && [ ! -e "$kms_card" ] && kms_card=""
-fb_virtual=$(cat /sys/class/graphics/fb0/virtual_size 2>/dev/null)
-fb_modes=$(head -n 1 /sys/class/graphics/fb0/modes 2>/dev/null)
-echo "kiosk: fb0 virtual_size=${fb_virtual:-none} modes=${fb_modes:-none}; drm preferred=${drm_size:-none}; kms card=${kms_card:-none}; scale=$SCALE; kbd=$XKB_DEFAULT_LAYOUT/${XKB_DEFAULT_VARIANT:-}"
+fb_virtual=$(cat /sys/class/graphics/$FBN/virtual_size 2>/dev/null)
+fb_modes=$(head -n 1 /sys/class/graphics/$FBN/modes 2>/dev/null)
+echo "kiosk: $FBN virtual_size=${fb_virtual:-none} modes=${fb_modes:-none}; drm preferred=${drm_size:-none}; kms card=${kms_card:-none}; scale=$SCALE; kbd=$XKB_DEFAULT_LAYOUT/${XKB_DEFAULT_VARIANT:-}"
 echo "kiosk: active VT $(cat /sys/class/tty/tty0/active 2>/dev/null || echo '?'); VT switching: Ctrl+Alt+F2/F3 = console, Ctrl+Alt+F1 = back to the screen"
 # The connector (HDMI-A-1) and the modes it offers; KIOSK_RES must be one of them, else it is ignored.
 conn_name=""; conn_modes=""
-for d in $DRM/card*-*; do
+for d in $DRM/$CARDS-*; do
   [ -r "$d/status" ] && [ "$(cat "$d/status")" = connected ] || continue
   conn_name=$(echo "${d##*/}" | sed 's/^card[0-9]*-//'); conn_modes=$(cat "$d/modes" 2>/dev/null); break
 done
@@ -118,6 +143,17 @@ case "${KIOSK_RES:-auto}" in
   *[!0-9x]*) echo "kiosk: ignoring a malformed KIOSK_RES" ;;
   *) if echo "$conn_modes" | grep -qx "$KIOSK_RES"; then RES=$KIOSK_RES; else echo "kiosk: saved resolution $KIOSK_RES is not offered by ${conn_name:-the screen}; using the preferred mode"; fi ;;
 esac
+[ "$CARDS" != "card*" ] && [ "$RES" != auto ] && { echo "kiosk: the SPI panel has one mode; saved resolution $RES not used"; RES=auto; }
+# v7.3: a 3.5-inch HDMI stylus screen (alnasl-screen.txt, by way of alnasl-small-screen) fixes the mode and the rotation.
+# The mode need not be one the screen lists (kiosk-res adds it); the Resolution setting has no say while it is on.
+ROT=normal
+case "${KIOSK_ROTATE:-normal}" in normal|right|inverted|left) ROT=${KIOSK_ROTATE:-normal} ;; *) echo "kiosk: ignoring a malformed KIOSK_ROTATE" ;; esac
+case "${KIOSK_FORCE_MODE:-}" in
+  '') ;;
+  *[!0-9x]*|x*|*x|*x*x*) echo "kiosk: ignoring a malformed KIOSK_FORCE_MODE" ;;
+  *x*) RES=$KIOSK_FORCE_MODE ;;
+esac
+if [ -n "${KIOSK_FORCE_MODE:-}" ] || [ "$ROT" != normal ]; then echo "kiosk: small stylus screen: mode ${KIOSK_FORCE_MODE:-auto}, rotation $ROT (alnasl-screen.txt)"; fi
 echo "kiosk: resolution setting=$RES connector=${conn_name:-none}"
 [ "$RES" != auto ] && drm_size=$RES
 # "1920x1080" or "1920x1080i" -> "1920,1080"; fb: "1920,1080"
@@ -249,9 +285,9 @@ EndSection
     printf 'Section "Device"
   Identifier "fb"
   Driver "fbdev"
-  Option "fbdev" "/dev/fb0"
+  Option "fbdev" "%s"
 EndSection
-' > "$TMPD/xorg.conf"
+' "$FBDEV" > "$TMPD/xorg.conf"
   fi
   cat >> "$TMPD/xorg.conf" <<'XC'
 Section "ServerFlags"
@@ -276,8 +312,18 @@ EndSection
 XC
   # (No DontVTSwitch / -novtswitch: Ctrl+Alt+F2 must reach the console.)
   sed -i "s/KBDLAYOUT/$XKB_DEFAULT_LAYOUT/; s/KBDVARIANT/$XKB_DEFAULT_VARIANT/" "$TMPD/xorg.conf"
+  # v7.3: an SPI panel is the only screen: X must not add vc4 as a second GPU and spread the desktop over HDMI.
+  [ "$CARDS" != "card*" ] && sed -i 's/^  Option "DPMS" "false"$/&\n  Option "AutoAddGPU" "false"/' "$TMPD/xorg.conf"
   rm -f "$TMPD/x-up"
   # The X client: measure the screen X really has, then size the window to it.
+  # v7.3: the mode/rotation call is written only when there is one to make (an if inside the heredoc would always be
+  # there as text, and a harmless call is still a call).
+  apply_line=":"
+  if [ "$drv" = modesetting ]; then
+    { [ "$RES" != auto ] || [ "$ROT" != normal ]; } && apply_line="/usr/local/bin/kiosk-res apply - \"$RES\" \"$ROT\""
+  elif [ "$ROT" != normal ]; then
+    apply_line="echo 'kiosk: rotation $ROT needs the modesetting driver; the fbdev fallback shows the picture unturned'"
+  fi
   cat > "$TMPD/xclient.sh" <<XCL
 #!/bin/sh
 printf '#define e_width 1
@@ -288,7 +334,7 @@ xsetroot -cursor $TMPD/empty.xbm $TMPD/empty.xbm 2>/dev/null
 touch $TMPD/x-up
 echo "kiosk: X server is up (t=\$(cut -d' ' -f1 /proc/uptime)s)"
 echo "path=x driver=$drv" > $STATE
-[ "$drv" = modesetting ] && [ "$RES" != auto ] && /usr/local/bin/kiosk-res apply - "$RES"
+$apply_line
 sz=\$(xrandr --current 2>/dev/null | sed -n 's/.*current \([0-9]*\) x \([0-9]*\).*/\1,\2/p' | head -n 1)
 src=xrandr
 [ -z "\$sz" ] && sz="$size_from_fb" && src=fb0

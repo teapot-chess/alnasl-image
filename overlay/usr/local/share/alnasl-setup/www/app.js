@@ -126,6 +126,17 @@ const TX = {
     upd_err_round_in_progress: "A round is in progress, so nothing was changed. Try again after the round.",
     upd_err_busy: "An update is already running.", upd_err_updates_off: "System updates are off on this box.",
     upd_err_not_ab: "This card does not have the update layout.", upd_err_bad_train: "That is not a newer release line.",
+    touch: "Touch screen", touch_tile: "Calibrate the stylus",
+    touch_d: "The 3.5-inch screen's stylus touch, switched on in alnasl-screen.txt on the SD card. If taps land beside what you aim at, calibrate: tap the centre of four crosses with the stylus.",
+    touch_off: "No stylus touch screen is switched on. TOUCH=xpt2046 in alnasl-screen.txt on the SD card switches it on, for 3.5-inch HDMI screens with stylus touch on the pins.",
+    touch_st_ready: "The touch panel works.", touch_st_no_device: "The touch panel does not answer. Is the screen seated on the pins?",
+    touch_st_overlay_failed: "The touch panel could not be switched on (device tree). Diagnostics has the details.",
+    touch_st_no_overlay_support: "This system cannot switch the touch panel on.", touch_st_not_started: "The touch panel has not been set up yet.",
+    touch_now: "Rotation %s degrees, picture %s, calibration: %s.", touch_src_default: "built in", touch_src_file: "from alnasl-screen.txt", touch_src_screen: "made on this screen",
+    touch_cal: "Calibrate", touch_reset: "Back to the defaults", touch_reset_done: "Done. The screen restarts with the defaults.",
+    touch_tap_n: "Tap the centre of the cross with the stylus (%s of %s)",
+    touch_timeout: "Nothing was tapped for 30 seconds, so the calibration stopped.", touch_saving: "Saving...", touch_saved: "Saved. The screen restarts with the new calibration.",
+    res_forced: "A 3.5-inch stylus screen is switched on: its picture is set in alnasl-screen.txt on the SD card (MODE=).",
     upd_url: "Where updates come from", upd_url_d: "An https:// address of a release index. Keep the default unless the Alnasl team tells you otherwise.",
   },
   nl: {
@@ -250,6 +261,17 @@ const TX = {
     upd_err_round_in_progress: "Er loopt een ronde, dus er is niets veranderd. Probeer het na de ronde opnieuw.",
     upd_err_busy: "Er loopt al een update.", upd_err_updates_off: "Systeemupdates staan uit op deze box.",
     upd_err_not_ab: "Deze kaart heeft niet de indeling voor updates.", upd_err_bad_train: "Dat is geen nieuwere releaselijn.",
+    touch: "Aanraakscherm", touch_tile: "De stylus kalibreren",
+    touch_d: "De stylus-aanraking van het 3,5-inch scherm, aangezet in alnasl-screen.txt op de SD-kaart. Kom je met een tik naast wat je bedoelt, kalibreer dan: tik met de stylus het midden van vier kruisjes aan.",
+    touch_off: "Er staat geen stylus-aanraakscherm aan. TOUCH=xpt2046 in alnasl-screen.txt op de SD-kaart zet het aan, voor 3,5-inch HDMI-schermen met stylus-aanraking op de pinnen.",
+    touch_st_ready: "Het aanraakpaneel werkt.", touch_st_no_device: "Het aanraakpaneel antwoordt niet. Zit het scherm goed op de pinnen?",
+    touch_st_overlay_failed: "Het aanraakpaneel kon niet aangezet worden (device tree). Diagnose toont de details.",
+    touch_st_no_overlay_support: "Dit systeem kan het aanraakpaneel niet aanzetten.", touch_st_not_started: "Het aanraakpaneel is nog niet ingesteld.",
+    touch_now: "Rotatie %s graden, beeld %s, kalibratie: %s.", touch_src_default: "ingebouwd", touch_src_file: "uit alnasl-screen.txt", touch_src_screen: "op dit scherm gemaakt",
+    touch_cal: "Kalibreren", touch_reset: "Terug naar de standaard", touch_reset_done: "Klaar. Het scherm herstart met de standaardwaarden.",
+    touch_tap_n: "Tik met de stylus het midden van het kruisje aan (%s van %s)",
+    touch_timeout: "Er werd 30 seconden niets aangetikt, dus de kalibratie is gestopt.", touch_saving: "Opslaan...", touch_saved: "Opgeslagen. Het scherm herstart met de nieuwe kalibratie.",
+    res_forced: "Er staat een 3,5-inch stylusscherm aan: zijn beeld stel je in in alnasl-screen.txt op de SD-kaart (MODE=).",
     upd_url: "Waar updates vandaan komen", upd_url_d: "Een https://-adres van een release-index. Laat de standaard staan tenzij het Alnasl-team iets anders zegt.",
   },
 };
@@ -663,7 +685,7 @@ function updPage() {
 
 function settings(sub) {
   const subs = { network: netPage, keyboard: kbdPage, services: svcPage, display: dispPage, help: helpSettings, updates: updPage,
-    printers: printersPage, sound: soundPage };
+    printers: printersPage, sound: soundPage, touch: touchPage };
   if (!sub || !subs[sub]) {
     return shell(t("settings"), [
       h("div", { class: "grid" },
@@ -674,7 +696,8 @@ function settings(sub) {
         tile(t("m_help"), "", () => go("/settings/help")),
         tile(t("upd"), t("upd_tile"), () => go("/settings/updates")),
         roleNow() === "polis" ? tile(t("printers"), t("printers_tile"), () => go("/settings/printers")) : null,
-        roleNow() === "nunki" ? tile(t("sound"), t("sound_tile"), () => go("/settings/sound")) : null),
+        roleNow() === "nunki" ? tile(t("sound"), t("sound_tile"), () => go("/settings/sound")) : null,
+        S.touch === "xpt2046" ? tile(t("touch"), t("touch_tile"), () => go("/settings/touch")) : null),
       h("p", { class: "dim", id: "role-now", style: "margin-top:22px" }, tf("role_now", ROLE_NAME[roleNow()])),
       h("div", { class: "row" }, h("button", { class: "btn sm", onclick: rerun }, t("rerun")),
         h("button", { class: "btn sm", id: "mode-open", onclick: modeDialog }, t("role_change")),
@@ -886,6 +909,7 @@ async function resolutionCard(card) {
   let r;
   try { r = await api("/api/resolution"); } catch (e) { card.replaceChildren(msg("bad", e.message)); return; }
   if (r.pending) resKeepDialog(r.seconds_left || r.confirm_seconds, () => resolutionCard(card));
+  if (r.forced) { card.replaceChildren(h("h2", {}, t("res")), h("p", { class: "dim", id: "res-forced" }, t("res_forced"))); return; }
   if (!r.modes.length) { card.replaceChildren(h("h2", {}, t("res")), h("p", { class: "dim" }, t("res_none"))); return; }
   const sel = h("select", { id: "res-select" }, [h("option", { value: "auto", selected: r.setting === "auto" }, t("res_auto") + (r.preferred ? " - " + r.preferred : "")),
     ...r.modes.map((m, i) => h("option", { value: m, selected: r.setting === m }, m + (i === 0 ? " (" + t("res_pref") + ")" : "")))]);
@@ -911,6 +935,51 @@ function resKeepDialog(secs, redraw) {
     h("div", { class: "row" },
       h("button", { class: "btn primary", id: "res-keep", onclick: async () => { await api("/api/resolution/confirm", {}).catch(() => 0); finish(redraw); } }, t("keep")),
       h("button", { class: "btn", id: "res-undo", onclick: async () => { await api("/api/resolution/undo", {}).catch(() => 0); finish(redraw); } }, t("revert")))]);
+}
+
+/* ------------------------------------------------------ touch screen ----- */
+// v7.3: a 3.5-inch stylus screen (alnasl-screen.txt). Four crosses, one at a time; where the stylus landed goes to
+// the box, which works out the calibration, keeps it on the data partition and restarts the screen with it.
+async function touchPage() {
+  const card = h("div", { class: "card", id: "touch-card" }, busy("..."));
+  sub(t("touch"), card);
+  let r;
+  try { r = await api("/api/touch"); } catch (e) { card.replaceChildren(msg("bad", e.message)); return; }
+  if (r.touch !== "xpt2046") { card.replaceChildren(h("p", { class: "dim" }, t("touch_off"))); return; }
+  const out = h("div", { id: "touch-out" });
+  const ok = r.status === "ready";
+  const reset = r.stored ? h("button", { class: "btn", id: "touch-reset", onclick: async () => {
+    try { await api("/api/touch/reset", {}); out.replaceChildren(msg("ok", t("touch_reset_done"))); } catch (e) { out.replaceChildren(msg("bad", e.message)); }
+  } }, t("touch_reset")) : null;
+  card.replaceChildren(h("p", { class: "dim" }, t("touch_d")),
+    msg(ok ? "ok" : "bad", TX.en["touch_st_" + r.status] ? t("touch_st_" + r.status) : r.status),
+    h("p", { class: "dim small" }, tf("touch_now", r.rotate, r.mode, t("touch_src_" + (r.source || "default")))),
+    h("div", { class: "row" }, ok ? h("button", { class: "btn primary", id: "touch-cal", onclick: () => calibrator(out) }, t("touch_cal")) : null, reset),
+    out);
+}
+function calibrator(out) {
+  const TGT = [[0.15, 0.15], [0.85, 0.15], [0.85, 0.85], [0.15, 0.85]];
+  const samples = [];
+  const cross = h("div", { class: "calib-x" });
+  const hint = h("div", { class: "calib-hint" });
+  const ov = h("div", { class: "calib", id: "touch-calib" }, cross, hint);
+  let timer = 0, last = -1e9;
+  const place = () => { const [x, y] = TGT[samples.length]; cross.style.left = (x * 100) + "%"; cross.style.top = (y * 100) + "%"; hint.textContent = tf("touch_tap_n", samples.length + 1, TGT.length); };
+  const close = () => { clearTimeout(timer); ov.remove(); };
+  const idle = () => { clearTimeout(timer); timer = setTimeout(() => { close(); out.replaceChildren(msg("bad", t("touch_timeout"))); }, 30000); };
+  ov.addEventListener("pointerdown", async (e) => {
+    e.preventDefault();
+    if (e.timeStamp - last < 500) return;   // a resistive panel bounces; one tap is one tap
+    last = e.timeStamp;
+    const [x, y] = TGT[samples.length];
+    samples.push([x, y, e.clientX / window.innerWidth, e.clientY / window.innerHeight]);
+    if (samples.length < TGT.length) { place(); idle(); return; }
+    close();
+    out.replaceChildren(busy(t("touch_saving")));
+    try { await api("/api/touch/calibrate", { samples }); out.replaceChildren(msg("ok", t("touch_saved"))); }
+    catch (err) { out.replaceChildren(msg("bad", err.message)); }
+  });
+  document.body.append(ov); place(); idle();
 }
 
 /* ----------------------------------------------------------- network ----- */

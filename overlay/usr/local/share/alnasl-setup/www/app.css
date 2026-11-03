@@ -196,3 +196,12 @@ input.range { flex: 1; min-width: 180px; height: 44px; accent-color: var(--accen
   .top .brand { display: none; }
 }
 /* ==== end compact-screen ==== */
+
+/* v7.3: the stylus calibration (Settings > Touch screen): the whole screen, black, one cross at a time. */
+.calib { position: fixed; inset: 0; z-index: 9999; background: #000; touch-action: none; user-select: none; -webkit-user-select: none; }
+.calib-x { position: absolute; width: 48px; height: 48px; margin: -24px 0 0 -24px; pointer-events: none; }
+.calib-x::before, .calib-x::after { content: ""; position: absolute; background: var(--accent); }
+.calib-x::before { left: 23px; top: 0; width: 2px; height: 48px; }
+.calib-x::after { top: 23px; left: 0; height: 2px; width: 48px; }
+.calib-hint { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); padding: 0 16px; text-align: center;
+  color: var(--dim); font-size: 18px; pointer-events: none; }

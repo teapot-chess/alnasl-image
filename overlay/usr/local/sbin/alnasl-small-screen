@@ -1,0 +1,5 @@
+#!/bin/sh
+# alnasl-small-screen: a small screen on the Pi's pins (alnasl-screen.txt on the boot partition; v7.3). The program
+# is AlnaslSetup.SmallScreen in the setup-app release (/opt/alnasl-setup); this is its command line (no
+# argument: the boot run of alnasl-small-screen.service; --status: what it did, as JSON).
+exec /opt/alnasl-setup/bin/alnasl_setup eval 'AlnaslSetup.CLI.main()' -- small-screen "$@"

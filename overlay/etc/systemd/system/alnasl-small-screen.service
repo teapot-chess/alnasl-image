@@ -1,0 +1,22 @@
+[Unit]
+Description=Alnasl small screen on the pins (opt-in: SCREEN= / TOUCH= in /boot/efi/alnasl-screen.txt)
+# Source: setup-app/lib/alnasl_setup/small_screen.ex in the image repo; how it works: docs/spi-screens.md.
+Documentation=file:///usr/local/sbin/alnasl-small-screen
+# The boot partition for the file, the data partition for a saved calibration, udev for the rule, configfs for
+# the overlays; before the kiosk, whose X server reads the card, the stylus and its matrix only when it starts.
+# SCREEN=hdmi (the default) returns at once and changes nothing.
+RequiresMountsFor=/boot/efi
+After=alnasl-data.service systemd-udevd.service systemd-modules-load.service sys-kernel-config.mount
+Wants=sys-kernel-config.mount
+Before=alnasl-kiosk.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/alnasl-small-screen
+# It never fails a boot (the program returns 0 whatever happens), and never holds the screen up for long:
+# two waits of at most 10 s (the panel's card, the stylus) plus the release's start.
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

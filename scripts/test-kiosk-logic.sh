@@ -6,6 +6,8 @@
 #   3. cage that HANGS (the real-Pi failure) is killed with its process group after its budget, X follows
 #   4. cage that works (a browser appears) is left alone, X is not started
 #   5. no KMS card -> fbdev straight away
+#   6. (v7.3) a 3.5-inch HDMI stylus screen: forced mode and xrandr rotation
+#   7. (v7.3) an SPI panel: its card only, no second GPU, its fb for the fallback
 # Prints "ok"/"FAIL" lines; exit status 1 on any failure.
 fail=0
 ok()  { echo "ok   $*"; }
@@ -23,6 +25,7 @@ cat > $T/stubs/xinit <<'EOF'
 #!/bin/sh
 echo "XINIT $*" >> /tmp/kt/xinit.log
 cp /tmp/kt/tmp/xorg.conf /tmp/kt/xorg.$(wc -l < /tmp/kt/xinit.log).conf
+cp /tmp/kt/tmp/xclient.sh /tmp/kt/xclient.$(wc -l < /tmp/kt/xinit.log).sh 2>/dev/null
 case "$(cat /tmp/kt/xmode 2>/dev/null)" in
   hang) trap 'exit 0' TERM; while :; do sleep 1; done ;;
   up) touch /tmp/kt/tmp/x-up; sleep 3; exit 0 ;;
@@ -46,7 +49,7 @@ chmod 755 $T/stubs/*
 
 run() { # $1 = KIOSK_MODE, rest = extra env; log -> $T/out.log; returns kiosk.sh's exit status
   m=$1; shift
-  rm -f $T/xinit.log $T/cage.log $T/tmp/x-up
+  rm -f $T/xinit.log $T/cage.log $T/tmp/x-up $T/xclient.*.sh
   env PATH=$T/stubs:$PATH KIOSK_MODE=$m KIOSK_RUN=$T/run KIOSK_TMP=$T/tmp KIOSK_DRM=$T/drm KIOSK_DEVDRI=$T/dri \
       KIOSK_NO_WATCHDOG=1 XDG_RUNTIME_DIR=$T/xdg "$@" sh /kiosk.sh > $T/out.log 2>&1
   return $?
@@ -100,6 +103,32 @@ grep -q 'cage shows the browser' $T/out.log && ok "working cage recognised" || b
 [ "$(count XINIT $T/xinit.log)" = 0 ] && ok "no X started when cage works" || bad "X started although cage worked"
 [ "$rc" = 0 ] && ok "exit 0" || bad "exit $rc"
 pkill -KILL -f 'stubs/chromium' 2>/dev/null
+
+echo "-- 7. an SPI panel (v7.3: KIOSK_CARD / KIOSK_FB from alnasl-small-screen), HDMI connected as well"
+echo quick > $T/xmode
+mkdir -p $T/drm/card1 $T/drm/card1-SPI-1; echo connected > $T/drm/card1-SPI-1/status; echo 480x320 > $T/drm/card1-SPI-1/modes; : > $T/dri/card1
+run x KIOSK_CARD=card1 KIOSK_FB=/dev/fb1 KIOSK_RES=1280x720 ; rc=$?
+grep -q 'small SPI screen on card1 (fb1)' $T/out.log && grep -q 'starting X (modesetting driver, .*/card1)' $T/out.log && ok "the SPI card is the screen although HDMI is connected (modesetting on card1)" || bad "SPI card not chosen"
+grep -q 'kmsdev" ".*/card1"' $T/xorg.1.conf && grep -q 'AutoAddGPU" "false"' $T/xorg.1.conf && [ "$(grep -c 'Section "ServerFlags"' $T/xorg.1.conf)" = 1 ] && ok "xorg.conf: kmsdev card1, no second GPU, one ServerFlags section" || bad "SPI xorg.conf"
+grep -q 'Option "fbdev" "/dev/fb1"' $T/xorg.2.conf && ok "the fbdev fallback uses the panel's fb1" || bad "fbdev fallback not on fb1"
+grep -q 'connector card1-SPI-1 connected' $T/out.log && ! grep -q 'connector card0-HDMI-A-1' $T/out.log && grep -q 'resolution setting=auto connector=SPI-1' $T/out.log && ok "only the panel's connector counts; a saved HDMI resolution is not used" || bad "HDMI connector or resolution leaked in"
+run x KIOSK_CARD=card7 KIOSK_FB=/dev/fb7 ; rc=$?
+grep -q 'small SPI screen card7 is not there; the screen is HDMI' $T/out.log && grep -q 'kmsdev" ".*/card0"' $T/xorg.1.conf && ! grep -q AutoAddGPU $T/xorg.1.conf && ok "a card that is not there: HDMI as before" || bad "missing card not handled"
+run x 'KIOSK_CARD=card1;reboot' ; rc=$?
+grep -q 'ignoring a malformed KIOSK_CARD' $T/out.log && grep -q 'kmsdev" ".*/card0"' $T/xorg.1.conf && ok "a malformed KIOSK_CARD is ignored" || bad "malformed KIOSK_CARD got through"
+rm -rf $T/drm/card1 $T/drm/card1-SPI-1 $T/dri/card1
+pkill -KILL -f 'stubs/' 2>/dev/null
+
+echo "-- 6. a 3.5-inch HDMI stylus screen (v7.3: KIOSK_FORCE_MODE / KIOSK_ROTATE from alnasl-small-screen)"
+echo quick > $T/xmode
+run x KIOSK_FORCE_MODE=640x480 KIOSK_ROTATE=right ; rc=$?
+grep -q 'small stylus screen: mode 640x480, rotation right' $T/out.log && grep -q 'resolution setting=640x480' $T/out.log && ok "forced mode 640x480 wins although the screen does not list it; rotation right" || bad "forced mode/rotation not taken"
+grep -q 'kiosk-res apply - "640x480" "right"' $T/xclient.1.sh && ok "the X client sets the mode and the rotation (kiosk-res apply - 640x480 right)" || bad "xclient lacks the rotation apply"
+run x KIOSK_FORCE_MODE='1;reboot' KIOSK_ROTATE=sideways ; rc=$?
+grep -q 'ignoring a malformed KIOSK_FORCE_MODE' $T/out.log && grep -q 'ignoring a malformed KIOSK_ROTATE' $T/out.log && ! cat $T/xclient.*.sh | grep -q 'kiosk-res apply' && ok "malformed mode and rotation are ignored (auto, normal; no kiosk-res call)" || bad "malformed values got through"
+run x ; rc=$?
+! grep -q 'small stylus screen' $T/out.log && ! cat $T/xclient.*.sh | grep -q 'kiosk-res apply' && ok "without them nothing changes (no small-screen line, no kiosk-res call)" || bad "default run changed"
+pkill -KILL -f 'stubs/' 2>/dev/null
 
 echo "-- 5. no KMS card"
 rm -f $T/dri/card0; echo quick > $T/xmode
