@@ -10,7 +10,7 @@ const TX = {
     keyboard: "Keyboard layout", keyboard_d: "Used by the screen and by a keyboard plugged into the box.", kbd_test: "Try it here",
     kbd_saved: "Saved. The display restarts to apply it.", kbd_saved_w: "Saved.",
     network: "Network", status: "Status", wifi: "Wi-Fi", ip_settings: "IP settings", ethernet: "Ethernet",
-    link_up: "connected", link_down: "no cable", hotspot_on: "setup hotspot", not_present: "not present", no_ip: "no address yet",
+    link_up: "connected", link_down: "no cable", link_down_wifi: "not connected", hotspot_on: "setup hotspot", not_present: "not present", no_ip: "no address yet",
     address: "Address", gateway: "Gateway", dns: "DNS servers", hostname: "Name of this box",
     hostname_note: "Letters, digits and hyphens. Applies fully after a restart.",
     scan: "Scan for networks", scanning: "Scanning...", hidden_net: "Hidden network",
@@ -151,7 +151,7 @@ const TX = {
     keyboard: "Toetsenbordindeling", keyboard_d: "Geldt voor het scherm en voor een toetsenbord dat je op de box aansluit.", kbd_test: "Probeer het hier",
     kbd_saved: "Opgeslagen. Het scherm herstart om het toe te passen.", kbd_saved_w: "Opgeslagen.",
     network: "Netwerk", status: "Status", wifi: "Wifi", ip_settings: "IP-instellingen", ethernet: "Ethernet",
-    link_up: "verbonden", link_down: "geen kabel", hotspot_on: "installatiehotspot", not_present: "niet aanwezig", no_ip: "nog geen adres",
+    link_up: "verbonden", link_down: "geen kabel", link_down_wifi: "niet verbonden", hotspot_on: "installatiehotspot", not_present: "niet aanwezig", no_ip: "nog geen adres",
     address: "Adres", gateway: "Gateway", dns: "DNS-servers", hostname: "Naam van deze box",
     hostname_note: "Letters, cijfers en koppeltekens. Volledig actief na een herstart.",
     scan: "Netwerken zoeken", scanning: "Zoeken...", hidden_net: "Verborgen netwerk",
@@ -1132,18 +1132,18 @@ function netPage(wiz) {
   if (wiz) return body;
   sub(t("network"), body);
 }
-function ifaceLine(name, d) {
+function ifaceLine(name, d, wifi) {  // a radio has no cable to be missing
   if (!d.present) return [name, t("not_present")];
   if (d.hotspot) return [name, [h("span", { class: "pill warn" }, t("hotspot_on")), " " + d.hotspot]];
   const parts = [];
-  parts.push(h("span", { class: "pill " + (d.link ? "ok" : "bad") }, d.link ? t("link_up") : t("link_down")));
+  parts.push(h("span", { class: "pill " + (d.link ? "ok" : "bad") }, d.link ? t("link_up") : t(wifi ? "link_down_wifi" : "link_down")));
   parts.push(" " + (d.addresses.join(", ") || t("no_ip")));
   if (d.ssid) parts.push("  " + d.ssid + " (" + d.rssi + " dBm)");
   return [name, parts];
 }
 async function tabStatus(redraw) {
   const n = await api("/api/net");
-  const rows = [ifaceLine(t("ethernet"), n.eth0), ifaceLine(t("wifi"), n.wlan0), [t("gateway"), n.eth0.gateway || n.wlan0.gateway || "-"],
+  const rows = [ifaceLine(t("ethernet"), n.eth0), ifaceLine(t("wifi"), n.wlan0, true), [t("gateway"), n.eth0.gateway || n.wlan0.gateway || "-"],
     [t("dns"), n.dns.join(", ") || "-"]];
   const hn = field(t("hostname"), { value: n.hostname });
   const hst = h("div", {});

@@ -239,6 +239,14 @@ input.range { flex: 1; min-width: 180px; height: 44px; accent-color: var(--accen
   .card:has(> label.f + .note + .btn) > label.f { grid-column: 1; grid-row: 1; margin: 0; }
   .card:has(> label.f + .note + .btn) > .btn { grid-column: 2; grid-row: 1; min-height: 38px; }
   .card:has(> label.f + .note + .btn) > :not(label.f):not(.btn) { grid-column: 1 / -1; }
+  /* IP settings: name, mode and Apply on one line per interface; the static fields drop below when chosen */
+  .card:has(> h2 + label.f + div + .btn) { display: grid; grid-template-columns: 5.5em 1fr auto; column-gap: 8px; align-items: center; }
+  .card:has(> h2 + label.f + div + .btn) > h2 { grid-column: 1; grid-row: 1; margin: 0; font-size: 15px; }
+  .card:has(> h2 + label.f + div + .btn) > label.f { grid-column: 2; grid-row: 1; margin: 0; }
+  .card:has(> h2 + label.f + div + .btn) > .btn { grid-column: 3; grid-row: 1; min-height: 38px; margin: 0; }
+  .card:has(> h2 + label.f + div + .btn) > div { grid-column: 1 / -1; }
+  /* the last few pixels: no padding under the page, so a page that fits does not grow a scrollbar */
+  #app { padding-bottom: 0; }  /* the keyboard rule above is more specific and still wins */
 }
 /* ==== end compact-screen ==== */
 
