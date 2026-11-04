@@ -1183,6 +1183,7 @@ for key in cmp_menu cmp_qr_setup cmp_qr_in cmp_qr_url cmp_status_in cmp_t_role c
   n=$(grep -c -E "(^|[^A-Za-z0-9_])$key:" $J); [ "$n" = 2 ] && ok "app.js: $key in EN and NL" || bad "app.js: $key found $n times (2 expected)"
 done
 grep -q "pin: pinPage" $J && grep -q "function pinPage" $J && grep -q "/api/pin" $J && grep -q "id: \"cmp-pin\"" $J && ! grep -q "function pinPad" $J && ok "app.js: Settings > PIN, the PIN on the compact status, no number pad" || bad "app.js PIN page or compact PIN row"
+! grep -q -e 'langToggle()' -e '/api/lang' $J && grep -q '^    LANG = "en";' $J && ok "app.js: the box's screens are English only, no language switch" || bad "app.js can still switch language"
 
 echo "== sizes"
 df -h $R | tail -1

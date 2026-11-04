@@ -349,7 +349,7 @@ function shell(title, body, opts = {}) {
     h("div", { class: "brand" }, "Alnasl"),
     h("div", { class: "dim" }, title),
     h("div", { class: "sp" }),
-    S.compact ? themeToggle() : opts.langToggle === false ? null : langToggle(),
+    S.compact || opts.langToggle !== false ? themeToggle() : null,
     opts.home ? h("button", { class: "btn sm", onclick: () => go(S.compact ? "/compact" : "/menu") }, t("menu")) : null);
   app.replaceChildren(top, h("div", { class: "page" }, body));
   closeOsk();
@@ -367,10 +367,6 @@ function themeToggle() {
   return h("button", { class: "btn sm", id: "theme-toggle", "aria-label": light ? t("theme_dark") : t("theme_light"),
     onclick: async () => { S.theme = light ? "dark" : "light"; applyTheme(S.theme); await api("/api/theme", { theme: S.theme }).catch(() => 0); route(); } },
     light ? t("theme_dark") : t("theme_light"));
-}
-function langToggle() {
-  return h("div", { class: "row" }, ["en", "nl"].map((l) =>
-    h("button", { class: "btn sm" + (LANG === l ? " primary" : ""), onclick: async () => { LANG = l; await api("/api/lang", { lang: l }).catch(() => 0); route(); } }, l.toUpperCase())));
 }
 
 /* ------------------------------------------ on-screen keyboard (touch) -- */
@@ -472,8 +468,9 @@ async function route() {
   const p = location.pathname;
   try {
     S = Object.assign(S, await api("/api/state"));
-    // v7.4.1: the small panel is always English (no room for a language switch, and none was wanted there)
-    LANG = S.compact ? "en" : (S.lang || LANG);
+    // The box's own screens are English, every one of them, HDMI too: no language switch anywhere. The tables keep
+    // their Dutch (the hotspot's phone page still speaks it), but nothing here reads S.lang any more.
+    LANG = "en";
     applyTheme(S.theme);
   } catch (e) { shell("", [msg("bad", t("error")), h("button", { class: "btn", onclick: route }, t("retry"))], { langToggle: false }); return; }
   ping();
@@ -1346,8 +1343,7 @@ function wizard(step) {
     h("button", { class: "btn primary", onclick: async () => { if (onNext && !(await onNext())) return; next(); } }, nextLabel));
   let body;
   if (name === "welcome") {
-    body = [h("h1", {}, t("welcome")), h("p", { class: "dim" }, t("welcome_d")), hotspotCard(), h("h2", { style: "margin-top:24px" }, t("language")),
-      S.compact ? null : h("div", { class: "row" }, ["en", "nl"].map((l) => h("button", { class: "btn" + (LANG === l ? " primary" : ""), onclick: async () => { LANG = l; await api("/api/lang", { lang: l }).catch(() => 0); wizard(step); } }, l === "en" ? "English" : "Nederlands"))),
+    body = [h("h1", {}, t("welcome")), h("p", { class: "dim" }, t("welcome_d")), hotspotCard(),
       nav(() => wizard(stepAfter(step)), t("next"))];
   } else if (name === "mode") {
     const choice = (id) => {
