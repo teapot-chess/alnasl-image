@@ -546,12 +546,12 @@ grep -q consoleblank=0 $R/boot/systemd.cfg || { echo "consoleblank=0 not set"; e
 BOOTQ="quiet loglevel=0 vt.global_cursor_default=0 logo.nologo console=tty3 systemd.show_status=false rd.systemd.show_status=false rd.udev.log_level=0 udev.log_level=0"
 sed -i "/^systemd_cmdline=/ s/$/ $BOOTQ/" $R/boot/systemd.cfg
 grep -q 'vt.global_cursor_default=0 logo.nologo console=tty3' $R/boot/systemd.cfg || { echo "boot screen cmdline not set"; exit 1; }
-# v7.4.2: a warm reboot leaves the SD card in 1.8 V signalling and about 1 in 5 never found the root partition;
-# the initrd then waited for it forever. Why each option: scripts/grub-ab.cfg, above its menuentry. They are
+# v7.4.2: about 1 warm reboot in 5 never found the root partition and the initrd waited for it forever. These
+# options do not cure that; they make the initrd give up and restart. Why each: scripts/grub-ab.cfg, above its menuentry. They are
 # in the boot partition's grub.cfg AND here, in the slot: the boot partition is written once, at the flash, and
 # the slot is what a system update brings, so a box flashed before 7.4.2 gets them from this file.
 # The same list is in grub-ab.cfg, verify.sh and /usr/local/sbin/alnasl-cmdline-check; verify.sh compares them.
-ALNASL_BOOTFIX="sdhci.debug_quirks2=4 rd.timeout=90 rd.shell=0 rd.emergency=reboot"
+ALNASL_BOOTFIX="rd.timeout=90 rd.shell=0 rd.emergency=reboot"
 sed -i "/^systemd_cmdline=/ s/$/ $ALNASL_BOOTFIX/" $R/boot/systemd.cfg
 for o in $ALNASL_BOOTFIX; do
   grep -q "^systemd_cmdline=.* $o\( \|$\)" $R/boot/systemd.cfg || { echo "systemd.cfg lacks $o"; exit 1; }
@@ -580,7 +580,7 @@ cat $B/config.txt
 # Photon's image (raspberrypi-firmware-pi4, which tdnf may not update: section 9). Pinned by SHA-256; fetched
 # once into $W/pi-fw. Only start4.elf and fixup4.dat, which go together. The Pi 3 files, bootcode.bin, the
 # device trees and the overlays stay Photon's: the kernel is upstream-based and its device trees belong to it.
-# Newer firmware alone did not cure the warm-reboot SD hang (ALNASL_BOOTFIX does); it comes along regardless.
+# Newer firmware alone did not cure the warm-reboot hang (nothing here does yet); it comes along regardless.
 # A system update writes a slot, never this partition: a box flashed earlier keeps its old firmware.
 PI_FW_TAG=1.20260915
 PI_FW_DIR=$W/pi-fw/$PI_FW_TAG

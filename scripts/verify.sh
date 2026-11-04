@@ -712,10 +712,10 @@ G=$B/boot/grub2/grub.cfg
 grep -q 'alnasl_tries' $G && grep -q "root=PARTUUID=$DISK_ID-" $G && ! grep -q '@DISKID@' $G && ok "boot partition grub.cfg is the A/B one (try counter, PARTUUID $DISK_ID)" || bad "boot partition grub.cfg is not grub-ab.cfg"
 e=$B/alnasl/grubenv; [ "$(stat -c %s $e 2>/dev/null)" = 1024 ] && head -c 24 $e | grep -q 'GRUB Environment Block' && grep -q '^alnasl_slot=A$' $e && grep -q '^alnasl_try=none$' $e && ok "grubenv: 1024 bytes, slot A, no trial" || bad "grubenv"
 [ -f $B/boot/grub2/alnasl-splash.png ] && ok "the picture is on the boot partition for grub" || bad "no splash png on the boot partition"
-# v7.4.2: the warm-reboot SD hang (why: grub-ab.cfg, above its menuentry). Both the boot partition's grub.cfg
+# v7.4.2: the initrd restarts instead of hanging (why: grub-ab.cfg, above its menuentry). Both the boot partition's grub.cfg
 # (a newly flashed card) and the slot's systemd.cfg (what an update brings to a card flashed earlier) carry the
 # options. Slot B is empty in the image (checked above) and becomes a copy of a release's slot A, which is this.
-FIX="sdhci.debug_quirks2=4 rd.timeout=90 rd.shell=0 rd.emergency=reboot"
+FIX="rd.timeout=90 rd.shell=0 rd.emergency=reboot"
 for o in $FIX; do
   grep -E "^[[:space:]]*linux .* $o .*\\\$systemd_cmdline" $G >/dev/null && ok "boot partition grub.cfg: $o on the linux line" || bad "boot partition grub.cfg: no $o on the linux line"
   grep -E "^systemd_cmdline=(.* )?$o( |$)" $R/boot/systemd.cfg >/dev/null && ok "slot A /boot/systemd.cfg: $o" || bad "slot A /boot/systemd.cfg lacks $o"

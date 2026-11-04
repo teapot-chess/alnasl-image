@@ -55,16 +55,17 @@ the pins); the shipped `SCREEN=hdmi` touches nothing. `alnasl-small-screen.servi
 overlays at boot through configfs and tells the kiosk which DRM card to drive. Presets, the white-panel trap
 and what has never met real hardware: `docs/spi-screens.md`.
 
-## Warm reboots and the SD card (7.4.2)
+## Warm reboots that never come back (7.4.2)
 
 About one `systemctl reboot` in five on a Pi 4B Rev 1.5 never came back: the kernel repeated
-`mmc0: Timeout waiting for hardware cmd interrupt` and the initrd waited for `416c6e73-02` with no limit. A warm
-reset does not power-cycle the card, nothing in this kernel's device tree resets it, and so it stays in 1.8 V
-UHS signalling that the kernel no longer expects. The firmware and u-boot read it at 3.3 V, which is why it got
-that far. Newer Pi firmware alone did not change that.
+`mmc0: Timeout waiting for hardware cmd interrupt` and the initrd waited for `416c6e73-02` with no limit. The SD
+timeouts look like a symptom. The same boots show the VideoCore firmware mailbox timing out
+(`rpi_firmware_property_list` from `raspberrypi_hwmon`, `hwmon0: Failed to get throttled (-110)`), and the Pi 4's
+SD clock and regulators go through that firmware. Keeping the card at 3.3 V (`sdhci.debug_quirks2=4`) did not
+help and is not in the image. Newer Pi firmware alone did not help either. The cause is open; 7.4.2 only
+stops the box from hanging on it.
 
-- `sdhci.debug_quirks2=4` (SDHCI_QUIRK2_NO_1_8_V) keeps the card at 3.3 V. Slower; boots.
-- `rd.timeout=90 rd.shell=0 rd.emergency=reboot`: should the root partition still not appear, dracut gives up
+- `rd.timeout=90 rd.shell=0 rd.emergency=reboot`: when the root partition does not appear, dracut gives up
   after 90 s and restarts, instead of waiting forever or opening an emergency shell for a keyboard nobody has.
   All three names are dracut 059's (checked in the image's initrd by `verify.sh`); `rd.shell=0` is needed
   because the shell is on by default and `rd.emergency` only applies once it is off.

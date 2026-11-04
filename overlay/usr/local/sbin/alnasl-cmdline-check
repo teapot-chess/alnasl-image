@@ -1,14 +1,12 @@
 #!/bin/bash
 # alnasl-cmdline-check: at every boot (ExecStartPre of alnasl-slot-check.service), is the kernel running with
-# the options that stop a warm reboot from hanging? (v7.4.2)
+# the initrd options that turn a hung boot into a restart? (v7.4.2)
 #
-#   sdhci.debug_quirks2=4   keeps the SD card at 3.3 V. A warm reboot does not power-cycle the card and this
-#                           kernel does not reset it, so it stayed in 1.8 V UHS signalling and about 1 warm
-#                           reboot in 5 never found the root partition (mmc0: Timeout waiting for hardware cmd
-#                           interrupt, then the initrd waiting for /dev/disk/by-partuuid/416c6e73-02 forever)
 #   rd.timeout=90 rd.shell=0 rd.emergency=reboot
-#                           if the root partition is missing anyway: give up after 90 s and restart, instead
-#                           of dracut's endless wait and an emergency shell with no keyboard
+#     About 1 warm reboot in 5 on a Pi 4B never found the root partition (mmc0: Timeout waiting for hardware
+#     cmd interrupt, then the initrd waiting for /dev/disk/by-partuuid/416c6e73-02 forever). The cause is not
+#     fixed by these (see scripts/grub-ab.cfg); they make dracut give up after 90 s and restart, instead of
+#     an endless wait and an emergency shell with no keyboard.
 #
 # Both the boot partition's grub.cfg and this slot's /boot/systemd.cfg carry them (assemble.sh). Missing from
 # /proc/cmdline: an error in the journal. Missing from /boot/systemd.cfg as well: they are appended to its
@@ -20,7 +18,7 @@
 #
 # ALNASL_CMDLINE and ALNASL_SYSTEMD_CFG point it elsewhere (scripts/test-scripts.sh, verify.sh).
 set -u
-NEED="sdhci.debug_quirks2=4 rd.timeout=90 rd.shell=0 rd.emergency=reboot"
+NEED="rd.timeout=90 rd.shell=0 rd.emergency=reboot"
 CMDLINE=${ALNASL_CMDLINE:-/proc/cmdline}
 CFG=${ALNASL_SYSTEMD_CFG:-/boot/systemd.cfg}
 
@@ -35,7 +33,7 @@ running=$(tr '\n' ' ' < "$CMDLINE" 2>/dev/null)
 miss_run=""
 for o in $NEED; do has "$running" "$o" || miss_run="$miss_run $o"; done
 if [ -n "$miss_run" ]; then
-  err "this boot's kernel command line lacks$miss_run: a warm reboot may hang on the SD card"
+  err "this boot's kernel command line lacks$miss_run: a boot that loses its root partition waits forever instead of restarting"
 else
   info "kernel command line has $NEED"
 fi
