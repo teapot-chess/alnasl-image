@@ -7,6 +7,8 @@ PS=${1:?the alnasl-pin script}
 fail=0
 ok()  { echo "  ok   $*"; }
 bad() { echo "  FAIL $*"; fail=1; }
+# Byte-for-byte compare without cmp: the build VM, where verify.sh runs this, has no diffutils.
+same() { [ -f "$1" ] && [ -f "$2" ] && [ "$(sha256sum < "$1")" = "$(sha256sum < "$2")" ]; }
 
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
@@ -31,7 +33,7 @@ grep -q $'\r' "$T/b/alnasl-pin.txt" && grep -q 'ACCESS PIN OF THIS BOX' "$T/b/al
 
 # 2. The next boot, nothing changed: the card is not rewritten, nothing handed over.
 fresh; run; app; p=$(sed -n 2p "$T/s/pin"); cp "$T/b/alnasl-pin.txt" "$T/card0"; run
-[ ! -e "$T/d/pin-request" ] && cmp -s "$T/card0" "$T/b/alnasl-pin.txt" && ok "an ordinary boot hands nothing over and leaves the card alone" || bad "ordinary boot"
+[ ! -e "$T/d/pin-request" ] && same "$T/card0" "$T/b/alnasl-pin.txt" && ok "an ordinary boot hands nothing over and leaves the card alone" || bad "ordinary boot"
 
 # 3. A PIN typed on the card: handed over, kept on the card (not blanked), the result says so.
 setcard 'my hall 2026'; run
@@ -55,7 +57,7 @@ app; setcard NIEUW; run; [[ "$(sed -n 2p "$T/d/pin-request" 2>/dev/null)" =~ ^[0
 printf 'changed-in-app\n' > "$T/d/access-pin"; run --sync
 [ "$(card)" = 'PIN=changed-in-app' ] && [ "$(sed -n 2p "$T/s/pin")" = 'changed-in-app' ] && grep -a -q "changed in Arkab's own settings" "$T/b/alnasl-pin.txt" \
   && ! grep -q changed-in-app "$T/out.txt" && ok "--sync: a PIN changed in the app follows to the box's copy and the card" || bad "--sync"
-cp "$T/b/alnasl-pin.txt" "$T/card1"; run --sync; cmp -s "$T/card1" "$T/b/alnasl-pin.txt" && ok "--sync with nothing new writes nothing" || bad "--sync rewrote an unchanged card"
+cp "$T/b/alnasl-pin.txt" "$T/card1"; run --sync; same "$T/card1" "$T/b/alnasl-pin.txt" && ok "--sync with nothing new writes nothing" || bad "--sync rewrote an unchanged card"
 
 # 7. The power went before --sync: at the next boot the app's own PIN wins (same role).
 printf 'app-was-faster\n' > "$T/d/access-pin"; run
