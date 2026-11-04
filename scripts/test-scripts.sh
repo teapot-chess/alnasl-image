@@ -133,6 +133,32 @@ check "$(sum "$T/rel/index.json")" "$(sum "$T/i2")" "index.json: same inputs, sa
 
 # --- the compact-screen CSS checks (test-compact-css.sh) -----------------------------------
 if bash "$HERE/test-compact-css.sh" > "$T/css.out" 2>&1; then ok "test-compact-css.sh passes"; else bad "test-compact-css.sh ($(grep FAIL "$T/css.out" | head -n 2 | tr '\n' ' '))"; fi
+
+# --- alnasl-cmdline-check (v7.4.2: the SD-card quirk and the initrd's timeout) --------------
+CC="$HERE/../overlay/usr/local/sbin/alnasl-cmdline-check"
+FIX="sdhci.debug_quirks2=4 rd.timeout=90 rd.shell=0 rd.emergency=reboot"
+cc() { ALNASL_CMDLINE="$T/cmdline" ALNASL_SYSTEMD_CFG="$T/systemd.cfg" bash "$CC"; }
+printf '# GRUB Environment Block\nsystemd_cmdline=net.ifnames=0 quiet\n' > "$T/systemd.cfg"
+echo "root=PARTUUID=416c6e73-02 rw quiet" > "$T/cmdline"
+out=$(cc); rc=$?
+check "$rc" 0 "cmdline-check exits 0 when the options are missing"
+case $out in *"<3>alnasl-cmdline-check: this boot's kernel command line lacks $FIX"*) ok "cmdline-check: an error-priority line names what the running kernel lacks" ;; *) bad "cmdline-check error line ($out)" ;; esac
+check "$(sed -n 2p "$T/systemd.cfg")" "systemd_cmdline=net.ifnames=0 quiet $FIX" "cmdline-check appends the missing options to systemd_cmdline"
+check "$(sed -n 1p "$T/systemd.cfg")" "# GRUB Environment Block" "cmdline-check keeps the environment block header"
+cp "$T/systemd.cfg" "$T/after1"; cc > /dev/null
+check "$(sum "$T/systemd.cfg")" "$(sum "$T/after1")" "cmdline-check: a second run changes nothing"
+printf '# GRUB Environment Block\nsystemd_cmdline=a rd.timeout=90 b\n' > "$T/systemd.cfg"; cc > /dev/null
+check "$(sed -n 2p "$T/systemd.cfg")" "systemd_cmdline=a rd.timeout=90 b sdhci.debug_quirks2=4 rd.shell=0 rd.emergency=reboot" "cmdline-check adds only what is missing"
+printf '# GRUB Environment Block\nsystemd_cmdline=a rd.timeout=900 b\n' > "$T/systemd.cfg"; cc > /dev/null
+case " $(sed -n 2p "$T/systemd.cfg") " in *" rd.timeout=90 "*) ok "cmdline-check matches whole words (rd.timeout=900 is not rd.timeout=90)" ;; *) bad "cmdline-check took rd.timeout=900 for rd.timeout=90" ;; esac
+echo "BOOT_IMAGE=x $FIX" > "$T/cmdline"; printf '# GRUB Environment Block\nsystemd_cmdline=q %s\n' "$FIX" > "$T/systemd.cfg"
+out=$(cc)
+case $out in *"<3>"*) bad "cmdline-check reports an error with everything in place ($out)" ;; *) ok "cmdline-check: everything in place, no error" ;; esac
+rm -f "$T/systemd.cfg"; out=$(cc); rc=$?
+case $out in *"<3>"*"is missing"*) check "$rc$( [ -e "$T/systemd.cfg" ] && echo made)" 0 "cmdline-check: no systemd.cfg is reported, not made" ;; *) bad "cmdline-check without systemd.cfg ($out)" ;; esac
+for f in "$HERE/grub-ab.cfg" "$HERE/assemble.sh" "$HERE/verify.sh" "$CC"; do
+  grep -q -F "$FIX" "$f" && ok "$(basename "$f") names the same option list" || bad "$(basename "$f") does not have the option list '$FIX'"
+done
 echo
 if [ $fails -eq 0 ]; then echo "all scripts checks passed"; else echo "$fails failed"; fi
 exit $((fails > 0))

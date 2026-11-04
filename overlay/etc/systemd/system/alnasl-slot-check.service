@@ -7,6 +7,9 @@ After=alnasl-data.service alnasl-setup.service
 [Service]
 # Not oneshot: it may wait up to 15 minutes for Alnasl and the screen, and nothing should wait for it.
 Type=simple
+# v7.4.2: is the kernel running with the SD-card and initrd options (sdhci.debug_quirks2=4, rd.*)? Logs an
+# error when not and puts them back in /boot/systemd.cfg for the next boot. "-": never stops the slot check.
+ExecStartPre=-/usr/local/sbin/alnasl-cmdline-check
 ExecStart=/usr/local/sbin/alnasl-system-update --boot-check
 
 [Install]

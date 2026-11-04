@@ -1,0 +1,67 @@
+#!/bin/bash
+# alnasl-cmdline-check: at every boot (ExecStartPre of alnasl-slot-check.service), is the kernel running with
+# the options that stop a warm reboot from hanging? (v7.4.2)
+#
+#   sdhci.debug_quirks2=4   keeps the SD card at 3.3 V. A warm reboot does not power-cycle the card and this
+#                           kernel does not reset it, so it stayed in 1.8 V UHS signalling and about 1 warm
+#                           reboot in 5 never found the root partition (mmc0: Timeout waiting for hardware cmd
+#                           interrupt, then the initrd waiting for /dev/disk/by-partuuid/416c6e73-02 forever)
+#   rd.timeout=90 rd.shell=0 rd.emergency=reboot
+#                           if the root partition is missing anyway: give up after 90 s and restart, instead
+#                           of dracut's endless wait and an emergency shell with no keyboard
+#
+# Both the boot partition's grub.cfg and this slot's /boot/systemd.cfg carry them (assemble.sh). Missing from
+# /proc/cmdline: an error in the journal. Missing from /boot/systemd.cfg as well: they are appended to its
+# systemd_cmdline line, for the next boot. That file belongs to this slot only, grub reads it as an
+# environment file, and the build writes the same line the same way; a box on a boot partition from before
+# 7.4.2 has no other source for them. The boot partition's grub.cfg is never written here: a torn write
+# there leaves no slot that boots. A missing /boot/systemd.cfg or systemd_cmdline line is reported, not made.
+# Exits 0 whatever it finds: nothing should wait for it or fail with it.
+#
+# ALNASL_CMDLINE and ALNASL_SYSTEMD_CFG point it elsewhere (scripts/test-scripts.sh, verify.sh).
+set -u
+NEED="sdhci.debug_quirks2=4 rd.timeout=90 rd.shell=0 rd.emergency=reboot"
+CMDLINE=${ALNASL_CMDLINE:-/proc/cmdline}
+CFG=${ALNASL_SYSTEMD_CFG:-/boot/systemd.cfg}
+
+# systemd reads <N> at the start of a line as the syslog priority (SyslogLevelPrefix=yes, its default).
+err()  { echo "<3>alnasl-cmdline-check: $*"; }
+warn() { echo "<4>alnasl-cmdline-check: $*"; }
+info() { echo "<6>alnasl-cmdline-check: $*"; }
+
+has() { case " $1 " in *" $2 "*) return 0 ;; esac; return 1; }
+
+running=$(tr '\n' ' ' < "$CMDLINE" 2>/dev/null)
+miss_run=""
+for o in $NEED; do has "$running" "$o" || miss_run="$miss_run $o"; done
+if [ -n "$miss_run" ]; then
+  err "this boot's kernel command line lacks$miss_run: a warm reboot may hang on the SD card"
+else
+  info "kernel command line has $NEED"
+fi
+
+if [ ! -f "$CFG" ]; then
+  err "$CFG is missing: grub boots this slot with its fallback command line; not recreated here"
+  exit 0
+fi
+line=$(grep -m 1 '^systemd_cmdline=' "$CFG")
+if [ -z "$line" ]; then
+  err "$CFG has no systemd_cmdline line; not added here"
+  exit 0
+fi
+miss_cfg=""
+for o in $NEED; do has "${line#systemd_cmdline=}" "$o" || miss_cfg="$miss_cfg $o"; done
+if [ -z "$miss_cfg" ]; then
+  [ -n "$miss_run" ] && err "$CFG has them all, so this boot did not come through it (another boot path or an edited grub.cfg)"
+  exit 0
+fi
+
+tmp="$CFG.alnasl-new"
+if sed "0,/^systemd_cmdline=/ s|^systemd_cmdline=.*|&$miss_cfg|" "$CFG" > "$tmp" && grep -q "^systemd_cmdline=.*${miss_cfg##* }" "$tmp" &&
+  sync && mv -f "$tmp" "$CFG" && sync; then
+  warn "added$miss_cfg to $CFG for the next boot"
+else
+  rm -f "$tmp"
+  err "could not add$miss_cfg to $CFG"
+fi
+exit 0

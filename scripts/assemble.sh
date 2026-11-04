@@ -546,6 +546,17 @@ grep -q consoleblank=0 $R/boot/systemd.cfg || { echo "consoleblank=0 not set"; e
 BOOTQ="quiet loglevel=0 vt.global_cursor_default=0 logo.nologo console=tty3 systemd.show_status=false rd.systemd.show_status=false rd.udev.log_level=0 udev.log_level=0"
 sed -i "/^systemd_cmdline=/ s/$/ $BOOTQ/" $R/boot/systemd.cfg
 grep -q 'vt.global_cursor_default=0 logo.nologo console=tty3' $R/boot/systemd.cfg || { echo "boot screen cmdline not set"; exit 1; }
+# v7.4.2: a warm reboot leaves the SD card in 1.8 V signalling and about 1 in 5 never found the root partition;
+# the initrd then waited for it forever. Why each option: scripts/grub-ab.cfg, above its menuentry. They are
+# in the boot partition's grub.cfg AND here, in the slot: the boot partition is written once, at the flash, and
+# the slot is what a system update brings, so a box flashed before 7.4.2 gets them from this file.
+# The same list is in grub-ab.cfg, verify.sh and /usr/local/sbin/alnasl-cmdline-check; verify.sh compares them.
+ALNASL_BOOTFIX="sdhci.debug_quirks2=4 rd.timeout=90 rd.shell=0 rd.emergency=reboot"
+sed -i "/^systemd_cmdline=/ s/$/ $ALNASL_BOOTFIX/" $R/boot/systemd.cfg
+for o in $ALNASL_BOOTFIX; do
+  grep -q "^systemd_cmdline=.* $o\( \|$\)" $R/boot/systemd.cfg || { echo "systemd.cfg lacks $o"; exit 1; }
+  grep -q "^ *linux .* $o .*\$systemd_cmdline" $B/boot/grub2/grub.cfg || { echo "the boot partition's grub.cfg lacks $o on its linux line"; exit 1; }
+done
 # Every console= gets the kernel's messages, so Photon's own console=tty0/tty1 must not stay either.
 sed -i -E '/^photon_cmdline=/ { s/(^|[= ])console=tty[01]( |$)/\1\2/g; s/(^|[= ])console=tty[01]( |$)/\1\2/g; s/  +/ /g }' $R/boot/photon.cfg
 grep '^photon_cmdline=' $R/boot/photon.cfg | sed 's/^/  /'
@@ -565,6 +576,29 @@ awk '
 cat $W/config.txt.new > $B/config.txt
 grep -q '^disable_overscan=1' $B/config.txt && grep -q '^core_freq_min=500' $B/config.txt && grep -q '^disable_splash=1' $B/config.txt || { echo "config.txt edit failed"; exit 1; }
 cat $B/config.txt
+# v7.4.2: the Pi 4's GPU firmware from raspberrypi/firmware 1.20260915 instead of the 2023-04-24 copy in
+# Photon's image (raspberrypi-firmware-pi4, which tdnf may not update: section 9). Pinned by SHA-256; fetched
+# once into $W/pi-fw. Only start4.elf and fixup4.dat, which go together. The Pi 3 files, bootcode.bin, the
+# device trees and the overlays stay Photon's: the kernel is upstream-based and its device trees belong to it.
+# Newer firmware alone did not cure the warm-reboot SD hang (ALNASL_BOOTFIX does); it comes along regardless.
+# A system update writes a slot, never this partition: a box flashed earlier keeps its old firmware.
+PI_FW_TAG=1.20260915
+PI_FW_DIR=$W/pi-fw/$PI_FW_TAG
+mkdir -p $PI_FW_DIR
+for fw in "start4.elf 560ead37044d849325755d3684ac1f74654b3ce6450604a42df6dd832cda9ede" \
+          "fixup4.dat d181d5055daebac22513d6904fa9ce21d1e99b852cc391af095ade6f0b45c400"; do
+  set -- $fw
+  if ! echo "$2  $PI_FW_DIR/$1" | sha256sum -c --quiet - 2>/dev/null; then
+    rm -f $PI_FW_DIR/$1.part
+    curl -fsSL -m 300 -o $PI_FW_DIR/$1.part https://github.com/raspberrypi/firmware/raw/$PI_FW_TAG/boot/$1
+    echo "$2  $PI_FW_DIR/$1.part" | sha256sum -c --quiet - || { echo "$1 of $PI_FW_TAG does not have the pinned SHA-256"; rm -f $PI_FW_DIR/$1.part; exit 1; }
+    mv $PI_FW_DIR/$1.part $PI_FW_DIR/$1
+  fi
+  cat $PI_FW_DIR/$1 > $B/$1
+  echo "$2  $B/$1" | sha256sum -c --quiet - || { echo "$1 on the boot partition is not the pinned one"; exit 1; }
+  echo "  Pi 4 firmware: $1 from $PI_FW_TAG ($2)"
+done
+set --
 
 # --- 12. close up -----------------------------------------------------------------------
 cumount $R

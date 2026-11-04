@@ -301,7 +301,7 @@ pyf=$(find $R/usr/local $R/etc/systemd $R/usr/share/alnasl -type f 2>/dev/null |
         [ "$(head -c 2 "$f" | tr -d '\0')" = '#!' ] && head -n 1 "$f" | grep -q -a python && echo "${f#$R}"
       done)
 [ -z "$pyf" ] && ok "no .py file and no python #! script in /usr/local, /etc/systemd, /usr/share/alnasl" || bad "python left: $(echo $pyf)"
-for s in alnasl-setup alnasl-kiosk alnasl-kiosk-load alnasl-firstboot alnasl-pin alnasl-wifi-setup alnasl-os-update alnasl-reset alnasl-data alnasl-mode alnasl-sound alnasl-firewall; do bash -n $R/usr/local/sbin/$s && ok "bash -n $s" || bad "bash -n $s"; done
+for s in alnasl-setup alnasl-kiosk alnasl-kiosk-load alnasl-firstboot alnasl-pin alnasl-wifi-setup alnasl-os-update alnasl-reset alnasl-data alnasl-mode alnasl-sound alnasl-firewall alnasl-cmdline-check; do bash -n $R/usr/local/sbin/$s && ok "bash -n $s" || bad "bash -n $s"; done
 echo "       vconsole.conf: $(cat $R/etc/vconsole.conf 2>/dev/null)"
 for k in be-latin1 fr-latin9 nl us-acentos de-latin1-nodeadkeys us uk es it pt-latin1; do
   f=$(find $R/usr/share/keymaps $R/usr/lib/kbd $R/lib/kbd -name "$k.map*" 2>/dev/null | head -n 1); [ -n "$f" ] && ok "keymap $k" || bad "keymap $k missing"
@@ -712,6 +712,32 @@ G=$B/boot/grub2/grub.cfg
 grep -q 'alnasl_tries' $G && grep -q "root=PARTUUID=$DISK_ID-" $G && ! grep -q '@DISKID@' $G && ok "boot partition grub.cfg is the A/B one (try counter, PARTUUID $DISK_ID)" || bad "boot partition grub.cfg is not grub-ab.cfg"
 e=$B/alnasl/grubenv; [ "$(stat -c %s $e 2>/dev/null)" = 1024 ] && head -c 24 $e | grep -q 'GRUB Environment Block' && grep -q '^alnasl_slot=A$' $e && grep -q '^alnasl_try=none$' $e && ok "grubenv: 1024 bytes, slot A, no trial" || bad "grubenv"
 [ -f $B/boot/grub2/alnasl-splash.png ] && ok "the picture is on the boot partition for grub" || bad "no splash png on the boot partition"
+# v7.4.2: the warm-reboot SD hang (why: grub-ab.cfg, above its menuentry). Both the boot partition's grub.cfg
+# (a newly flashed card) and the slot's systemd.cfg (what an update brings to a card flashed earlier) carry the
+# options. Slot B is empty in the image (checked above) and becomes a copy of a release's slot A, which is this.
+FIX="sdhci.debug_quirks2=4 rd.timeout=90 rd.shell=0 rd.emergency=reboot"
+for o in $FIX; do
+  grep -E "^[[:space:]]*linux .* $o .*\\\$systemd_cmdline" $G >/dev/null && ok "boot partition grub.cfg: $o on the linux line" || bad "boot partition grub.cfg: no $o on the linux line"
+  grep -E "^systemd_cmdline=(.* )?$o( |$)" $R/boot/systemd.cfg >/dev/null && ok "slot A /boot/systemd.cfg: $o" || bad "slot A /boot/systemd.cfg lacks $o"
+done
+[ "$(grep -c '^systemd_cmdline=' $R/boot/systemd.cfg)" = 1 ] && head -c 24 $R/boot/systemd.cfg | grep -q 'GRUB Environment Block' && ok "slot A /boot/systemd.cfg: one systemd_cmdline line, environment block header" || bad "slot A /boot/systemd.cfg layout"
+# The dracut in the initrd must know them by these names: rd.timeout (the root device's job timeout),
+# rd.shell (the emergency shell, default on) and rd.emergency (what happens instead).
+ID=$(mktemp -d); (cd $ID && zcat $R/boot/initrd.img-$KVER | cpio -id --quiet 'usr/lib/systemd/system-generators/dracut-rootfs-generator' 'usr/bin/dracut-emergency' 'bin/dracut-emergency' 2>/dev/null)
+de=$(ls $ID/usr/bin/dracut-emergency $ID/bin/dracut-emergency 2>/dev/null | head -n 1)
+grep -q 'getarg rd.timeout' $ID/usr/lib/systemd/system-generators/dracut-rootfs-generator 2>/dev/null && ok "initrd: dracut-rootfs-generator reads rd.timeout" || bad "initrd: no rd.timeout in dracut-rootfs-generator"
+[ -n "$de" ] && grep -q 'getargbool 1 rd.shell' $de && grep -q 'getarg rd.emergency' $de && grep -q 'reboot || exit 1' $de && ok "initrd: dracut-emergency reads rd.shell and rd.emergency (reboot)" || bad "initrd: dracut-emergency does not read rd.shell/rd.emergency"
+rm -rf $ID
+# The runtime check: in the slot, wired into the slot check, run with the image's own tools on a stand-in file.
+CC=$R/usr/local/sbin/alnasl-cmdline-check
+[ -x $CC ] && grep -q -F "$FIX" $CC && grep -q '^ExecStartPre=-/usr/local/sbin/alnasl-cmdline-check$' $R/etc/systemd/system/alnasl-slot-check.service && ok "alnasl-cmdline-check: installed, same options, ExecStartPre of alnasl-slot-check" || bad "alnasl-cmdline-check missing or not wired into alnasl-slot-check.service"
+printf '# GRUB Environment Block\nsystemd_cmdline=net.ifnames=0\n' > $R/tmp/cc-cfg; echo "root=PARTUUID=$DISK_ID-02 rw" > $R/tmp/cc-cmdline
+cco=$(chroot $R env ALNASL_CMDLINE=/tmp/cc-cmdline ALNASL_SYSTEMD_CFG=/tmp/cc-cfg /usr/local/sbin/alnasl-cmdline-check); ccr=$?
+[ $ccr = 0 ] && echo "$cco" | grep -q '^<3>alnasl-cmdline-check: ' && [ "$(sed -n 2p $R/tmp/cc-cfg)" = "systemd_cmdline=net.ifnames=0 $FIX" ] && ok "alnasl-cmdline-check in the image: logs the error, repairs the stand-in systemd.cfg, exits 0" || bad "alnasl-cmdline-check in the image (rc $ccr): $cco"
+rm -f $R/tmp/cc-cfg $R/tmp/cc-cmdline $R/tmp/cc-cfg.alnasl-new
+# v7.4.2: the Pi 4 firmware pinned in assemble.sh (raspberrypi/firmware 1.20260915); the Pi 3 files stay Photon's.
+echo "560ead37044d849325755d3684ac1f74654b3ce6450604a42df6dd832cda9ede  $B/start4.elf" | sha256sum -c --quiet - && ok "boot partition: start4.elf is 1.20260915's" || bad "boot partition: start4.elf is not the pinned 1.20260915 one"
+echo "d181d5055daebac22513d6904fa9ce21d1e99b852cc391af095ade6f0b45c400  $B/fixup4.dat" | sha256sum -c --quiet - && ok "boot partition: fixup4.dat is 1.20260915's" || bad "boot partition: fixup4.dat is not the pinned 1.20260915 one"
 [ -f $B/alnasl-upgrade.txt.example ] && [ ! -f $B/alnasl-upgrade.txt ] && ok "boot partition: upgrade example, no live upgrade request" || bad "boot partition upgrade files"
 grep -q 'bcm2835_wdt' $R/etc/modules-load.d/alnasl.conf && grep -q '^RuntimeWatchdogSec=' $R/etc/systemd/system.conf.d/alnasl-watchdog.conf && ok "hardware watchdog: a hung boot still costs a try" || bad "watchdog"
 wdc=$R/etc/systemd/system.conf.d/alnasl-watchdog.conf; wd=$(awk -F= '/^RuntimeWatchdogSec=[0-9]+s?$/{sub(/s$/,"",$2); print $2}' $wdc); rb=$(awk -F= '/^RebootWatchdogSec=[0-9]+s?$/{sub(/s$/,"",$2); print $2}' $wdc)
