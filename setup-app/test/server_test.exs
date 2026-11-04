@@ -1536,11 +1536,14 @@ defmodule AlnaslSetup.ServerTest do
 
     @tag :unix
     test "/api/pin: a PIN or a random one goes through alnasl-pin --apply (0600 request), the new PIN comes back" do
+      # the runner is called in the server's process: the message goes to the test by its pid
+      parent = self()
+
       runner(fn
         ["/usr/local/sbin/alnasl-pin", "--apply"] ->
           want = Sys.read("/var/lib/alnasl-setup/pin-wanted")
           st = File.stat!(Sys.path("/var/lib/alnasl-setup/pin-wanted"))
-          send(self(), {:wanted, want, Bitwise.band(st.mode, 0o777)})
+          send(parent, {:wanted, want, Bitwise.band(st.mode, 0o777)})
           pin = if want == "new\n", do: "654321", else: want |> String.split("\n") |> Enum.at(1)
           Box.put("/var/lib/alnasl-setup/pin", "alnasl\n#{pin}\n")
           {0, ""}
