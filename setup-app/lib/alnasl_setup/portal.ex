@@ -5,7 +5,7 @@ defmodule AlnaslSetup.Portal do
   Listens on 10.42.0.1:80 only, and only while the hotspot is up (alnasl-hotspot starts and stops it). It
   runs as an unprivileged dynamic user with the one capability of binding port 80, holds no secret and
   changes nothing itself: the page's few calls go to the setup server on 127.0.0.1:4041, and ONLY the
-  ones in `pass_get/0` and `pass_post/0` (Wi-Fi, Arkab's PIN, Arkab's join link, and reading what the page
+  ones in `pass_get/0` and `pass_post/0` (Wi-Fi, the box's access PIN, Arkab's join link, and reading what the page
   shows). Factory reset, updates, the role, power, diagnostics: not on the list, so not reachable from a
   phone, however it asks.
 
@@ -26,7 +26,7 @@ defmodule AlnaslSetup.Portal do
   @addr "10.42.0.1"
   @portal "http://10.42.0.1/"
   @pass_get ["/api/portal", "/api/portal/scan"]
-  @pass_post ["/api/portal/join", "/api/portal/arkab-pin", "/api/portal/arkab-join"]
+  @pass_post ["/api/portal/join", "/api/portal/pin", "/api/portal/arkab-join"]
   @static %{
     "/" => {"portal.html", "text/html; charset=utf-8"},
     "/index.html" => {"portal.html", "text/html; charset=utf-8"},

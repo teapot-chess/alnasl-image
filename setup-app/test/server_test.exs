@@ -1499,45 +1499,90 @@ defmodule AlnaslSetup.ServerTest do
       assert Json.decode_or_nil(Sys.read("/run/alnasl-hotspot/join.json"))["country"] == "BE"
     end
 
-    test "/api/portal/arkab-pin: the SD card file's rules" do
-      assert post("/api/portal/arkab-pin", %{"pin" => "1234"}).json == %{"error" => "not_arkab"}
-      Box.put("/run/alnasl-mode/role", "arkab\n")
+    test "/api/pin: the access PIN of whatever the box runs, the app's own first, else the box's copy" do
+      Box.put("/run/alnasl-mode/role", "polis\n")
+      assert json("/api/pin") == %{"pin" => nil, "role" => "polis"}
+      Box.put("/var/lib/alnasl-setup/pin", "polis\nbox-copy-1\n")
+      assert json("/api/pin")["pin"] == "box-copy-1"
+      Box.put("/var/lib/polis/access-pin", "app-own-22\n")
+      assert json("/api/pin")["pin"] == "app-own-22"
+      # a PIN that breaks the rules is not the PIN (a half-written file, say)
+      Box.put("/var/lib/polis/access-pin", "12\n")
+      assert json("/api/pin")["pin"] == "box-copy-1"
+    end
 
+    test "/api/pin: the rules of every app, and no way to remove it" do
       for {pin, err} <- [
-            {"123", "pin_length"},
-            {String.duplicate("1", 65), "pin_length"},
-            {1234, "pin_length"},
-            {" 1234", "pin_edges"},
-            {"1234 ", "pin_edges"},
-            {"'1234", "pin_edges"},
-            {"1234\"", "pin_edges"},
-            {"12\t34", "pin_control"},
-            {"12\x7f34", "pin_control"},
-            {"Remove", "pin_word"},
-            {"VERWIJDEREN", "pin_word"}
+            {"12345", "pin_short"},
+            {"", "pin_short"},
+            {nil, "pin_short"},
+            {123_456, "pin_short"},
+            {String.duplicate("1", 65), "pin_long"},
+            {" 123456", "pin_edges"},
+            {"123456 ", "pin_edges"},
+            {"123\t456", "pin_control"},
+            {"123\x7f456", "pin_control"}
           ] do
-        assert post("/api/portal/arkab-pin", %{"pin" => pin}).json == %{"error" => err}, inspect(pin)
+        assert post("/api/pin", %{"pin" => pin}).json == %{"error" => err}, inspect(pin)
       end
 
-      assert post("/api/portal/arkab-pin", %{"pin" => "12 34"}).json == %{"error" => "arkab_missing"}
+      assert AlnaslSetup.Server.Pin.why_bad(<<0xFF, "23456">>) == "pin_control"
+      assert AlnaslSetup.Server.Pin.why_bad("ëéïöü1") == nil
+      assert AlnaslSetup.Server.Pin.why_bad("ëéïöü") == "pin_short"
+      assert post("/api/pin", %{"remove" => true}).json == %{"error" => "pin_short"}
+      refute Sys.exists?("/var/lib/alnasl-setup/pin-wanted")
+      refute ran?(["/usr/local/sbin/alnasl-pin", "--apply"])
     end
 
     @tag :unix
-    test "/api/portal/arkab-pin: the request file for Arkab, 0600, Arkab's own, then Arkab restarts" do
-      Box.put("/run/alnasl-mode/role", "arkab\n")
-      File.mkdir_p!(Sys.path("/var/lib/arkab"))
-      %{uid: uid, gid: gid} = File.stat!(Sys.path("/var/lib/arkab"))
-
+    test "/api/pin: a PIN or a random one goes through alnasl-pin --apply (0600 request), the new PIN comes back" do
       runner(fn
-        ["getent", "passwd", "arkab"] -> {0, "arkab:x:#{uid}:#{gid}:Arkab:/var/lib/arkab:/sbin/nologin\n"}
+        ["/usr/local/sbin/alnasl-pin", "--apply"] ->
+          want = Sys.read("/var/lib/alnasl-setup/pin-wanted")
+          st = File.stat!(Sys.path("/var/lib/alnasl-setup/pin-wanted"))
+          send(self(), {:wanted, want, Bitwise.band(st.mode, 0o777)})
+          pin = if want == "new\n", do: "654321", else: want |> String.split("\n") |> Enum.at(1)
+          Box.put("/var/lib/alnasl-setup/pin", "alnasl\n#{pin}\n")
+          {0, ""}
+
+        _ ->
+          nil
+      end)
+
+      assert ok!(post("/api/pin", %{"pin" => "my hall 2026"})) == %{"ok" => true, "pin" => "my hall 2026"}
+      assert_received {:wanted, "set\nmy hall 2026\n", 0o600}
+      assert ok!(post("/api/pin", %{"new" => true})) == %{"ok" => true, "pin" => "654321"}
+      assert_received {:wanted, "new\n", 0o600}
+    end
+
+    test "/api/portal/pin: the hotspot's page sets a PIN and is never told one" do
+      runner(fn
+        ["/usr/local/sbin/alnasl-pin", "--apply"] ->
+          Box.put("/var/lib/alnasl-setup/pin", "arkab\n987654\n")
+          {0, ""}
+
+        _ ->
+          nil
+      end)
+
+      assert ok!(post("/api/portal/pin", %{"new" => true})) == %{"ok" => true}
+      assert ok!(post("/api/portal/pin", %{"pin" => "hotspot-pin"})) == %{"ok" => true}
+      assert post("/api/portal/pin", %{"pin" => "123"}).json == %{"error" => "pin_short"}
+    end
+
+    test "/api/pin: alnasl-pin refusing or failing is an error, not a silent success" do
+      runner(fn
+        ["/usr/local/sbin/alnasl-pin", "--apply"] -> {4, ""}
         _ -> nil
       end)
 
-      assert ok!(post("/api/portal/arkab-pin", %{"pin" => "12 34"})) == %{"ok" => true}
-      assert Sys.read("/var/lib/arkab/pin-request") == "set\n12 34\n"
-      st = File.stat!(Sys.path("/var/lib/arkab/pin-request"))
-      assert Bitwise.band(st.mode, 0o777) == 0o600 and st.uid == uid and st.gid == gid
-      assert ran?(["systemctl", "restart", "--no-block", "arkab.service"])
+      assert post("/api/pin", %{"pin" => "123456"}).json == %{"error" => "app_missing"}
+    end
+
+    test "/api/compact carries the PIN for the box's own panel" do
+      Box.put("/run/alnasl-mode/role", "nunki\n")
+      Box.put("/var/lib/nunki/access-pin", "424242\n")
+      assert json("/api/compact")["pin"] == "424242"
     end
 
     test "/api/portal/arkab-join: waits for a network, the hotspot daemon hands it over" do

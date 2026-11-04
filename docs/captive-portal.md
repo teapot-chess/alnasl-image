@@ -84,21 +84,22 @@ and nothing that needs a clipboard API (pasting into a field is enough).
 
 - Wi-Fi: scan (the list saved just before the hotspot took the radio, or a live AP-mode scan where the chip
   allows it), pick or type a network, password, hidden, country, Connect.
-- Arkab box only: set the remote PIN (4 to 64 characters, the same rules as `alnasl-arkab-pin.txt`). It goes
-  through the same hand-off, `/var/lib/arkab/pin-request`, 0600, owner arkab, and Arkab restarts to apply
-  it. Then paste the join link. With a network beside the hotspot, it is handed to Arkab at once. Without
+- Every box: set its access PIN (6 to 64 characters), or a new random one. It goes through `alnasl-pin
+  --apply` like Settings > PIN on the box (the app's `pin-request`, the box's copy, `alnasl-pin.txt`), and the
+  app restarts to apply it. The page is never told the PIN: it is read on the box's screen or its SD card.
+- Arkab box: paste the join link. With a network beside the hotspot, it is handed to Arkab at once. Without
   one, it waits up to 15 minutes and is handed over once the Wi-Fi works. The page shows the result.
 - Read-only: the role, the box's addresses, where it can be reached next (`<name>.local`, its page), and an
   "open in your browser" link, `http://10.42.0.1/`, for when the sign-in sheet is too cramped.
 
 ## Security limits, stated plainly
 
-- Whoever has the hotspot password (or the QR sticker) can change the box's Wi-Fi and, on an Arkab box, its
-  PIN and its server. That is the point of it. Keep the sticker on the box, not in a shared drive.
+- Whoever has the hotspot password (or the QR sticker) can change the box's Wi-Fi, its access
+  PIN and, on an Arkab box, its server. That is the point of it. Keep the sticker on the box, not in a shared drive.
 - The portal is plain HTTP inside a WPA2 network: confidential against the hall, not against someone who
   has the password.
 - The portal passes exactly five calls to the setup server: `GET /api/portal`, `GET /api/portal/scan`,
-  `POST /api/portal/join`, `POST /api/portal/arkab-pin`, `POST /api/portal/arkab-join`. Factory reset,
+  `POST /api/portal/join`, `POST /api/portal/pin`, `POST /api/portal/arkab-join`. Factory reset,
   updates, the role, power, diagnostics and `/api/hotspot` (which shows the password) are not on the list,
   and `setup-app/test/portal_test.exs` checks that. POSTs need the `X-Alnasl-Setup` header, as on the box itself.
 - The firewall (`alnasl-firewall`) opens DNS (53), DHCP (67) and HTTP (80) only while

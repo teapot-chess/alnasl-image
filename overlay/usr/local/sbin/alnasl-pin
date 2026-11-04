@@ -1,0 +1,283 @@
+#!/bin/bash
+# alnasl-pin: the box's access PIN, for whichever app is this box's role (Alnasl, Arkab, Polis, Nunki).
+# Every one of them has a PIN, always; nobody on the hall's network gets in without it, and the box's own
+# screen never needs it. The box keeps the plaintext and shows it: on the setup panel, on the small screen,
+# and in /boot/efi/alnasl-pin.txt on the card, where the organiser can read it on a PC and type a new one.
+#
+#   alnasl-pin            at boot (alnasl-pin.service), before the role's app starts
+#   alnasl-pin --sync     the app changed its PIN in its own settings (alnasl-pin-sync.path): follow it
+#   alnasl-pin --apply    the setup panel asks for one (STATE/pin-wanted: "set\n<pin>\n" or "new\n")
+#
+# Two files in the app's data directory, one writer each:
+#   <data>/pin-request   box -> app: "set\n<pin>\n" or "new\n" (0600, owner the app's account). The app
+#                        applies it as it starts and deletes it. So the app is (re)started after one.
+#   <data>/access-pin    app -> box: the app's PIN, one line, 0600. The box only reads it.
+# The box's own copy is STATE/pin: the role on the first line, the PIN on the second (0600, root).
+#
+# In the card's file:
+#   PIN=<the current PIN>   as written by the box; leave it and nothing happens
+#   PIN=<something else>    a new PIN: 6 to 64 characters, no space at either end
+#   PIN=new                 a new random one (PIN=nieuw too)
+# There is no PIN=remove any more: a box without a PIN is not a thing this box does.
+#
+# Which PIN wins at boot: an edit on the card; else the app's own PIN when the box's copy is from this same
+# role (the app changed it and the power went before --sync ran); else the box's copy (a new role, or an
+# app that lost its data, gets the PIN the box already shows); else a random one.
+#
+# The PIN is written into the request, the box's copy and the card's file, and nowhere else: never printed,
+# logged or put on a command line. For the checks, paths can be pointed elsewhere: ALNASL_PIN_FILE,
+# ALNASL_PIN_OLD_FILE, ALNASL_PIN_STATE, ALNASL_PIN_DATA, ALNASL_PIN_ROLE; ALNASL_PIN_OWNER (empty = no
+# chown) and ALNASL_PIN_RESTART (empty = do not restart the app after --apply).
+set -u
+# A UTF-8 locale, so a length is in characters and grep can tell UTF-8 from an old code page. Photon has
+# en_US.UTF-8 and no C.UTF-8; other Linuxes (the checks) the other way round.
+for l in en_US.UTF-8 en_US.utf8 C.UTF-8 C.utf8; do
+  locale -a 2>/dev/null | grep -qix "$l" && { export LC_ALL=$l; break; }
+done
+umask 077
+
+FILE=${ALNASL_PIN_FILE:-/boot/efi/alnasl-pin.txt}
+OLD=${ALNASL_PIN_OLD_FILE:-/boot/efi/alnasl-arkab-pin.txt}
+STATE=${ALNASL_PIN_STATE:-/var/lib/alnasl-setup}
+ROLE=${ALNASL_PIN_ROLE:-$(cat /run/alnasl-mode/role 2>/dev/null)}
+case "$ROLE" in alnasl|arkab|polis|nunki) ;; *) ROLE=alnasl ;; esac
+DATA=${ALNASL_PIN_DATA:-/var/lib/$ROLE}
+OWNER=${ALNASL_PIN_OWNER-$ROLE:$ROLE}
+RESTART=${ALNASL_PIN_RESTART-yes}
+COPY=$STATE/pin
+WANTED=$STATE/pin-wanted
+
+case "$ROLE" in alnasl) APP=Alnasl ;; arkab) APP=Arkab ;; polis) APP=Polis ;; nunki) APP=Nunki ;; esac
+
+say() { echo "alnasl-pin: $*"; }
+now() { date '+%Y-%m-%d %H:%M'; }
+
+# One at a time: boot, --sync and --apply all rewrite the same files.
+mkdir -p "$STATE"
+exec 9> "$STATE/.pin.lock"
+flock 9
+
+# Why a PIN is no good, or nothing when it is: the apps' rules exactly.
+why_bad() {
+  local p=$1
+  printf '%s' "$p" | grep -qax '.*' || { echo "it is not plain text (save the file as UTF-8)"; return; }
+  [ "${#p}" -ge 6 ] || { echo "too short, it needs at least 6 characters"; return; }
+  [ "${#p}" -le 64 ] || { echo "too long, 64 characters at most"; return; }
+  case "$p" in [[:space:]]*|*[[:space:]]) echo "a space at the start or the end"; return ;; esac
+  case "$p" in *[[:cntrl:]]*) echo "an invisible control character in it"; return ;; esac
+}
+valid() { [ -n "$1" ] && [ -z "$(why_bad "$1")" ]; }
+
+# Six digits from the kernel's random source: 64 bits mod 10^6, a bias nobody can measure.
+random_pin() {
+  local n
+  n=$(od -An -N8 -tu8 /dev/urandom | tr -d ' ')
+  printf '%06d' "$(( (n % 1000000 + 1000000) % 1000000 ))"
+}
+
+# The first PIN= line of a file, without its CR.
+pin_line() {
+  local line
+  [ -f "$1" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%$'\r'}
+    case "$line" in PIN=*) printf '%s' "${line#PIN=}"; return 0 ;; esac
+  done < "$1"
+}
+
+# The last "# Last result:" line of the card's file, to keep it when there is nothing new to say.
+last_result() {
+  [ -f "$FILE" ] && grep -a '^# Last result:' "$FILE" | tail -n 1 | tr -d '\r'
+}
+
+# The app's own PIN, from a plain file only.
+app_pin() {
+  local f=$DATA/access-pin line=""
+  [ -f "$f" ] && [ ! -L "$f" ] || return 0
+  IFS= read -r line < "$f" || true
+  line=${line%$'\r'}
+  printf '%s' "$line"
+}
+
+copy_role=""; copy_pin=""
+read_copy() {
+  [ -f "$COPY" ] && [ ! -L "$COPY" ] || return 0
+  { IFS= read -r copy_role; IFS= read -r copy_pin; } < "$COPY" || true
+}
+write_copy() {
+  printf '%s\n%s\n' "$ROLE" "$1" > "$COPY.new" && chmod 600 "$COPY.new" && mv -f "$COPY.new" "$COPY"
+}
+
+# Hands $1 to the app. 0 when the request is in place.
+push() {
+  local req=$DATA/pin-request
+  [ -d "$DATA" ] || { say "$APP's data folder is not there yet; $APP makes a PIN of its own and the box follows it"; return 1; }
+  printf 'set\n%s\n' "$1" > "$req.new" || return 1
+  if [ -n "$OWNER" ]; then chown "$OWNER" "$req.new" || { rm -f "$req.new"; return 1; }; fi
+  chmod 600 "$req.new"
+  mv -f "$req.new" "$req" || { rm -f "$req.new"; return 1; }
+  return 0
+}
+
+header() {
+cat <<'EOF'
+# ACCESS PIN OF THIS BOX
+#
+# WHAT IT IS FOR
+# Every Alnasl box has a PIN, and so has whatever it runs (Alnasl, Arkab,
+# Polis or Nunki). The box's own screen never asks for it. Any other computer
+# in the hall (a phone, a laptop) has to give it before it sees anything.
+# There is no way to have no PIN. That is the point.
+#
+# THE PIN IS ON THE LINE "PIN=" BELOW
+# The box made it at its first start (six random digits) and keeps this line
+# up to date: change the PIN in the app's own settings or on the box's
+# screen (Settings, PIN) and this file follows. The box's screen shows it too.
+#
+# TO CHANGE IT HERE
+# Replace what is after "PIN=", save, put the card back in the box and boot.
+#   - 6 to 64 characters. Six digits is fine; letters, punctuation and spaces
+#     in the middle are fine too. No space at the start or the end.
+#   - PIN=new makes a fresh random one (in Dutch: PIN=nieuw).
+#   - There is no PIN=remove. People asked. The answer is still no.
+# Changing the PIN locks out every browser that had given the old one.
+# The last line of this file says what became of it.
+#
+# MIND THE CARD AND THE NETWORK
+# Whoever reads this card reads the PIN. Keep the card in the box. The pages
+# are plain HTTP, so the PIN crosses the hall's network in clear: it is a
+# lock against people in the hall, not against the internet.
+#
+# --------------------------------------------------------------------------
+#
+# PINCODE VAN DEZE KAST
+#
+# WAT HET IS
+# Elke Alnasl-kast heeft een pincode, en wat erop draait ook (Alnasl, Arkab,
+# Polis of Nunki). Het eigen scherm van de kast vraagt er nooit om. Elke
+# andere computer in de zaal (een telefoon, een laptop) moet hem geven voor
+# hij iets te zien krijgt. Geen pincode is geen optie. Daar gaat het om.
+#
+# DE PINCODE STAAT OP DE REGEL "PIN=" HIERONDER
+# De kast maakte hem bij de eerste start (zes willekeurige cijfers) en houdt
+# deze regel bij: wijzig je de pincode in de instellingen van de app of op
+# het scherm van de kast (Instellingen, PIN), dan volgt dit bestand. Het
+# scherm van de kast toont hem ook.
+#
+# HIER WIJZIGEN
+# Vervang wat achter "PIN=" staat, bewaar, stop de kaart terug in de kast en
+# start op.
+#   - 6 tot 64 tekens. Zes cijfers is prima; letters, leestekens en spaties
+#     in het midden mogen ook. Geen spatie aan het begin of het eind.
+#   - PIN=nieuw maakt een nieuwe willekeurige (of PIN=new).
+#   - PIN=verwijderen bestaat niet meer. Het is gevraagd. Het blijft nee.
+# Een gewijzigde pincode sluit alle browsers buiten die de oude hadden.
+# De laatste regel van dit bestand zegt wat ervan terechtkwam.
+#
+# LET OP DE KAART EN HET NETWERK
+# Wie deze kaart leest, leest de pincode. Laat de kaart in de kast. De
+# pagina's draaien op gewoon HTTP, dus de pincode gaat onversleuteld over het
+# netwerk van de zaal: een slot tegen mensen in de zaal, niet tegen het
+# internet.
+#
+# --------------------------------------------------------------------------
+EOF
+}
+
+# Writes the card's file whole: the header, PIN=$1, and the result line $2. CRLF: it is read in Notepad.
+write_card() {
+  local tmp=$FILE.new
+  { header; printf '\n'; printf 'PIN=%s\n' "$1"; printf '\n%s\n' "$2"; } | sed 's/$/\r/' > "$tmp" && mv -f "$tmp" "$FILE"
+  sync "$FILE" 2>/dev/null || sync
+}
+
+# --- --sync: the app changed its PIN; the box's copy and the card follow ---------------------------
+if [ "${1:-}" = --sync ]; then
+  a=$(app_pin)
+  read_copy
+  valid "$a" || exit 0
+  [ "$a" = "$copy_pin" ] && [ "$copy_role" = "$ROLE" ] && exit 0
+  write_copy "$a"
+  write_card "$a" "# Last result: changed in $APP's own settings on $(now) (the box's own clock)"
+  say "the PIN was changed in $APP's settings; the box's copy and the card follow"
+  exit 0
+fi
+
+# --- --apply: the setup panel asks for a PIN --------------------------------------------------------
+if [ "${1:-}" = --apply ]; then
+  [ -f "$WANTED" ] && [ ! -L "$WANTED" ] || { rm -f "$WANTED"; say "nothing was asked"; exit 2; }
+  { IFS= read -r verb; IFS= read -r want; } < "$WANTED" || true
+  rm -f "$WANTED"
+  case "${verb:-}" in
+    new) p=$(random_pin); what="a new random PIN made on the box's screen" ;;
+    set) p=${want:-}; what="PIN set on the box's screen"
+         r=$(why_bad "$p"); [ -z "$r" ] || { say "the PIN was refused, $r"; exit 3; } ;;
+    *) say "the request was not understood"; exit 2 ;;
+  esac
+  push "$p" || { say "could not hand the PIN to $APP"; exit 4; }
+  write_copy "$p"
+  write_card "$p" "# Last result: $what on $(now) (the box's own clock)"
+  say "$what; $APP starts again to apply it"
+  if [ -n "$RESTART" ]; then systemctl try-restart --no-block "$ROLE.service" 2>/dev/null || true; fi
+  exit 0
+fi
+
+# --- at boot --------------------------------------------------------------------------------------
+# 1. The old Arkab-only file (up to 7.4): a PIN still waiting in it comes along as an edit; then it goes.
+edit=""
+if [ -f "$OLD" ]; then
+  o=$(pin_line "$OLD")
+  case "${o,,}" in remove|verwijderen) o="" ;; esac
+  [ -f "$FILE" ] || edit=$o
+  rm -f "$OLD"; sync
+  say "alnasl-arkab-pin.txt is now alnasl-pin.txt, for every role"
+fi
+
+read_copy
+t=$(pin_line "$FILE")
+[ -n "$edit" ] || { [ -n "$t" ] && [ "$t" != "$copy_pin" ] && edit=$t; }
+a=$(app_pin)
+pin=""; result=""; handed=0
+
+if [ -n "$edit" ]; then
+  case "${edit,,}" in
+    remove|verwijderen)
+      result="refused, there is no PIN=remove: every box has a PIN ($(now), the box's own clock)" ;;
+    new|nieuw|random)
+      pin=$(random_pin); result="a new random PIN was made on $(now) (the box's own clock)" ;;
+    *)
+      r=$(why_bad "$edit")
+      if [ -z "$r" ]; then
+        pin=$edit; result="PIN set on $(now) (the box's own clock)"
+      else
+        result="refused, $r ($(now), the box's own clock); the PIN above is still the one"
+        say "the PIN on the card was refused, $r"
+      fi ;;
+  esac
+fi
+
+if [ -z "$pin" ]; then
+  if valid "$a" && { [ "$copy_role" = "$ROLE" ] || ! valid "$copy_pin"; }; then
+    pin=$a
+  elif valid "$copy_pin"; then
+    pin=$copy_pin
+  else
+    pin=$(random_pin)
+    [ -n "$result" ] || result="a PIN was made on $(now) (the box's own clock)"
+  fi
+fi
+
+if [ "$pin" != "$a" ]; then
+  if push "$pin"; then handed=1; else
+    result="${result:-kept the PIN}; not handed to $APP yet, tried again at the next boot"
+  fi
+fi
+
+write_copy "$pin"
+if [ -n "$result" ]; then
+  write_card "$pin" "# Last result: $result"
+elif [ "$t" != "$pin" ] || [ ! -f "$FILE" ]; then
+  lr=$(last_result); write_card "$pin" "${lr:-# Last result: nothing yet.}"
+fi
+[ "$handed" = 1 ] && say "the PIN was handed to $APP" || say "the PIN is $APP's own; nothing to hand over"
+exit 0

@@ -5,14 +5,13 @@ defmodule AlnaslSetup.Server.PortalApi do
   /run/alnasl-hotspot/status.json; this module answers the page that phones see on the hotspot (the
   portal at 10.42.0.1:80, which passes ONLY the /api/portal calls on to here) and the box's own screen
   (/api/hotspot, loopback, which is the one place the password is shown). Nothing here erases, updates
-  or re-roles the box: the portal's calls are Wi-Fi, the Arkab PIN and Arkab's join link.
+  or re-roles the box: the portal's calls are Wi-Fi, the box's access PIN (set, never read) and Arkab's join link.
   """
   alias AlnaslSetup.{Json, Sys, Wifi}
   alias AlnaslSetup.Server.{Box, Net, Py}
 
   @hotspot_status "/run/alnasl-hotspot/status.json"
   @hotspot_file "/boot/efi/alnasl-hotspot.txt"
-  @arkab_data "/var/lib/arkab"
   @arkab_pending "/var/lib/alnasl-setup/arkab-join.pending"
   @arkab_result "/var/lib/alnasl-setup/arkab-join.result"
   # a join code is good for 15 minutes on the server's side
@@ -112,49 +111,6 @@ defmodule AlnaslSetup.Server.PortalApi do
         "next" => where_next()
       }
     end
-  end
-
-  @doc """
-  The SD-card file's rules (alnasl-arkab-pin): 4 to 64 characters, no space or quote at either end, no
-  control characters; and not the two words that mean "remove" there.
-  """
-  def arkab_pin_check(pin) do
-    if not is_binary(pin) or Py.len(pin) not in 4..64, do: raise(ArgumentError, "pin_length")
-    cs = String.codepoints(pin)
-
-    if String.trim(pin, " ") != pin or hd(cs) in ["\"", "'"] or List.last(cs) in ["\"", "'"],
-      do: raise(ArgumentError, "pin_edges")
-
-    if Enum.any?(String.to_charlist(pin), &(&1 < 32 or &1 == 127)), do: raise(ArgumentError, "pin_control")
-    if String.downcase(pin) in ["remove", "verwijderen"], do: raise(ArgumentError, "pin_word")
-    pin
-  end
-
-  # pwd.getpwnam("arkab"): {uid, gid}, or nil
-  defp arkab_user do
-    with {0, out} <- Sys.run(["getent", "passwd", "arkab"]),
-         [_name, _pw, uid, gid | _] <- out |> String.trim() |> String.split(":"),
-         {uid, ""} <- Integer.parse(uid),
-         {gid, ""} <- Integer.parse(gid) do
-      {uid, gid}
-    else
-      _ -> nil
-    end
-  end
-
-  @doc """
-  Arkab's remote PIN, the way the SD card hands it over: a request file in Arkab's data directory (0600,
-  owner arkab) that Arkab applies when it starts (Arkab.PinRequest), then a restart of Arkab.
-  """
-  def portal_arkab_pin(b) do
-    if Box.running_role() != "arkab", do: raise(ArgumentError, "not_arkab")
-    pin = arkab_pin_check(b["pin"])
-    owner = arkab_user() || raise(ArgumentError, "arkab_missing")
-    if not Sys.dir?(@arkab_data), do: raise(ArgumentError, "arkab_missing")
-    Box.write_private(@arkab_data <> "/pin-request", "set\n#{pin}\n", owner: owner)
-    Py.log("an Arkab remote PIN was handed to Arkab from the setup page; Arkab restarts to apply it")
-    Py.later(1.0, fn -> Box.sysctl(["restart", "--no-block", "arkab.service"]) end)
-    %{"ok" => true}
   end
 
   defp arkab_join_now(link) do

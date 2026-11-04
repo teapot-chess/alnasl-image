@@ -1,0 +1,64 @@
+# ACCESS PIN OF THIS BOX
+#
+# WHAT IT IS FOR
+# Every Alnasl box has a PIN, and so has whatever it runs (Alnasl, Arkab,
+# Polis or Nunki). The box's own screen never asks for it. Any other computer
+# in the hall (a phone, a laptop) has to give it before it sees anything.
+# There is no way to have no PIN. That is the point.
+#
+# THE PIN IS ON THE LINE "PIN=" BELOW
+# The box made it at its first start (six random digits) and keeps this line
+# up to date: change the PIN in the app's own settings or on the box's
+# screen (Settings, PIN) and this file follows. The box's screen shows it too.
+#
+# TO CHANGE IT HERE
+# Replace what is after "PIN=", save, put the card back in the box and boot.
+#   - 6 to 64 characters. Six digits is fine; letters, punctuation and spaces
+#     in the middle are fine too. No space at the start or the end.
+#   - PIN=new makes a fresh random one (in Dutch: PIN=nieuw).
+#   - There is no PIN=remove. People asked. The answer is still no.
+# Changing the PIN locks out every browser that had given the old one.
+# The last line of this file says what became of it.
+#
+# MIND THE CARD AND THE NETWORK
+# Whoever reads this card reads the PIN. Keep the card in the box. The pages
+# are plain HTTP, so the PIN crosses the hall's network in clear: it is a
+# lock against people in the hall, not against the internet.
+#
+# --------------------------------------------------------------------------
+#
+# PINCODE VAN DEZE KAST
+#
+# WAT HET IS
+# Elke Alnasl-kast heeft een pincode, en wat erop draait ook (Alnasl, Arkab,
+# Polis of Nunki). Het eigen scherm van de kast vraagt er nooit om. Elke
+# andere computer in de zaal (een telefoon, een laptop) moet hem geven voor
+# hij iets te zien krijgt. Geen pincode is geen optie. Daar gaat het om.
+#
+# DE PINCODE STAAT OP DE REGEL "PIN=" HIERONDER
+# De kast maakte hem bij de eerste start (zes willekeurige cijfers) en houdt
+# deze regel bij: wijzig je de pincode in de instellingen van de app of op
+# het scherm van de kast (Instellingen, PIN), dan volgt dit bestand. Het
+# scherm van de kast toont hem ook.
+#
+# HIER WIJZIGEN
+# Vervang wat achter "PIN=" staat, bewaar, stop de kaart terug in de kast en
+# start op.
+#   - 6 tot 64 tekens. Zes cijfers is prima; letters, leestekens en spaties
+#     in het midden mogen ook. Geen spatie aan het begin of het eind.
+#   - PIN=nieuw maakt een nieuwe willekeurige (of PIN=new).
+#   - PIN=verwijderen bestaat niet meer. Het is gevraagd. Het blijft nee.
+# Een gewijzigde pincode sluit alle browsers buiten die de oude hadden.
+# De laatste regel van dit bestand zegt wat ervan terechtkwam.
+#
+# LET OP DE KAART EN HET NETWERK
+# Wie deze kaart leest, leest de pincode. Laat de kaart in de kast. De
+# pagina's draaien op gewoon HTTP, dus de pincode gaat onversleuteld over het
+# netwerk van de zaal: een slot tegen mensen in de zaal, niet tegen het
+# internet.
+#
+# --------------------------------------------------------------------------
+
+PIN=
+
+# Last result: nothing yet; the box fills in the PIN at its first start.

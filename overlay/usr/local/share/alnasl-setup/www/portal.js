@@ -20,10 +20,10 @@ const TX = {
     r_wrong_passphrase: "the password was refused.", r_rejected: "the network refused the box.", r_not_found: "the network was not found (check the name, or tick Hidden network).",
     r_no_address: "the box got onto the network but no address from it (the hall's router gave none).", r_supplicant_failed: "the Wi-Fi program on the box did not start.",
     r_failed: "it failed.", r_bad_request: "the name or password was not valid.",
-    arkab: "Arkab", pin: "Remote PIN", pin_d: "With a PIN, a browser elsewhere in the hall can manage Arkab after typing it. 4 to 64 characters.",
-    pin_set: "Set PIN", pin_done: "PIN handed to Arkab. Arkab restarts for a few seconds to use it.",
-    pin_length: "The PIN must be 4 to 64 characters.", pin_edges: "No space or quote at the start or the end.", pin_control: "Only plain characters.",
-    pin_word: "That word means “remove” on the SD card, so it cannot be a PIN.",
+    arkab: "Arkab", pin: "PIN of this box", pin_d: "Every browser elsewhere in the hall types it before it sees anything of this box. It always has one; the box's own screen and alnasl-pin.txt on its SD card show it. Set a new one here: 6 to 64 characters.",
+    pin_set: "Set PIN", pin_random: "New random PIN", pin_done: "Done. The app restarts for a few seconds to use it; read the PIN on the box's screen or SD card.",
+    pin_short: "At least 6 characters.", pin_long: "64 characters at most.", pin_edges: "No space at the start or the end.", pin_control: "Only plain characters.",
+    app_missing: "The app is not installed on this box.", pin_failed: "The box could not change the PIN. Try again.",
     join: "Join link", join_d: "The link the Alnasl server shows under “Add a bridge” (https://server/join/...). Paste it here.",
     join_go: "Join", join_pending: "Kept. The box hands it to Arkab as soon as it has a network (the link is good for 15 minutes).",
     j_joined: "Arkab joined the server.", j_not_a_link: "That is not a join link.", j_used_or_expired: "That link is used up or expired. Ask the server for a new one.",
@@ -50,10 +50,10 @@ const TX = {
     r_wrong_passphrase: "het wachtwoord werd geweigerd.", r_rejected: "het netwerk weigerde de kast.", r_not_found: "het netwerk is niet gevonden (controleer de naam, of vink Verborgen netwerk aan).",
     r_no_address: "de kast kwam op het netwerk maar kreeg er geen adres (de router van de zaal gaf er geen).", r_supplicant_failed: "het wifi-programma op de kast startte niet.",
     r_failed: "het mislukte.", r_bad_request: "de naam of het wachtwoord was niet geldig.",
-    arkab: "Arkab", pin: "Pincode op afstand", pin_d: "Met een pincode kan een browser elders in de zaal Arkab beheren nadat je hem intypt. 4 tot 64 tekens.",
-    pin_set: "Pincode instellen", pin_done: "Pincode aan Arkab gegeven. Arkab herstart een paar seconden om hem te gebruiken.",
-    pin_length: "De pincode moet 4 tot 64 tekens zijn.", pin_edges: "Geen spatie of aanhalingsteken aan het begin of het einde.", pin_control: "Alleen gewone tekens.",
-    pin_word: "Dat woord betekent “weghalen” op de SD-kaart, dus het kan geen pincode zijn.",
+    arkab: "Arkab", pin: "Pincode van deze kast", pin_d: "Elke browser elders in de zaal typt hem voor hij iets van deze kast te zien krijgt. Er is er altijd een; het scherm van de kast en alnasl-pin.txt op de SD-kaart tonen hem. Stel hier een nieuwe in: 6 tot 64 tekens.",
+    pin_set: "Pincode instellen", pin_random: "Nieuwe willekeurige pincode", pin_done: "Klaar. De app herstart een paar seconden om hem te gebruiken; lees de pincode op het scherm of de SD-kaart van de kast.",
+    pin_short: "Minstens 6 tekens.", pin_long: "Hoogstens 64 tekens.", pin_edges: "Geen spatie aan het begin of het eind.", pin_control: "Alleen gewone tekens.",
+    app_missing: "De app staat niet op deze kast.", pin_failed: "De kast kon de pincode niet wijzigen. Probeer het opnieuw.",
     join: "Koppellink", join_d: "De link die de Alnasl-server toont onder “Add a bridge” (https://server/join/...). Plak hem hier.",
     join_go: "Koppelen", join_pending: "Bewaard. De kast geeft hem aan Arkab zodra hij een netwerk heeft (de link is 15 minuten geldig).",
     j_joined: "Arkab is gekoppeld aan de server.", j_not_a_link: "Dat is geen koppellink.", j_used_or_expired: "Die link is al gebruikt of verlopen. Vraag de server om een nieuwe.",
@@ -125,6 +125,7 @@ async function draw() {
   const lj = P.last_join;
   if (lj && lj.ssid) page.append(lj.ok ? msg("ok", tf("last_ok", lj.ssid)) : msg("bad", tf("last_bad", lj.ssid, t("r_" + lj.reason) === "r_" + lj.reason ? t("r_failed") : t("r_" + lj.reason))));
   page.append(boxCard(), wifiCard());
+  page.append(pinCard());
   if (P.role === "arkab") page.append(arkabCard());
   page.append(h("div", { class: "card" }, h("h2", {}, t("browser")), h("p", { class: "dim small" }, t("browser_d")),
     h("p", { class: "mono" }, h("a", { href: "http://10.42.0.1/", id: "portal-url" }, "http://10.42.0.1/"))));
@@ -185,23 +186,29 @@ function wifiCard() {
   return h("div", { class: "card", id: "wifi-card" }, h("h2", {}, t("wifi")),
     h("div", { class: "row", style: "margin-bottom:12px" }, h("button", { class: "btn", id: "wifi-scan", onclick: scan }, t("scan"))), results, form);
 }
-function arkabCard() {
-  const pin = h("input", { type: "password", id: "arkab-pin", autocomplete: "new-password", maxlength: "64" });
+// The box's access PIN, whatever the box is: set here, never shown here (the hotspot is not the box's screen).
+function pinCard() {
+  const pin = h("input", { type: "password", id: "box-pin", autocomplete: "new-password", maxlength: "64" });
   const pinOut = h("div", {});
+  const send = async (body) => {
+    try { await api("/api/portal/pin", body); pin.value = ""; pinOut.replaceChildren(msg("ok", t("pin_done"))); }
+    catch (e) { pinOut.replaceChildren(msg("bad", errText(e))); }
+  };
+  return h("div", { class: "card", id: "pin-card" }, h("h2", {}, t("pin")), h("p", { class: "dim small" }, t("pin_d")),
+    h("div", { class: "row" }, h("div", { style: "flex:1;min-width:180px" }, pin),
+      h("button", { class: "btn sm", onclick: () => { pin.type = pin.type === "password" ? "text" : "password"; } }, t("show")),
+      h("button", { class: "btn primary", id: "box-pin-set", onclick: () => send({ pin: pin.value }) }, t("pin_set"))),
+    h("div", { class: "row", style: "margin-top:8px" }, h("button", { class: "btn", id: "box-pin-random", onclick: () => send({ new: true }) }, t("pin_random"))),
+    pinOut);
+}
+function arkabCard() {
   const link = h("textarea", { id: "arkab-link", placeholder: "https://server/join/K7Q-4MD", autocapitalize: "off", spellcheck: "false" });
   const joinOut = h("div", {});
   const a = P.arkab || {};
   if (a.pending) joinOut.append(msg("warn", t("join_pending")));
   else if (a.last && a.last.reason) joinOut.append(msg(a.last.ok ? "ok" : "bad", tf("j_last", t("j_" + a.last.reason))));
   return h("div", { class: "card", id: "arkab-card" }, h("h2", {}, t("arkab")),
-    h("h2", { class: "small", style: "margin-top:6px" }, t("pin")), h("p", { class: "dim small" }, t("pin_d")),
-    h("div", { class: "row" }, h("div", { style: "flex:1;min-width:180px" }, pin),
-      h("button", { class: "btn sm", onclick: () => { pin.type = pin.type === "password" ? "text" : "password"; } }, t("show")),
-      h("button", { class: "btn primary", id: "arkab-pin-set", onclick: async () => {
-        try { await api("/api/portal/arkab-pin", { pin: pin.value }); pin.value = ""; pinOut.replaceChildren(msg("ok", t("pin_done"))); }
-        catch (e) { pinOut.replaceChildren(msg("bad", errText(e))); }
-      } }, t("pin_set"))), pinOut,
-    h("h2", { class: "small", style: "margin-top:18px" }, t("join")), h("p", { class: "dim small" }, t("join_d")), link,
+    h("h2", { class: "small", style: "margin-top:6px" }, t("join")), h("p", { class: "dim small" }, t("join_d")), link,
     h("div", { class: "row", style: "margin-top:10px" }, h("button", { class: "btn primary", id: "arkab-join", onclick: async (ev) => {
       const b = ev.currentTarget; b.disabled = true; joinOut.replaceChildren(busy("..."));
       try {

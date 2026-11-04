@@ -86,6 +86,5 @@ Off by default; how it works and what was never tried on a real panel: `docs/spi
 `image-version` v7, `photon-alnasl-v7.img`, `ALNASL_TRAIN=v7`, 7.0. The release index keeps 6.1 and 6.2.
 
 ## Open, outside this image
-
-- Polis: no raster drivers, so a printer that does not take PDF does not print; no PIN for a box nobody
-  watches. Nunki: needs a real Pi to hear HDMI and the jack. Neither repo is changed by v7.
+- Polis: no raster drivers, so a printer that does not take PDF does not print. Every role has an access PIN
+  since universal-pin (alnasl-pin). Nunki: needs a real Pi to hear HDMI and the jack. Neither repo is changed by v7.

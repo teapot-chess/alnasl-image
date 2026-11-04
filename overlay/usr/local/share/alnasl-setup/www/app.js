@@ -144,7 +144,12 @@ const TX = {
     cmp_qr_in_t: "Setup hotspot in %s", cmp_qr_in_d: "The box waits a few minutes first, in case the network comes back.", cmp_qr_now: "Start it now",
     cmp_qr_wait: "Starting the setup hotspot", cmp_qr_wait_d: "A QR code appears here in a moment. No Wi-Fi adapter? Plug in Ethernet.",
     cmp_status_in: "Status in %s", cmp_status: "Status", cmp_none: "none", cmp_hotspot: "setup hotspot", cmp_running: "running", cmp_stopped: "stopped",
-    cmp_wait: "Waiting for the box...", cmp_t_role: "Use", cmp_t_pin: "Remote PIN", cmp_t_qr: "Show the QR code", cmp_pin_done: "Saved.",
+    cmp_wait: "Waiting for the box...", cmp_t_role: "Use", cmp_t_pin: "PIN", cmp_t_qr: "Show the QR code",
+    pin: "PIN", pin_tile: "Who may in from the hall", pin_now: "The PIN now", pin_none: "not made yet (it is, at the next start)",
+    pin_d: "Every browser elsewhere in the hall types this before it sees anything of this box. This screen never needs it. 6 to 64 characters; it is also on the SD card (alnasl-pin.txt).",
+    pin_new: "New PIN", pin_random: "New random PIN", pin_saved: "Saved. %s starts again to use it; every other browser has to give the new PIN.",
+    pin_short: "At least 6 characters.", pin_long: "64 characters at most.", pin_edges: "No space at the start or the end.",
+    pin_control: "Only plain characters, no invisible ones.", app_missing: "The app is not installed on this box.", pin_failed: "The box could not change the PIN. Try again.",
   },
   nl: {
     welcome: "Welkom bij je Alnasl-box", welcome_d: "Nog een paar korte stappen en de box is klaar voor de zaal. Je kunt alles later wijzigen via het menu.",
@@ -286,7 +291,12 @@ const TX = {
     cmp_qr_in_t: "Installatiehotspot over %s", cmp_qr_in_d: "De kast wacht eerst een paar minuten, voor het geval het netwerk terugkomt.", cmp_qr_now: "Nu starten",
     cmp_qr_wait: "De installatiehotspot start", cmp_qr_wait_d: "Zo meteen verschijnt hier een QR-code. Geen wifi-adapter? Steek een netwerkkabel in.",
     cmp_status_in: "Status over %s", cmp_status: "Status", cmp_none: "geen", cmp_hotspot: "installatiehotspot", cmp_running: "draait", cmp_stopped: "gestopt",
-    cmp_wait: "Wachten op de kast...", cmp_t_role: "Gebruik", cmp_t_pin: "Pincode op afstand", cmp_t_qr: "Toon de QR-code", cmp_pin_done: "Opgeslagen.",
+    cmp_wait: "Wachten op de kast...", cmp_t_role: "Gebruik", cmp_t_pin: "Pincode", cmp_t_qr: "Toon de QR-code",
+    pin: "Pincode", pin_tile: "Wie er vanuit de zaal in mag", pin_now: "De pincode nu", pin_none: "nog niet gemaakt (dat gebeurt bij de volgende start)",
+    pin_d: "Elke browser elders in de zaal typt deze code voor hij iets van deze kast te zien krijgt. Dit scherm heeft hem nooit nodig. 6 tot 64 tekens; hij staat ook op de SD-kaart (alnasl-pin.txt).",
+    pin_new: "Nieuwe pincode", pin_random: "Nieuwe willekeurige pincode", pin_saved: "Opgeslagen. %s start opnieuw om hem te gebruiken; elke andere browser moet de nieuwe pincode geven.",
+    pin_short: "Minstens 6 tekens.", pin_long: "Hoogstens 64 tekens.", pin_edges: "Geen spatie aan het begin of het eind.",
+    pin_control: "Alleen gewone tekens, geen onzichtbare.", app_missing: "De app staat niet op deze kast.", pin_failed: "De kast kon de pincode niet wijzigen. Probeer het opnieuw.",
   },
 };
 let LANG = "en";
@@ -526,7 +536,9 @@ function compactQr(r) {
     lines = [h("p", { class: "cmp-big" }, q.ssid), h("p", { class: "dim" }, t("hs_pw") + ": ", h("b", { class: "cmp-pw" }, q.password))];
   } else if (q.kind === "url") {
     title = tf("cmp_qr_url", ROLE_NAME[canonRole(r.role) || "alnasl"]);
-    lines = [h("p", { class: "cmp-big cmp-url" }, q.url.replace(/^http:\/\//, "").replace(/\/$/, ""))];
+    // the page asks a phone for the box's PIN; whoever scans this is standing at the box's own screen
+    lines = [h("p", { class: "cmp-big cmp-url" }, q.url.replace(/^http:\/\//, "").replace(/\/$/, "")),
+      r.pin ? h("p", { class: "dim", id: "cmp-qr-pin" }, t("pin") + " ", h("b", { class: "cmp-pin-v" }, r.pin)) : null];
   } else if (q.starts_in > 0) {
     // The box waits before it takes the radio (a hall router that reboots comes back); say how long,
     // and let a finger skip the wait.
@@ -561,7 +573,9 @@ function compactStats(r) {
     h("div", { class: "cmp-rows" },
       cmpRow(eth.length > 0, t("ethernet"), eth.join("  ") || t("cmp_none")),
       cmpRow(wl.length > 0, t("wifi"), wl.join("  ") || (r.hotspot && r.hotspot.active ? t("cmp_hotspot") + " " + (r.hotspot.ssid || "") : t("cmp_none"))),
-      r.role_port ? cmpRow(r.role_up, ROLE_NAME[role], r.role_up ? t("cmp_running") : t("cmp_stopped")) : null),
+      r.role_port ? cmpRow(r.role_up, ROLE_NAME[role], r.role_up ? t("cmp_running") : t("cmp_stopped")) : null,
+      // the box's access PIN: this panel is the box's own screen (alnasl-pin); a phone needs it, this screen never
+      h("div", { class: "cmp-row cmp-pin-row", id: "cmp-pin" }, h("span", { class: "cmp-k" }, t("pin")), h("span", { class: "cmp-v cmp-pin-v" }, r.pin || "-"))),
     h("div", { class: "cmp-foot" },
       h("span", { class: "dim small" }, (r.hostname || "") + (r.version ? "  |  v" + r.version : "") + (r.debug_ssh ? "  |  DEBUG SSH" : "")),
       cmpMenuBtn(r)));
@@ -585,7 +599,7 @@ function compactMenu(r) {
   const done = (fn) => () => { close(); fn(); };
   const close = modal([h("div", { class: "cmp-tiles", id: "cmp-tiles" },
     tile(t("cmp_t_role"), ROLE_NAME[role], done(modeDialog)),
-    role === "arkab" ? tile(t("cmp_t_pin"), "", done(pinPad)) : null,
+    tile(t("cmp_t_pin"), "", done(() => go("/settings/pin?from=compact"))),
     tile(t("wifi"), "", done(() => go("/settings/network?tab=wifi&from=compact"))),
     tile(t("cmp_t_qr"), "", done(() => { CMP_FORCE_QR = true; compactDraw(); })),
     tile(t("touch"), "", done(() => go("/settings/touch?from=compact"))),
@@ -595,24 +609,6 @@ function compactMenu(r) {
       await api("/api/theme", { theme: S.theme }).catch(() => 0);
     }))),
     h("button", { class: "btn cmp-menu", id: "cmp-close", onclick: () => close() }, t("close"))]);
-}
-// Arkab's remote PIN, digits only on this pad (the setup page takes any text); the same hand-over as there.
-// Five keys wide and three high, so the whole pad fits a 320x240 panel with every key 60 px tall.
-function pinPad() {
-  let pin = "";
-  const show = h("div", { class: "cmp-pin", id: "cmp-pin" }, "");
-  const out = h("div", { class: "cmp-pin-out" });
-  const draw = () => { show.textContent = pin.replace(/./g, "*") || "----"; ok.disabled = pin.length < 4; };
-  const key = (k) => h("button", { class: "btn cmp-key", onclick: () => { if (pin.length < 12) { pin += k; draw(); } } }, k);
-  const ok = h("button", { class: "btn primary cmp-key", id: "cmp-pin-ok", onclick: async () => {
-    ok.disabled = true;
-    try { await api("/api/compact/arkab-pin", { pin }); out.replaceChildren(msg("ok", t("cmp_pin_done"))); setTimeout(() => close(), 2500); }
-    catch (e) { out.replaceChildren(msg("bad", errText(e))); draw(); }
-  } }, "OK");
-  const close = modal([h("div", { class: "cmp-pad", id: "cmp-pad" }, show, [..."1234567890"].map(key),
-    h("button", { class: "btn cmp-key", onclick: () => { pin = pin.slice(0, -1); draw(); } }, "⌫"),
-    h("button", { class: "btn cmp-key cmp-key-x", onclick: () => close() }, t("cancel")), ok), out]);
-  draw();
 }
 
 /* -------------------------------------------------------------- menu ---- */
@@ -645,11 +641,19 @@ function statusStrip(r) {
   return h("div", { class: "card statusbar", id: "status-strip" },
     h("span", { class: "pill " + (S.role_up ? "ok" : "bad") }, ROLE_NAME[r] + " " + (S.role_up ? t("st_up") : t("st_down"))), addr);
 }
+// The box's access PIN on the menu's first screen (alnasl-pin): this is the box's own screen, so it shows it.
+function pinTile() {
+  const el = tile(t("pin"), "...", () => go("/settings/pin"));
+  el.id = "menu-pin"; el.classList.add("pin-tile");
+  api("/api/pin").then((p) => { el.querySelector(".d").textContent = p.pin || "-"; }).catch(() => { el.querySelector(".d").textContent = "-"; });
+  return el;
+}
 function menu() {
   const r = roleNow();
   shell(t("menu"), [statusStrip(r), hotspotCard(), h("div", { class: "grid" },
     tile(ROLE_NAME[r], t(r === "alnasl" ? "m_alnasl_d" : "m_" + r + "_d"), openAlnasl),
     tile(t("m_settings"), t("m_settings_d"), () => go("/settings")),
+    pinTile(),
     tile(t("m_info"), t("m_info_d"), () => go("/info")),
     tile(t("m_help"), t("m_help_d"), () => go("/help")),
     tile(t("m_diag"), t("m_diag_d"), () => go("/diag")),
@@ -863,7 +867,7 @@ function updPage() {
 
 function settings(sub) {
   const subs = { network: netPage, keyboard: kbdPage, services: svcPage, display: dispPage, help: helpSettings, updates: updPage,
-    printers: printersPage, sound: soundPage, touch: touchPage };
+    printers: printersPage, sound: soundPage, touch: touchPage, pin: pinPage };
   if (!sub || !subs[sub]) {
     return shell(t("settings"), [
       h("div", { class: "grid" },
@@ -873,6 +877,7 @@ function settings(sub) {
         tile(t("display"), "", () => go("/settings/display")),
         tile(t("m_help"), "", () => go("/settings/help")),
         tile(t("upd"), t("upd_tile"), () => go("/settings/updates")),
+        tile(t("pin"), t("pin_tile"), () => go("/settings/pin")),
         roleNow() === "polis" ? tile(t("printers"), t("printers_tile"), () => go("/settings/printers")) : null,
         roleNow() === "nunki" ? tile(t("sound"), t("sound_tile"), () => go("/settings/sound")) : null,
         S.touch === "xpt2046" ? tile(t("touch"), t("touch_tile"), () => go("/settings/touch")) : null),
@@ -1072,6 +1077,36 @@ async function soundPage() {
   } }, t("sound_test"));
   sub(t("sound"), [h("p", { class: "dim" }, t("sound_d")), outs.length ? list : msg("warn", t("sound_none")),
     h("div", { class: "card" }, h("h2", {}, t("volume")), h("div", { class: "row" }, vol, val)), h("div", { class: "row" }, test), status]);
+}
+
+/* --------------------------------------------------------------- pin ----- */
+// The box's access PIN (alnasl-pin): what a browser elsewhere in the hall types to get into this box's app. Shown
+// here because this is the box's own screen. Changed here, in the app's own settings or on the SD card; never removed.
+async function pinPage() {
+  const status = h("div", { id: "pin-status" });
+  let r;
+  try { r = await api("/api/pin"); } catch (e) { sub(t("pin"), [msg("bad", errText(e))]); return; }
+  const now = h("div", { class: "pin-now", id: "pin-now" }, r.pin || t("pin_none"));
+  const f = field(t("pin_new"), { type: "password", id: "pin-input", maxlength: "64", autocomplete: "new-password" });
+  const eye = h("button", { class: "btn sm", id: "pin-show", onclick: () => {
+    f.input.type = f.input.type === "password" ? "text" : "password"; eye.textContent = t(f.input.type === "password" ? "show" : "hide");
+  } }, t("show"));
+  const done = (x) => {
+    if (x.pin) now.textContent = x.pin;
+    f.input.value = ""; closeOsk();
+    status.replaceChildren(msg("ok", tf("pin_saved", ROLE_NAME[canonRole(r.role) || "alnasl"])));
+  };
+  const act = (btn, body) => async () => {
+    btn.disabled = true;
+    try { done(await api("/api/pin", body())); } catch (e) { status.replaceChildren(msg("bad", errText(e))); }
+    btn.disabled = false;
+  };
+  const save = h("button", { class: "btn primary", id: "pin-save" }, t("save"));
+  save.onclick = act(save, () => ({ pin: f.input.value }));
+  const rnd = h("button", { class: "btn", id: "pin-random" }, t("pin_random"));
+  rnd.onclick = act(rnd, () => ({ new: true }));
+  sub(t("pin"), [h("div", { class: "card pin-card" }, h("div", { class: "dim small" }, t("pin_now")), now, rnd),
+    h("div", { class: "row pin-row" }, f.el, eye, save), status, h("p", { class: "dim small pin-d" }, t("pin_d"))]);
 }
 
 /* ----------------------------------------------------------- display ----- */

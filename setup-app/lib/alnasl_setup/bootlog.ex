@@ -67,7 +67,14 @@ defmodule AlnaslSetup.Bootlog do
   end
 
   def redact(text) do
-    Enum.reduce(rules(), text, fn {rx, rep}, acc -> Regex.replace(rx, acc, rep) end)
+    text = Enum.reduce(rules(), text, fn {rx, rep}, acc -> Regex.replace(rx, acc, rep) end)
+
+    # The box's access PIN itself, whatever it looks like (a typed one need not be six digits). Nothing is
+    # meant to print it; this is for the thing that does anyway.
+    case AlnaslSetup.Server.Pin.copy_pin() do
+      pin when is_binary(pin) and byte_size(pin) >= 4 -> String.replace(text, pin, "***")
+      _ -> text
+    end
   end
 
   @doc "Printable ASCII only (the glyph atlas has nothing else); tabs and controls become spaces."

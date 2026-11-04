@@ -1,0 +1,16 @@
+[Unit]
+Description=The box's access PIN: made, handed to the role's app, written to /boot/efi/alnasl-pin.txt
+Documentation=file:///usr/local/sbin/alnasl-pin
+# After the role is known (alnasl-mode writes /run/alnasl-mode/role) and the data partition holds the apps'
+# data; before every role's app, because the app reads the request this leaves when it starts. Each role's
+# unit wants this one and waits for it (<role>.service.d/alnasl-pin.conf), whoever starts it.
+RequiresMountsFor=/boot/efi
+After=alnasl-mode.service alnasl-data.service
+Before=alnasl.service arkab.service polis.service nunki.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/alnasl-pin
+
+[Install]
+WantedBy=multi-user.target

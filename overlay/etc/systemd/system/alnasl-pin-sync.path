@@ -1,0 +1,15 @@
+[Unit]
+Description=Follow a PIN changed in the role app's own settings
+Documentation=file:///usr/local/sbin/alnasl-pin
+After=alnasl-data.service
+
+[Path]
+# The app writes access-pin.new and renames it over access-pin; any of the four, only the role's runs.
+PathChanged=/var/lib/alnasl/access-pin
+PathChanged=/var/lib/arkab/access-pin
+PathChanged=/var/lib/polis/access-pin
+PathChanged=/var/lib/nunki/access-pin
+Unit=alnasl-pin-sync.service
+
+[Install]
+WantedBy=multi-user.target

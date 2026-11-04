@@ -54,7 +54,7 @@ defmodule AlnaslSetup.PortalTest do
       assert Portal.route("GET", "10.42.0.1", "/api/portal") == {:pass, "/api/portal"}
       assert Portal.route("GET", "10.42.0.1", "/api/portal/scan") == {:pass, "/api/portal/scan"}
       assert Portal.route("POST", "10.42.0.1", "/api/portal/join") == {:pass, "/api/portal/join"}
-      assert Portal.route("POST", "10.42.0.1", "/api/portal/arkab-pin") == {:pass, "/api/portal/arkab-pin"}
+      assert Portal.route("POST", "10.42.0.1", "/api/portal/pin") == {:pass, "/api/portal/pin"}
       assert Portal.route("POST", "10.42.0.1", "/api/portal/arkab-join") == {:pass, "/api/portal/arkab-join"}
     end
 
@@ -121,7 +121,7 @@ defmodule AlnaslSetup.PortalTest do
             case req.path do
               "/api/portal" -> {200, [], {:json, %{"ok" => true}}}
               "/api/portal/join" -> {200, [], ~s({"joined": "yes"})}
-              "/api/portal/arkab-pin" -> {409, [], {:json, %{"error" => "nope"}}}
+              "/api/portal/pin" -> {409, [], {:json, %{"error" => "nope"}}}
               _ -> {404, [], {:json, %{"error" => "unknown"}}}
             end
           end
@@ -244,7 +244,7 @@ defmodule AlnaslSetup.PortalTest do
     end
 
     test "the setup server's error status is passed back", %{port: port} do
-      assert {409, _, ~s({"error": "nope"})} = post(port, "/api/portal/arkab-pin", "{}", "X-Alnasl-Setup: 1\r\n")
+      assert {409, _, ~s({"error": "nope"})} = post(port, "/api/portal/pin", "{}", "X-Alnasl-Setup: 1\r\n")
     end
 
     test "a POST without the custom header is forbidden and closes the connection", %{port: port} do

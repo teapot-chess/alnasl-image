@@ -322,15 +322,10 @@ input.range { flex: 1; min-width: 180px; height: 44px; accent-color: var(--accen
 .cmp-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
 .cmp-tiles .tile { min-height: 60px; padding: 10px 8px; border-radius: 12px; }
 .cmp-tiles .tile .t { font-size: 17px; } .cmp-tiles .tile .d { font-size: 12px; }
-/* The PIN pad: five wide, three high, the readout in the first two cells. 3 x 60 px fits a 240 px panel. */
-.cmp-pad { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
-.cmp-pin { grid-column: span 2; display: flex; align-items: center; justify-content: center; min-height: 60px; font-size: 26px;
-  letter-spacing: .2em; font-family: ui-monospace, monospace; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-.cmp-key { min-height: 60px; min-width: 0; font-size: 22px; padding: 0; }
-.cmp-key-x { font-size: 13px; }
-.cmp-pin-out:empty { display: none; }
-.cmp-pin-out { margin-top: 6px; }
-#modal .box:has(.cmp-pad), #modal .box:has(.cmp-tiles) { padding: 8px; }
+/* The access PIN on the compact status: the one row a person copies from the panel, so it is the biggest. */
+.cmp-pin-row { background: var(--bg); }
+.cmp-pin-v { font-size: 1.35em; font-weight: 700; letter-spacing: .12em; color: var(--accent); }
+#modal .box:has(.cmp-tiles) { padding: 8px; }
 @media (orientation: portrait) {
   .cmp-qr { flex-direction: column; justify-content: center; }
   .cmp-side { flex: none; width: 100%; align-items: center; text-align: center; }
@@ -345,3 +340,17 @@ input.range { flex: 1; min-width: 180px; height: 44px; accent-color: var(--accen
 .calib-x::after { top: 23px; left: 0; height: 2px; width: 48px; }
 .calib-hint { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); padding: 0 16px; text-align: center;
   color: var(--dim); font-size: 18px; pointer-events: none; }
+
+/* Settings > PIN (app.js pinPage): the PIN now, large and copyable by eye; the new one beside Show and Save. */
+.pin-card { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; }
+.pin-card .dim { flex-basis: 100%; }
+.pin-now { flex: 1; font-family: ui-monospace, monospace; font-size: 34px; font-weight: 700; letter-spacing: .12em; color: var(--accent);
+  overflow-wrap: anywhere; }
+.pin-row { align-items: flex-end; }
+.pin-row .f { flex: 1; min-width: 160px; margin: 0; }
+.pin-tile .d { font-family: ui-monospace, monospace; font-size: 22px; font-weight: 700; letter-spacing: .1em; color: var(--accent); }
+@media (max-width: 520px), (max-height: 360px) {
+  .pin-card { padding: 8px 10px; gap: 4px 10px; }
+  .pin-now { font-size: 24px; }
+  .pin-d { display: none; }
+}

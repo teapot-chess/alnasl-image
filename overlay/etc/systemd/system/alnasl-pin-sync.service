@@ -1,0 +1,9 @@
+[Unit]
+Description=Copy a PIN changed in the role app's settings to the box and to /boot/efi/alnasl-pin.txt
+Documentation=file:///usr/local/sbin/alnasl-pin
+RequiresMountsFor=/boot/efi
+After=alnasl-pin.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/alnasl-pin --sync

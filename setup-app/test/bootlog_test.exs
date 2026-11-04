@@ -57,6 +57,12 @@ defmodule AlnaslSetup.BootlogTest do
   ]
 
   describe "redaction" do
+    test "the box's access PIN, whatever it looks like, never reaches the screen" do
+      AlnaslSetup.Test.Box.root!()
+      AlnaslSetup.Test.Box.put("/var/lib/alnasl-setup/pin", "alnasl\nmy hall 2026\n")
+      refute String.contains?(shown("alnasl: the PIN is my hall 2026, said nobody"), "my hall 2026")
+    end
+
     for {{msg, secret}, i} <- Enum.with_index(@secrets) do
       test "secret #{i} never reaches the screen" do
         {msg, secret} = {unquote(msg), unquote(secret)}

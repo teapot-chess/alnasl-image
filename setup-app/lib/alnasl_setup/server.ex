@@ -17,7 +17,7 @@ defmodule AlnaslSetup.Server do
   """
   use Supervisor
   alias AlnaslSetup.{Compact, Diag, Http, Json, Lock, SmallScreen, Sys, Wifi}
-  alias AlnaslSetup.Server.{Box, Help, Net, PortalApi, Printers, Py, Resolution, State}
+  alias AlnaslSetup.Server.{Box, Help, Net, Pin, PortalApi, Printers, Py, Resolution, State}
 
   @port 4041
   @www "/usr/local/share/alnasl-setup/www"
@@ -258,6 +258,10 @@ defmodule AlnaslSetup.Server do
       "/api/touch" ->
         SmallScreen.touch_status()
 
+      # the box's access PIN, for its own screen only (this server listens on 127.0.0.1)
+      "/api/pin" ->
+        Pin.current()
+
       # v7.4: the compact screen's picture (?qr=1: the QR code, asked for from its menu)
       "/api/compact" ->
         Compact.status(Map.has_key?(Py.parse_qs(q), "qr"))
@@ -476,12 +480,13 @@ defmodule AlnaslSetup.Server do
       "/api/hotspot/start" ->
         Wifi.hotspot_start_request()
 
-      # v7.4: the compact screen's number pad; the same rules and the same hand-over as the setup page's
-      "/api/compact/arkab-pin" ->
-        PortalApi.portal_arkab_pin(obj!(b))
+      # The access PIN of whatever this box runs (Settings > PIN, the compact screen): set one or a random one.
+      "/api/pin" ->
+        Pin.change(obj!(b))
 
-      "/api/portal/arkab-pin" ->
-        PortalApi.portal_arkab_pin(obj!(b))
+      # The hotspot's setup page may set one, and is never told what it is.
+      "/api/portal/pin" ->
+        Pin.change(obj!(b), false)
 
       "/api/portal/arkab-join" ->
         PortalApi.portal_arkab_join(obj!(b))

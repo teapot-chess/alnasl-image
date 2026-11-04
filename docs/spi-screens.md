@@ -94,11 +94,11 @@ menu and the role's own page. It needs nobody to touch it:
 - **Not set up:** always a big QR code plus one line. The setup hotspot's Wi-Fi while it is up (a phone that
   joins gets the setup page by itself), with the SSID and password in text beside it.
 - **Set up:** after every start the QR code for two minutes (with a countdown), then the status: the role and
-  whether its app runs, the Ethernet and Wi-Fi addresses, the hotspot if it is on, host name and version.
+  whether its app runs, the Ethernet and Wi-Fi addresses, the access PIN (the box's own screen is where it is shown), the hotspot if it is on, host name and version.
   Without the hotspot (a set-up box on Wi-Fi, or on Ethernet past its first ten minutes) the QR code is the
   role's own page on the hall network, `http://<address>:<port>/`; the setup itself listens on localhost only.
-- **With a working stylus** one Menu button (60 px) opens six tiles at most: Use (the role), Remote PIN (Arkab
-  only, a number pad), Wi-Fi (the network page and its on-screen keyboard; the phone through the QR code does
+- **With a working stylus** one Menu button (60 px) opens six tiles at most: Use (the role), PIN (every role:
+  the PIN now, a new one through the on-screen keyboard, or a new random one), Wi-Fi (the network page and its on-screen keyboard; the phone through the QR code does
   the same), Show the QR code, Touch screen (calibration), Restart or shut down (asks first). Everything else
   stays on the phone. Without a stylus there is no button and nothing is missed.
 - Tournament and board counts are not on it: nothing cheap to ask for them.

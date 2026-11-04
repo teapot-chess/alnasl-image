@@ -164,7 +164,7 @@ grep -q -i -E 'tailscale|"ssh"|s_ssh' $R/usr/local/share/alnasl-setup/www/app.js
 echo "== units"
 for u in alnasl-firewall alnasl-firstboot alnasl-wifi alnasl-kiosk-load alnasl-kiosk alnasl-setup docker containerd alnasl alnasl-update.path wpa_supplicant@wlan0 systemd-networkd systemd-resolved getty@tty2 getty@tty3 \
          alnasl-splash alnasl-splash-reboot alnasl-splash-poweroff alnasl-os-update.timer alnasl-reset-boot \
-         alnasl-data alnasl-slot-check alnasl-upgrade-boot alnasl-mode alnasl-arkab-pin alnasl-system-update-check.timer; do
+         alnasl-data alnasl-slot-check alnasl-upgrade-boot alnasl-mode alnasl-pin alnasl-pin-sync.path alnasl-system-update-check.timer; do
   s=$(chroot $R systemctl is-enabled $u 2>&1 | tail -1); [ "$s" = enabled ] && ok "$u enabled" || bad "$u: $s"
 done
 for u in getty@tty1 autovt@tty1; do
@@ -301,7 +301,7 @@ pyf=$(find $R/usr/local $R/etc/systemd $R/usr/share/alnasl -type f 2>/dev/null |
         [ "$(head -c 2 "$f" | tr -d '\0')" = '#!' ] && head -n 1 "$f" | grep -q -a python && echo "${f#$R}"
       done)
 [ -z "$pyf" ] && ok "no .py file and no python #! script in /usr/local, /etc/systemd, /usr/share/alnasl" || bad "python left: $(echo $pyf)"
-for s in alnasl-setup alnasl-kiosk alnasl-kiosk-load alnasl-firstboot alnasl-arkab-pin alnasl-wifi-setup alnasl-os-update alnasl-reset alnasl-data alnasl-mode alnasl-sound alnasl-firewall; do bash -n $R/usr/local/sbin/$s && ok "bash -n $s" || bad "bash -n $s"; done
+for s in alnasl-setup alnasl-kiosk alnasl-kiosk-load alnasl-firstboot alnasl-pin alnasl-wifi-setup alnasl-os-update alnasl-reset alnasl-data alnasl-mode alnasl-sound alnasl-firewall; do bash -n $R/usr/local/sbin/$s && ok "bash -n $s" || bad "bash -n $s"; done
 echo "       vconsole.conf: $(cat $R/etc/vconsole.conf 2>/dev/null)"
 for k in be-latin1 fr-latin9 nl us-acentos de-latin1-nodeadkeys us uk es it pt-latin1; do
   f=$(find $R/usr/share/keymaps $R/usr/lib/kbd $R/lib/kbd -name "$k.map*" 2>/dev/null | head -n 1); [ -n "$f" ] && ok "keymap $k" || bad "keymap $k missing"
@@ -830,23 +830,21 @@ cumount $R
 grep -q 'alnasl_vol' $R/usr/local/sbin/alnasl-sound && grep -q 'vc4hdmi0' $R/usr/local/sbin/alnasl-sound && grep -q 'Headphones' $R/usr/local/sbin/alnasl-sound && ok "alnasl-sound: HDMI or the 3.5 mm jack, softvol volume" || bad "alnasl-sound content"
 # The menu and the wizard.
 [ -f $B/alnasl-mode.txt.example ] && [ ! -f $B/alnasl-mode.txt ] && grep -q 'polis' $B/alnasl-mode.txt.example && grep -q 'nunki' $B/alnasl-mode.txt.example && ok "boot partition: alnasl-mode.txt example (four roles), no live file" || bad "boot partition mode files"
-# The Arkab PIN from the card: the file is pre-created with its header, the reader is ordered before Arkab, and it never shows the PIN.
-P=$B/alnasl-arkab-pin.txt; PS=$R/usr/local/sbin/alnasl-arkab-pin
-[ -f $P ] && grep -q '4 to 64 characters' $P && grep -q '4 tot 64 tekens' $P && grep -q 'port\|4050' $P && grep -q 'plain HTTP' $P && grep -q 'gewoon HTTP' $P && grep -q 'EMPTIES' $P && grep -q 'LEEG' $P && grep -q -i 'remove' $P && grep -q -i 'verwijderen' $P && ok "boot partition: alnasl-arkab-pin.txt is there with its English and Dutch header" || bad "boot partition alnasl-arkab-pin.txt or its header"
-[ "$(grep -a -c '^PIN=[^[:cntrl:]]' $P)" = 0 ] && grep -a -q '^PIN=' $P && ok "boot partition: the shipped PIN line is empty" || bad "the shipped alnasl-arkab-pin.txt has a PIN in it"
-grep -q $'' $P && ok "boot partition: alnasl-arkab-pin.txt keeps its Windows line endings" || bad "alnasl-arkab-pin.txt lost its CRLF line endings"
-u=$R/etc/systemd/system/alnasl-arkab-pin.service
-grep -q '^Before=arkab.service' $u && grep -q '^After=.*alnasl-mode.service' $u && grep -q '^After=.*alnasl-data.service' $u && grep -q '^ConditionPathExists=/run/alnasl-mode/arkab' $u && grep -q '^Wants=alnasl-arkab-pin.service' $R/etc/systemd/system/arkab.service.d/alnasl-pin.conf && grep -q '^After=alnasl-arkab-pin.service' $R/etc/systemd/system/arkab.service.d/alnasl-pin.conf && ok "PIN reader: only on an Arkab box, after the role and the data partition, before arkab.service" || bad "alnasl-arkab-pin.service ordering"
-! grep -n -E 'echo[^#]*\$pin|printf[^#]*\$pin[^#]*(>&2|logger)|logger[^#]*\$pin|set -x|\$\{?pin\}?[^#]*\| *(tee|logger)' $PS >/dev/null && [ "$(grep -c 'printf .set.n%s.n. "$pin"' $PS)" = 1 ] && ok "PIN reader: the PIN goes only into the request file, never to a log or the screen" || bad "alnasl-arkab-pin may show the PIN"
-# Run it for real (temporary files): a filled line becomes a 0600 request and a blank line with a status; a short one is refused; a non-Arkab box is left alone.
-T=$(mktemp -d); touch $T/flag; mkdir $T/d
-pinrun() { cp $P $T/f.txt; sed -i "s/^PIN=[^[:cntrl:]]*/PIN=$1/" $T/f.txt; rm -f $T/d/pin-request; ALNASL_ARKAB_PIN_FILE=$T/f.txt ALNASL_ARKAB_DATA=$T/d ALNASL_MODE_FLAG=${2:-$T/flag} ALNASL_ARKAB_OWNER= bash $PS > $T/out.txt; }
-pinrun 4821; [ "$(tr '\n' '|' < $T/d/pin-request)" = 'set|4821|' ] && [ "$(stat -c %a $T/d/pin-request)" = 600 ] && grep -a -q '^PIN=.\?$' $T/f.txt && grep -a -q 'Last result: PIN set' $T/f.txt && ! grep -q 4821 $T/out.txt $T/f.txt && ok "PIN reader: 4821 becomes a 0600 request, the line is blank, the status says set, the PIN is not echoed" || bad "PIN reader, a good PIN"
-pinrun 123; [ ! -e $T/d/pin-request ] && grep -a -q 'Last result: refused, too short' $T/f.txt && ok "PIN reader: a 3-character PIN is refused and says so" || bad "PIN reader, a short PIN"
-pinrun remove; [ "$(tr '\n' '|' < $T/d/pin-request)" = 'remove|' ] && ok "PIN reader: PIN=remove becomes a remove request" || bad "PIN reader, remove"
-pinrun 9999 $T/noflag; [ ! -e $T/d/pin-request ] && grep -a -q '^PIN=9999' $T/f.txt && ok "PIN reader: a box that is not Arkab leaves the file alone" || bad "PIN reader on a non-Arkab box"
-pinrun ''; [ ! -e $T/d/pin-request ] && same $P $T/f.txt && ok "PIN reader: an empty PIN line changes nothing" || bad "PIN reader, empty line"
-rm -rf $T
+# The access PIN (alnasl-pin): every role has one. The card's file is pre-created with its header and an empty
+# PIN line (the box fills it in at its first start and keeps it there), the script runs before every role's
+# app, a path unit follows a PIN changed in the app, and scripts/test-pin.sh runs the script for real.
+P=$B/alnasl-pin.txt; PS=$R/usr/local/sbin/alnasl-pin
+[ ! -e $B/alnasl-arkab-pin.txt ] && [ ! -e $R/usr/local/sbin/alnasl-arkab-pin ] && [ ! -e $R/etc/systemd/system/alnasl-arkab-pin.service ] && ok "the Arkab-only PIN file, script and unit are gone" || bad "alnasl-arkab-pin leftovers"
+[ -f $P ] && grep -q '6 to 64 characters' $P && grep -q '6 tot 64 tekens' $P && grep -q 'PIN=new' $P && grep -q 'PIN=nieuw' $P && grep -q 'There is no PIN=remove' $P && grep -q 'plain HTTP' $P && grep -q 'gewoon HTTP' $P && ok "boot partition: alnasl-pin.txt is there with its English and Dutch header (6 to 64, new, no remove)" || bad "boot partition alnasl-pin.txt or its header"
+[ "$(grep -a -c '^PIN=[^[:cntrl:]]' $P)" = 0 ] && grep -a -q '^PIN=' $P && ok "boot partition: the shipped PIN line is empty (every box makes its own)" || bad "the shipped alnasl-pin.txt has a PIN in it"
+grep -q $'\r' $P && ok "boot partition: alnasl-pin.txt keeps its Windows line endings" || bad "alnasl-pin.txt lost its CRLF line endings"
+u=$R/etc/systemd/system/alnasl-pin.service
+grep -q '^Before=alnasl.service arkab.service polis.service nunki.service' $u && grep -q '^After=.*alnasl-mode.service' $u && grep -q '^After=.*alnasl-data.service' $u && ! grep -q '^ConditionPathExists' $u \
+  && ( for r in alnasl arkab polis nunki; do grep -q '^Wants=alnasl-pin.service' $R/etc/systemd/system/$r.service.d/alnasl-pin.conf && grep -q '^After=alnasl-pin.service' $R/etc/systemd/system/$r.service.d/alnasl-pin.conf || exit 1; done ) \
+  && ok "alnasl-pin: every role, after the role and the data partition, before each role's app" || bad "alnasl-pin.service ordering"
+for r in alnasl arkab polis nunki; do grep -q "^PathChanged=/var/lib/$r/access-pin" $R/etc/systemd/system/alnasl-pin-sync.path || bad "alnasl-pin-sync.path does not watch $r"; done
+grep -q 'alnasl-pin --sync' $R/etc/systemd/system/alnasl-pin-sync.service && ok "alnasl-pin-sync.path: a PIN changed in any role's app is followed (--sync)" || bad "alnasl-pin-sync.service"
+if bash $W/test-pin.sh $PS > $W/test-pin.log 2>&1; then ok "test-pin.sh: alnasl-pin run for real, $(grep -c '^  ok' $W/test-pin.log) checks"; else bad "test-pin.sh: $(grep FAIL $W/test-pin.log | head -n 3 | tr '\n' ' ')"; fi
 src server.ex "\"/api/mode\"" && src server/box.ex "\"SWITCH\"" && ok "setup server: GET/POST /api/mode (SWITCH), as Arkab's page calls it" || bad "setup server mode API"
 src server.ex "\"/api/bootlog\"" "\"/api/printers\"" "\"/api/sound\"" && ok "setup server: /api/bootlog, /api/printers, /api/sound" || bad "setup server v7 routes"
 for key in role_title role_d role_alnasl_d role_arkab_d role_polis_d role_nunki_d role_now role_change role_yes role_q role_switch_d role_down done_arkab_d done_polis_d done_nunki_d printers_tile printers_d sound_tile sound_d out_jack sound_test; do
@@ -1181,9 +1179,10 @@ cumount $R
 [ "$(tr -d '\r' < $F | grep -c '^UI=auto$')" = 1 ] && ok "alnasl-screen.txt ships UI=auto" || bad "the shipped alnasl-screen.txt lacks UI=auto"
 J=$R/usr/local/share/alnasl-setup/www/app.js
 grep -q 'function compactPage' $J && grep -q 'p === "/compact"' $J && grep -q '/api/compact' $J && ok "app.js: the compact page and its route" || bad "app.js lacks the compact page"
-for key in cmp_menu cmp_qr_setup cmp_qr_in cmp_qr_url cmp_status_in cmp_t_role cmp_t_pin cmp_t_qr cmp_pin_done; do
+for key in cmp_menu cmp_qr_setup cmp_qr_in cmp_qr_url cmp_status_in cmp_t_role cmp_t_pin cmp_t_qr pin_tile pin_now pin_random pin_short; do
   n=$(grep -c -E "(^|[^A-Za-z0-9_])$key:" $J); [ "$n" = 2 ] && ok "app.js: $key in EN and NL" || bad "app.js: $key found $n times (2 expected)"
 done
+grep -q "pin: pinPage" $J && grep -q "function pinPage" $J && grep -q "/api/pin" $J && grep -q "id: \"cmp-pin\"" $J && ! grep -q "function pinPad" $J && ok "app.js: Settings > PIN, the PIN on the compact status, no number pad" || bad "app.js PIN page or compact PIN row"
 
 echo "== sizes"
 df -h $R | tail -1

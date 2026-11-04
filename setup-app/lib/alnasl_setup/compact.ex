@@ -12,7 +12,7 @@ defmodule AlnaslSetup.Compact do
   `decide/1` is the pure part (compact_test.exs); `status/1` feeds it from the box.
   """
   alias AlnaslSetup.{QR, SmallScreen, Sys}
-  alias AlnaslSetup.Server.{Box, Net, PortalApi, State}
+  alias AlnaslSetup.Server.{Box, Net, Pin, PortalApi, State}
 
   @qr_seconds 120
 
@@ -106,7 +106,9 @@ defmodule AlnaslSetup.Compact do
       "version" => Box.image_release()["version"],
       "hotspot" => %{"active" => hotspot["active"] == true, "ssid" => hotspot["ssid"]},
       "touch" => touch["touch"] != "off" and touch["status"] == "ready",
-      "debug_ssh" => Sys.exists?("/etc/alnasl/debug-ssh")
+      "debug_ssh" => Sys.exists?("/etc/alnasl/debug-ssh"),
+      # the box's access PIN: this panel is the box's own screen, which is where it is shown (alnasl-pin)
+      "pin" => Pin.current()["pin"]
     })
   end
 end
