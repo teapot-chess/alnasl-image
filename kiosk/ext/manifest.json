@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Alnasl kiosk helpers",
-  "version": "7.0",
+  "version": "7.1",
   "description": "Menu button, on-screen keyboard for every text field, touch tuning for the box's own app (Alnasl, Arkab, Polis or Nunki) on the hall box, a Back bar on every other web page, and the boot screen's fade-in and hand-over.",
   "permissions": [
     "webNavigation",
