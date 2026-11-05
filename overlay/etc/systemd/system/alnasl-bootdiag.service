@@ -1,0 +1,16 @@
+[Unit]
+Description=Alnasl boot diagnostics: a small file on the boot partition, readable on any PC
+RequiresMountsFor=/boot/efi
+After=alnasl-data.service systemd-journald.service
+# After the slot check has had its say about a trial or a rollback, but nothing waits for this.
+After=alnasl-slot-check.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/alnasl-bootdiag
+TimeoutStartSec=60
+# Never a reason for a failed boot.
+SuccessExitStatus=0
+
+[Install]
+WantedBy=multi-user.target

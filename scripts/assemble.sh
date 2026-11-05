@@ -480,7 +480,8 @@ systemctl enable alnasl-firewall.service alnasl-firstboot.service alnasl-wifi.se
   alnasl-splash.service alnasl-splash-reboot.service alnasl-splash-poweroff.service \
   alnasl-os-update.timer alnasl-reset-boot.service \
   alnasl-data.service alnasl-slot-check.service alnasl-upgrade-boot.service alnasl-mode.service \
-  alnasl-pin.service alnasl-pin-sync.path alnasl-system-update-check.timer alnasl-hotspot.service alnasl-small-screen.service
+  alnasl-pin.service alnasl-pin-sync.path alnasl-system-update-check.timer alnasl-hotspot.service alnasl-small-screen.service \
+  alnasl-bootdiag.service
 # v6 A/B: Photon's first-boot resizefs grows / to 90 % of the card and adds a swap partition; both
 # would wreck the slot/data layout. The data partition grows instead (alnasl-data).
 systemctl mask resizefs.service

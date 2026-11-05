@@ -164,7 +164,7 @@ grep -q -i -E 'tailscale|"ssh"|s_ssh' $R/usr/local/share/alnasl-setup/www/app.js
 echo "== units"
 for u in alnasl-firewall alnasl-firstboot alnasl-wifi alnasl-kiosk-load alnasl-kiosk alnasl-setup docker containerd alnasl alnasl-update.path wpa_supplicant@wlan0 systemd-networkd systemd-resolved getty@tty2 getty@tty3 \
          alnasl-splash alnasl-splash-reboot alnasl-splash-poweroff alnasl-os-update.timer alnasl-reset-boot \
-         alnasl-data alnasl-slot-check alnasl-upgrade-boot alnasl-mode alnasl-pin alnasl-pin-sync.path alnasl-system-update-check.timer; do
+         alnasl-data alnasl-slot-check alnasl-upgrade-boot alnasl-mode alnasl-pin alnasl-pin-sync.path alnasl-system-update-check.timer alnasl-bootdiag; do
   s=$(chroot $R systemctl is-enabled $u 2>&1 | tail -1); [ "$s" = enabled ] && ok "$u enabled" || bad "$u: $s"
 done
 for u in getty@tty1 autovt@tty1; do
@@ -301,7 +301,7 @@ pyf=$(find $R/usr/local $R/etc/systemd $R/usr/share/alnasl -type f 2>/dev/null |
         [ "$(head -c 2 "$f" | tr -d '\0')" = '#!' ] && head -n 1 "$f" | grep -q -a python && echo "${f#$R}"
       done)
 [ -z "$pyf" ] && ok "no .py file and no python #! script in /usr/local, /etc/systemd, /usr/share/alnasl" || bad "python left: $(echo $pyf)"
-for s in alnasl-setup alnasl-kiosk alnasl-kiosk-load alnasl-firstboot alnasl-pin alnasl-wifi-setup alnasl-os-update alnasl-reset alnasl-data alnasl-mode alnasl-sound alnasl-firewall alnasl-cmdline-check; do bash -n $R/usr/local/sbin/$s && ok "bash -n $s" || bad "bash -n $s"; done
+for s in alnasl-setup alnasl-kiosk alnasl-kiosk-load alnasl-firstboot alnasl-pin alnasl-wifi-setup alnasl-os-update alnasl-reset alnasl-data alnasl-mode alnasl-sound alnasl-firewall alnasl-cmdline-check alnasl-bootdiag; do bash -n $R/usr/local/sbin/$s && ok "bash -n $s" || bad "bash -n $s"; done
 echo "       vconsole.conf: $(cat $R/etc/vconsole.conf 2>/dev/null)"
 for k in be-latin1 fr-latin9 nl us-acentos de-latin1-nodeadkeys us uk es it pt-latin1; do
   f=$(find $R/usr/share/keymaps $R/usr/lib/kbd $R/lib/kbd -name "$k.map*" 2>/dev/null | head -n 1); [ -n "$f" ] && ok "keymap $k" || bad "keymap $k missing"
@@ -450,11 +450,19 @@ bar = Enum.find(cs, &("external-bar.js" in Map.get(&1, "js", [])))
 for p <- [4040, 4041, 4050, 4061, 4062],
     do: a.("http://localhost:#{p}/*" in bar["exclude_matches"] and "http://127.0.0.1:#{p}/*" in bar["exclude_matches"], "external-bar excludes #{p}")
 a.(String.starts_with?(m["version"], "7."), "version 7.x")
+sl = with_js.("statusline.js")
+a.(sl["matches"] == Enum.map([4040, 4050, 4061, 4062], &"http://localhost:#{&1}/*") and !sl["all_frames"], "statusline matches the four app ports, top frame only")
 EX
-for f in osk.js touch.js bg.js menu-button.js external-bar.js; do
+for f in osk.js touch.js bg.js menu-button.js external-bar.js statusline.js; do
   if command -v node >/dev/null; then node --check $E/kiosk-ext/$f && ok "node --check $f" || bad "syntax $f"; fi
 done
 grep -q 'execCommand("insertText"' $E/kiosk-ext/osk.js && grep -q 'requestSubmit' $E/kiosk-ext/osk.js && grep -q 'keydown' $E/kiosk-ext/osk.js && grep -q 'osk-config' $E/kiosk-ext/bg.js && ok "OSK content script types via insertText (real input events), submits forms, reads layout via the service worker" || bad "OSK script content"
+grep -q 'statusline' $E/kiosk-ext/bg.js && grep -q 'api/sysinfo' $E/kiosk-ext/bg.js && grep -q 'Slot ' $E/kiosk-ext/statusline.js && grep -q 'calc(100vh - ' $E/kiosk-ext/statusline.js && ok "status line: slot, address, version from /api/sysinfo; the page is made shorter by the line" || bad "status line (statusline.js / bg.js)"
+grep -q 'cursor: none !important' $E/kiosk-ext/touch.js && grep -q 'pointerType' $E/kiosk-ext/touch.js && ok "touch.js hides the mouse arrow; only a real mouse moving shows it" || bad "touch.js: cursor hiding"
+[ -f $R/etc/systemd/system/alnasl-bootdiag.service ] && grep -q '^ExecStart=/usr/local/sbin/alnasl-bootdiag$' $R/etc/systemd/system/alnasl-bootdiag.service && grep -q 'alnasl-boot.txt' $R/usr/local/sbin/alnasl-bootdiag && grep -q 'alnasl-boot.txt' $B/README-ALNASL.txt && ok "alnasl-bootdiag: unit, program and the boot partition README agree on alnasl-boot.txt" || bad "alnasl-bootdiag wiring"
+for st in firstboot-1 firstboot-2 firstboot-3; do
+  [ "$(awk -v k="\"$st\": {" 'index($0, k) {f=1} f && /"bar"/ {gsub(/[ ,]/, ""); print; exit}' $R/usr/share/alnasl/splash/messages.json)" = '"bar":true' ] && ok "messages.json: $st has the progress bar (one bar for the whole first boot)" || bad "messages.json: $st has no progress bar"
+done
 grep -q 'touch-action' $E/kiosk-ext/touch.css && ok "touch.css present" || bad "touch.css"
 rm -rf $E $R/tmp/kiosk-ext
 echo "  -- OSK in a real Chromium? (headless, arm64 under qemu-user; best effort, not a failure when it cannot run) --"
