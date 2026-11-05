@@ -102,7 +102,7 @@ work; the image only has to say "this one is a spare" and give it what the repli
   the mode file says. Switching between alnasl and spare restarts the box (Alnasl hears it at its start).
   `GET /api/mode` adds `spare` and `running_spare`. The wizard and Settings do not offer it yet: a spare is
   set up with the boot-partition file or the API.
-- **Litestream.** 0.5.18, linux-arm64, pinned by version and SHA-256 in assemble.sh (3d), installed as
+- **Litestream.** 0.5.17, linux-arm64, pinned by version and SHA-256 in assemble.sh (3d), installed as
   `/usr/local/bin/litestream` in the slot. Alnasl runs it itself (`Alnasl.Takeover.Replicator`) while the
   box is the active box of a hall and a replica is configured, and stops it when the box steps down; at a
   takeover it runs `litestream restore` once. It only calls out: no port, no firewall change.
@@ -116,7 +116,7 @@ work; the image only has to say "this one is a spare" and give it what the repli
 - **The fallback store.** The user's own server (MinIO under Tanzu, at home or in the hall) or any S3
   bucket. Every box of a hall gets the same file; each writes under its own uid, the spare reads the one
   that ran the hall.
-- **Not tried on hardware.** Two Pis, a store, a pulled plug: nobody has yet. Nor has Litestream 0.5.18 run
+- **Not tried on hardware.** Two Pis, a store, a pulled plug: nobody has yet. Nor has Litestream 0.5.17 run
   on Photon 5 (verify.sh only asks it its version).
 
 ## Open, outside this image

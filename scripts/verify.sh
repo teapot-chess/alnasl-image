@@ -912,8 +912,8 @@ if bash $W/test-pin.sh $PS > $W/test-pin.log 2>&1; then ok "test-pin.sh: alnasl-
 
 echo "== v7.5: the spare, and Litestream's replica (docs/v7-plan.md section 5)"
 LS=$R/usr/local/bin/litestream
-[ -x $LS ] && chroot $R /usr/local/bin/litestream version 2>&1 | grep -q '0\.5\.18' && ok "litestream 0.5.18 in the image, and it runs" || bad "litestream missing, or not the pinned 0.5.18"
-grep -q '^LITESTREAM_SHA256=922a09e6a7ac67f2095571894dc6382e94e1dd4cdd9674883ddf1a8e74ab982d$' $W/assemble.sh && grep -q 'sha256sum -c --quiet' $W/assemble.sh && ok "litestream is pinned by version and SHA-256 in assemble.sh" || bad "litestream pin"
+[ -x $LS ] && chroot $R /usr/local/bin/litestream version 2>&1 | grep -q '0\.5\.18' && ok "litestream 0.5.17 in the image, and it runs" || bad "litestream missing, or not the pinned 0.5.17"
+grep -q '^LITESTREAM_SHA256=f8ca4a050095c1efbda2c4365172e61bf9d955ea0d9ac42f448b52e51819baa5$' $W/assemble.sh && grep -q 'sha256sum -c --quiet' $W/assemble.sh && ok "litestream is pinned by version and SHA-256 in assemble.sh" || bad "litestream pin"
 TC=$R/etc/systemd/system/alnasl.service.d/alnasl-takeover.conf
 grep -q '^Environment=ALNASL_LITESTREAM=/usr/local/bin/litestream$' $TC && grep -q '^EnvironmentFile=-/run/alnasl-mode/takeover.env$' $TC && grep -q '^EnvironmentFile=-/var/lib/alnasl-setup/replica.env$' $TC \
   && ok "alnasl.service: the binary, the role alnasl-mode wrote and the replica's settings (both optional)" || bad "alnasl.service.d/alnasl-takeover.conf"

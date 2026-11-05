@@ -184,9 +184,9 @@ chroot $R /bin/bash -c 'for b in /usr/sbin/hostapd /usr/sbin/hostapd_cli; do ldd
 # only calls out. The release tarball is pinned by version AND SHA-256 (GitHub's digest of the asset, and the
 # release's checksums.txt), fetched once into $W/litestream and checked again every build; a tarball that does
 # not match stops the build. Only the binary goes in, to the slot (an update brings the image's version).
-LITESTREAM_VERSION=0.5.18
+LITESTREAM_VERSION=0.5.17
 LITESTREAM_TGZ=litestream-$LITESTREAM_VERSION-linux-arm64.tar.gz
-LITESTREAM_SHA256=922a09e6a7ac67f2095571894dc6382e94e1dd4cdd9674883ddf1a8e74ab982d
+LITESTREAM_SHA256=f8ca4a050095c1efbda2c4365172e61bf9d955ea0d9ac42f448b52e51819baa5
 LS_DIR=$W/litestream/$LITESTREAM_VERSION
 mkdir -p $LS_DIR
 if ! echo "$LITESTREAM_SHA256  $LS_DIR/$LITESTREAM_TGZ" | sha256sum -c --quiet - 2>/dev/null; then
