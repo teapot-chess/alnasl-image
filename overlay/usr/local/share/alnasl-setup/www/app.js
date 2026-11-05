@@ -1253,7 +1253,11 @@ async function tabWifi(redraw) {
         h("button", { class: "btn sm", onclick: async () => { await leaveToDiag(); } }, t("open_diag"))));
   }
   async function leaveToDiag() { go("/diag"); }
+  // v7.8: the saved networks sit under the results; while a scan runs they are hidden (the scanning line is all
+  // there is), so the list does not jump down and up as the results arrive. savedBox is made below.
+  let savedBox = null;
   async function scan() {
+    if (savedBox) savedBox.hidden = true;
     results.replaceChildren(busy(t("scanning")));
     try {
       const r = await api("/api/wifi/scan");
@@ -1264,6 +1268,7 @@ async function tabWifi(redraw) {
           h("span", { class: "grow" }, n.ssid), h("span", { class: "pill" }, n.band + " GHz"),
           n.saved ? h("span", { class: "pill ok" }, t("saved")) : null, h("span", { class: "pill" }, n.secured ? t("secured") : t("open_net"))))));
     } catch (e) { results.replaceChildren(msg("bad", e.message)); }
+    finally { if (savedBox) savedBox.hidden = false; }
   }
   function connectForm(ssid, secured, hidden) {
     const name = field(t("network_name"), { value: ssid || "" });
@@ -1294,7 +1299,7 @@ async function tabWifi(redraw) {
     h("button", { class: "btn primary", onclick: scan }, S.compact ? t("scan_short") : t("scan")),
     h("button", { class: "btn", onclick: () => connectForm("", true, true) }, S.compact ? t("hidden_short") : t("hidden_net")),
     h("div", { style: "width:120px" }, country.el), h("button", { class: "btn sm", onclick: async () => { await api("/api/wifi/country", { country: country.input.value }).catch(() => 0); } }, t("save"))),
-    form, results, ...savedList);
+    form, results, savedBox = h("div", { id: "saved-networks" }, ...savedList));
   return wrap;
 }
 async function tabIp(redraw) {
