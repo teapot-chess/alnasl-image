@@ -13,5 +13,7 @@ if [ -n "$serial" ]; then
   hostname "alnasl-$serial" 2>/dev/null || true
 fi
 touch "$MARK"
+# v7.8: the first boot has ONE progress bar, carried on by alnasl-kiosk-load; the host name is its first 5 %.
+/usr/local/sbin/alnasl-splash --progress 5 || true
 echo "alnasl-firstboot: done (host name: $(hostname))"
 exit 0
