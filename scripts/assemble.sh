@@ -179,6 +179,32 @@ install -m 0755 $W/hostapd-out/hostapd_cli $R/usr/sbin/hostapd_cli
 echo "hostapd: $(cat $W/hostapd-out/hostapd.version | tr '\n' ' ')"
 chroot $R /bin/bash -c 'for b in /usr/sbin/hostapd /usr/sbin/hostapd_cli; do ldd $b; if ldd $b | grep -q "not found"; then echo "$b: MISSING LIBRARY"; exit 1; fi; done; hostapd -v 2>&1 | head -1'
 
+# --- 3d. Litestream (v7.5, the spare's replica; docs/v7-plan.md section 5) -------------
+# Alnasl runs it while the box is the active box of a hall and has a replica configured (alnasl-replica); it
+# only calls out. The release tarball is pinned by version AND SHA-256 (GitHub's digest of the asset, and the
+# release's checksums.txt), fetched once into $W/litestream and checked again every build; a tarball that does
+# not match stops the build. Only the binary goes in, to the slot (an update brings the image's version).
+LITESTREAM_VERSION=0.5.18
+LITESTREAM_TGZ=litestream-$LITESTREAM_VERSION-linux-arm64.tar.gz
+LITESTREAM_SHA256=922a09e6a7ac67f2095571894dc6382e94e1dd4cdd9674883ddf1a8e74ab982d
+LS_DIR=$W/litestream/$LITESTREAM_VERSION
+mkdir -p $LS_DIR
+if ! echo "$LITESTREAM_SHA256  $LS_DIR/$LITESTREAM_TGZ" | sha256sum -c --quiet - 2>/dev/null; then
+  rm -f $LS_DIR/$LITESTREAM_TGZ.part
+  curl -fsSL -m 300 -o $LS_DIR/$LITESTREAM_TGZ.part https://github.com/benbjohnson/litestream/releases/download/v$LITESTREAM_VERSION/$LITESTREAM_TGZ
+  echo "$LITESTREAM_SHA256  $LS_DIR/$LITESTREAM_TGZ.part" | sha256sum -c --quiet - || { echo "$LITESTREAM_TGZ does not have the pinned SHA-256"; rm -f $LS_DIR/$LITESTREAM_TGZ.part; exit 1; }
+  mv $LS_DIR/$LITESTREAM_TGZ.part $LS_DIR/$LITESTREAM_TGZ
+fi
+rm -rf $LS_DIR/x; mkdir -p $LS_DIR/x
+tar -xzf $LS_DIR/$LITESTREAM_TGZ -C $LS_DIR/x
+LS_BIN=$(find $LS_DIR/x -type f -name litestream | head -n 1)
+[ -n "$LS_BIN" ] || { echo "no litestream binary in $LITESTREAM_TGZ"; exit 1; }
+install -D -m 0755 $LS_BIN $R/usr/local/bin/litestream
+rm -rf $LS_DIR/x
+chroot $R /bin/bash -c 'ldd /usr/local/bin/litestream 2>&1 | grep -q "not found" && { echo "litestream: MISSING LIBRARY"; exit 1; }; /usr/local/bin/litestream version' | tee $W/litestream.version
+grep -q "$LITESTREAM_VERSION" $W/litestream.version || { echo "litestream in the image does not say $LITESTREAM_VERSION"; exit 1; }
+echo "litestream: $LITESTREAM_VERSION ($LITESTREAM_SHA256)"
+
 # --- 4. Tailscale, opt-in (v7.5, docs/remote-access.md; v1-v5 had it always on, v6-v7.4 not at all) ----------
 # The official static arm64 build, pinned by version and SHA-256 like the Pi firmware below; fetched once into
 # $W/tailscale. Only the two binaries go in. Nothing starts it: alnasl-tailscale.service runs only once somebody

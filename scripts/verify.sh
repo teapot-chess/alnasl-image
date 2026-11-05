@@ -909,6 +909,19 @@ grep -q '^Before=alnasl.service arkab.service polis.service nunki.service' $u &&
 for r in alnasl arkab polis nunki; do grep -q "^PathChanged=/var/lib/$r/access-pin" $R/etc/systemd/system/alnasl-pin-sync.path || bad "alnasl-pin-sync.path does not watch $r"; done
 grep -q 'alnasl-pin --sync' $R/etc/systemd/system/alnasl-pin-sync.service && ok "alnasl-pin-sync.path: a PIN changed in any role's app is followed (--sync)" || bad "alnasl-pin-sync.service"
 if bash $W/test-pin.sh $PS > $W/test-pin.log 2>&1; then ok "test-pin.sh: alnasl-pin run for real, $(grep -c '^  ok' $W/test-pin.log) checks"; else bad "test-pin.sh: $(grep FAIL $W/test-pin.log | head -n 3 | tr '\n' ' ')"; fi
+
+echo "== v7.5: the spare, and Litestream's replica (docs/v7-plan.md section 5)"
+LS=$R/usr/local/bin/litestream
+[ -x $LS ] && chroot $R /usr/local/bin/litestream version 2>&1 | grep -q '0\.5\.18' && ok "litestream 0.5.18 in the image, and it runs" || bad "litestream missing, or not the pinned 0.5.18"
+grep -q '^LITESTREAM_SHA256=922a09e6a7ac67f2095571894dc6382e94e1dd4cdd9674883ddf1a8e74ab982d$' $W/assemble.sh && grep -q 'sha256sum -c --quiet' $W/assemble.sh && ok "litestream is pinned by version and SHA-256 in assemble.sh" || bad "litestream pin"
+TC=$R/etc/systemd/system/alnasl.service.d/alnasl-takeover.conf
+grep -q '^Environment=ALNASL_LITESTREAM=/usr/local/bin/litestream$' $TC && grep -q '^EnvironmentFile=-/run/alnasl-mode/takeover.env$' $TC && grep -q '^EnvironmentFile=-/var/lib/alnasl-setup/replica.env$' $TC \
+  && ok "alnasl.service: the binary, the role alnasl-mode wrote and the replica's settings (both optional)" || bad "alnasl.service.d/alnasl-takeover.conf"
+RS=$R/usr/local/sbin/alnasl-replica
+[ -x $RS ] && bash -n $RS && grep -q '/usr/local/sbin/alnasl-replica' $R/usr/local/sbin/alnasl-mode && ok "alnasl-replica: executable, bash -n, run by alnasl-mode" || bad "alnasl-replica"
+if bash $W/test-replica.sh $RS > $W/test-replica.log 2>&1; then ok "test-replica.sh: alnasl-replica run for real, $(grep -c '^  ok' $W/test-replica.log) checks"; else bad "test-replica.sh: $(grep FAIL $W/test-replica.log | head -n 3 | tr '\n' ' ')"; fi
+[ -f $B/alnasl-replica.txt.example ] && [ ! -e $B/alnasl-replica.txt ] && grep -q 'spare' $B/alnasl-mode.txt.example && ok "boot partition: alnasl-replica.txt example, no live file; the mode example names spare" || bad "boot partition replica/spare files"
+[ ! -e $R/var/lib/alnasl-setup/replica.env ] && ok "no replica settings in the image (each hall brings its own)" || bad "a replica.env is in the image"
 src server.ex "\"/api/mode\"" && src server/box.ex "\"SWITCH\"" && ok "setup server: GET/POST /api/mode (SWITCH), as Arkab's page calls it" || bad "setup server mode API"
 src server.ex "\"/api/bootlog\"" "\"/api/printers\"" "\"/api/sound\"" && ok "setup server: /api/bootlog, /api/printers, /api/sound" || bad "setup server v7 routes"
 for key in role_title role_d role_alnasl_d role_arkab_d role_polis_d role_nunki_d role_now role_change role_yes role_q role_switch_d role_down done_arkab_d done_polis_d done_nunki_d printers_tile printers_d sound_tile sound_d out_jack sound_test; do
@@ -955,6 +968,11 @@ txt Nunki
 echo "nunki: $(F) $(E)"
 txt master
 echo "master: $(F) $(E)"
+# v7.5: a spare is an alnasl box that tells Alnasl so; the word stays in the mode file, nothing else changes.
+txt Spare
+echo "spare: $(F) file=$(cat /var/lib/alnasl-setup/mode) $(cat /run/alnasl-mode/takeover.env) $(E)"
+txt alnasl
+echo "alnasl after spare: $(F) $(cat /run/alnasl-mode/takeover.env)"
 # A v6 slave updated to v7: its data partition says slave (mode and v6's mode-applied); the new slot is the
 # image as shipped (Alnasl on, Arkab off, nothing applied in the slot). It must come up as an Arkab box.
 echo slave > /var/lib/alnasl-setup/mode; echo slave > /var/lib/alnasl-setup/mode-applied; rm -f /etc/alnasl/role-applied
@@ -973,15 +991,17 @@ rm -rf /run/alnasl-mode
 IN
 out=$(chroot $R /bin/bash /tmp/mode-test.sh 2>&1); echo "$out" | sed 's/^/       /'
 want() { grep -q -x -F -- "$1" <<<"$out" && ok "$2" || bad "$2: expected '$1'"; }
-want "default: mode=master role=alnasl flags=alnasl mode role  on: alnasl alnasl-kiosk applied=alnasl" "alnasl-mode: nothing set = alnasl (v6's word 'master' beside it), Alnasl and the screen on"
-want "slave: mode=slave role=arkab flags=arkab mode role  file=arkab txt=0 on: arkab alnasl-kiosk" "alnasl-mode: alnasl-mode.txt SLAVE (CRLF) = arkab, file consumed, Arkab on, Alnasl off"
-want "junk: mode=slave role=arkab flags=arkab mode role  txt=0" "alnasl-mode: a junk boot file is deleted and changes nothing"
-want "polis: mode=polis role=polis flags=mode polis role  on: polis cups alnasl-kiosk" "alnasl-mode: polis = Polis + CUPS on, Arkab off"
-want "nunki: mode=nunki role=nunki flags=mode nunki role  on: nunki alnasl-sound alnasl-kiosk" "alnasl-mode: Nunki = Nunki + sound on, Polis and CUPS off"
-want "master: mode=master role=alnasl flags=alnasl mode role  on: alnasl alnasl-kiosk" "alnasl-mode: master = alnasl again, the others off"
-want "v6 slave updated: mode=slave role=arkab flags=arkab mode role  on: arkab alnasl-kiosk v6note=0 applied=arkab" "a v6 slave updated to v7 keeps its role: Arkab on in the new slot, Alnasl off"
+want "default: mode=master role=alnasl flags=alnasl mode role takeover.env  on: alnasl alnasl-kiosk applied=alnasl" "alnasl-mode: nothing set = alnasl (v6's word 'master' beside it), Alnasl and the screen on"
+want "slave: mode=slave role=arkab flags=arkab mode role takeover.env  file=arkab txt=0 on: arkab alnasl-kiosk" "alnasl-mode: alnasl-mode.txt SLAVE (CRLF) = arkab, file consumed, Arkab on, Alnasl off"
+want "junk: mode=slave role=arkab flags=arkab mode role takeover.env  txt=0" "alnasl-mode: a junk boot file is deleted and changes nothing"
+want "polis: mode=polis role=polis flags=mode polis role takeover.env  on: polis cups alnasl-kiosk" "alnasl-mode: polis = Polis + CUPS on, Arkab off"
+want "nunki: mode=nunki role=nunki flags=mode nunki role takeover.env  on: nunki alnasl-sound alnasl-kiosk" "alnasl-mode: Nunki = Nunki + sound on, Polis and CUPS off"
+want "master: mode=master role=alnasl flags=alnasl mode role takeover.env  on: alnasl alnasl-kiosk" "alnasl-mode: master = alnasl again, the others off"
+want "spare: mode=master role=alnasl flags=alnasl mode role spare takeover.env  file=spare ALNASL_TAKEOVER_ROLE=spare on: alnasl alnasl-kiosk" "alnasl-mode: spare = the alnasl role, the word kept, Alnasl told ALNASL_TAKEOVER_ROLE=spare"
+want "alnasl after spare: mode=master role=alnasl flags=alnasl mode role takeover.env  ALNASL_TAKEOVER_ROLE=active" "alnasl-mode: back from spare, no spare flag, Alnasl told active"
+want "v6 slave updated: mode=slave role=arkab flags=arkab mode role takeover.env  on: arkab alnasl-kiosk v6note=0 applied=arkab" "a v6 slave updated to v7 keeps its role: Arkab on in the new slot, Alnasl off"
 want "second boot: on: arkab" "alnasl-mode: a box that is still what it was keeps what Settings switched off"
-want "new again: mode=master role=alnasl flags=alnasl mode role  on: alnasl alnasl-kiosk" "alnasl-mode: and back to a new box"
+want "new again: mode=master role=alnasl flags=alnasl mode role takeover.env  on: alnasl alnasl-kiosk" "alnasl-mode: and back to a new box"
 rm -f $R/tmp/mode-test.sh
 cumount $R
 for u in alnasl.service alnasl-update.path alnasl-kiosk.service; do st=$(chroot $R systemctl is-enabled $u 2>&1 | tail -1); [ "$st" = enabled ] && ok "after the test: $u enabled, as shipped" || bad "after the test: $u $st"; done

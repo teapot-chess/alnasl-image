@@ -1,0 +1,26 @@
+# Where this box copies its database while it runs a hall (a Litestream replica).
+#
+# Only for a box paired with a hall in the cloud that has a spare box standing by.
+# The cloud already gets every move within seconds; the replica is a second copy,
+# about once a second, in a store of your own (MinIO on a server in the hall or at
+# home, an S3 bucket, SFTP). A spare that takes over reads it too, and loses
+# seconds, not whatever the line to the cloud had not carried yet.
+#
+# To use it: copy this file to "alnasl-replica.txt" (same folder, no .example),
+# fill in the lines below, and boot the Pi. At boot the box reads the file, keeps
+# the settings on its data partition where only the system can read them, and
+# DELETES the file so the key does not stay on the card. Give every box of the
+# hall, the spare too, the same file: each writes under its own name in the store
+# and the spare reads the one that ran the hall.
+#
+# A file whose first line is "off" removes the settings again.
+# Lines starting with # are ignored. No quotes, no spaces in the values.
+
+# The store and a folder in it (s3://, sftp://, gs://, abs:// or file:///):
+ALNASL_TAKEOVER_REPLICA=s3://alnasl-replicas/my-hall
+# For MinIO or another S3-compatible store that is not Amazon's, its address:
+#ALNASL_TAKEOVER_REPLICA_ENDPOINT=http://192.168.1.20:9000
+#ALNASL_TAKEOVER_REPLICA_REGION=us-east-1
+# A key that may write to that bucket, and only that one:
+LITESTREAM_ACCESS_KEY_ID=
+LITESTREAM_SECRET_ACCESS_KEY=

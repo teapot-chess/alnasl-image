@@ -9,6 +9,9 @@
 #   polis   the print station: prints what Alnasl sends to a printer on this box
 #   nunki   the announcer: speaks the hall's announcements through HDMI or the
 #           headphone jack
+#   spare   an alnasl box that stands by: paired with a hall in the cloud, it
+#           waits, and takes the hall over when the box running it goes silent
+#           (or someone presses Take over). See alnasl-replica.txt.example too.
 #
 # v6's words still work: master means alnasl, slave means arkab.
 # The file is read at boot and deleted. Nothing is erased: every role keeps its

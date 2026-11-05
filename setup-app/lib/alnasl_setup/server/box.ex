@@ -54,7 +54,11 @@ defmodule AlnaslSetup.Server.Box do
   @role_run "/run/alnasl-mode/role"
   # v7: four roles (docs/v7-plan.md section 1). v6's two words still mean the first two, everywhere.
   @roles ~w(alnasl arkab polis nunki)
-  @aliases %{"master" => "alnasl", "slave" => "arkab"}
+  # v7.5: "spare" is the alnasl role standing by for a hall in the cloud (docs/v7-plan.md section 5). Not a
+  # fifth role: the mode file keeps the word, alnasl-mode tells Alnasl ALNASL_TAKEOVER_ROLE=spare and flags
+  # /run/alnasl-mode/spare; everything else sees alnasl.
+  @aliases %{"master" => "alnasl", "slave" => "arkab", "spare" => "alnasl"}
+  @spare_run "/run/alnasl-mode/spare"
   @legacy %{"alnasl" => "master", "arkab" => "slave"}
   # The page each role shows on the box's screen; its port answering is "up".
   @role_port %{"alnasl" => 4040, "arkab" => 4050, "polis" => 4061, "nunki" => 4062}
@@ -465,6 +469,15 @@ defmodule AlnaslSetup.Server.Box do
 
   def running_role, do: canon_role(Sys.read(@role_run)) || get_mode()
 
+  defp spare_word?(word),
+    do: is_binary(word) and word |> String.trim() |> String.downcase() == "spare"
+
+  @doc "Chosen as a spare (the mode file says spare)."
+  def spare?, do: spare_word?(Sys.read(@mode_file))
+
+  @doc "This boot runs as a spare (alnasl-mode flagged it)."
+  def running_spare?, do: File.exists?(Sys.path(@spare_run))
+
   @doc """
   GET /api/mode. "mode" stays v6's word for the two v6 roles (Arkab's page compares it with
   master/slave); "role" is the v7 word.
@@ -479,15 +492,21 @@ defmodule AlnaslSetup.Server.Box do
       "roles" => @roles,
       "set" => canon_role(Sys.read(@mode_file)) != nil,
       "running" => Map.get(@legacy, run, run),
-      "running_role" => run
+      "running_role" => run,
+      "spare" => spare?(),
+      "running_spare" => running_spare?()
     }
   end
 
   def set_mode(mode) do
     role = canon_role(mode) || raise(ArgumentError, "bad_mode")
-    Sys.write_atomic(@mode_file, role <> "\n", 0o644)
+    word = if spare_word?(mode), do: "spare", else: role
+    Sys.write_atomic(@mode_file, word <> "\n", 0o644)
     role
   end
+
+  @doc "Whether what was chosen is not what this boot runs as: the role, or spare or not."
+  def mode_pending?, do: get_mode() != running_role() or spare?() != running_spare?()
 
   @doc """
   Settings > Change what this box is, and Arkab's page. The role is only a file that alnasl-mode reads
@@ -497,13 +516,15 @@ defmodule AlnaslSetup.Server.Box do
   def switch_mode(mode, confirm) do
     if confirm != "SWITCH", do: raise(ArgumentError, "Not confirmed.")
     role = canon_role(mode) || raise(ArgumentError, "bad_mode")
+    spare = spare_word?(mode)
 
-    if role == running_role() and role == get_mode() do
+    if role == running_role() and role == get_mode() and spare == spare?() and
+         spare == running_spare?() do
       %{"ok" => true, "mode" => Map.get(@legacy, role, role), "role" => role, "same" => true}
     else
       # the diagnostics read this line
       Py.log("role switch: #{get_mode()} -> #{role} (running #{running_role()}); restarting")
-      set_mode(role)
+      set_mode(mode)
       power("reboot")
       %{"ok" => true, "mode" => Map.get(@legacy, role, role), "role" => role, "same" => false}
     end
