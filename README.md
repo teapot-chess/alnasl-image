@@ -12,3 +12,7 @@ Every file here is signed (`.sig`, ECDSA P-256 over SHA-256). An unsigned or wro
 signed file is refused, which is the point.
 
 Full SD images for a fresh card are not published here.
+
+## Licence
+
+Source published for reference under the Microsoft Reference Source License (Ms-RSL), copyright 2026 Jorian Burssens. The builds we publish (downloads, app stores, the Alnasl Pi image) may be used free of charge to run chess events; that permission covers our builds, not builds you make yourself. See [LICENSE](LICENSE).
