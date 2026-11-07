@@ -199,6 +199,23 @@ for c in "0 15 80 0 15" "50 15 80 50 55" "99 15 80 99 94" "100 15 80 100 95" "37
 done
 grep -q 'BASE + pct \* SPAN / 100' "$KL" && ok "alnasl-kiosk-load: uses that arithmetic" || bad "alnasl-kiosk-load: arithmetic line changed"
 grep -q 'alnasl-splash --progress 5' "$HERE/../overlay/usr/local/sbin/alnasl-firstboot" && ok "alnasl-firstboot: the name is the first 5 %" || bad "alnasl-firstboot: no progress"
+# v7.5: touch smoothing and live calibration. Sources only (no Pi, no dtc here): every stylus overlay carries the
+# debounce lines, the kiosk image has xinput, the setup page has Keep/Undo and both languages have the strings.
+for d in alnasl-waveshare35a.dts.in alnasl-waveshare32b.dts.in alnasl-xpt2046.dts; do
+  f="$HERE/../module/$d"
+  grep -q 'ti,debounce-max = /bits/ 16 <10>;' "$f" && grep -q 'ti,debounce-tol' "$f" && grep -q 'ti,settle-delay-usec' "$f" && grep -q 'ti,keep-vref-on;' "$f" \
+    && ok "$d: the stylus is debounced (average, tolerance, settle)" || bad "$d: no debounce lines"
+done
+grep -q ' xinput ' "$HERE/../kiosk/Dockerfile" && ok "kiosk image installs xinput (live calibration)" || bad "kiosk Dockerfile lacks xinput"
+APPJS="$HERE/../overlay/usr/local/share/alnasl-setup/www/app.js"
+for k in touch_try touch_keep touch_undo touch_kept touch_undone touch_src_trying; do
+  [ "$(grep -c "^    $k:\|[ ,]$k: " "$APPJS")" -ge 2 ] && ok "app.js: $k in English and Dutch" || bad "app.js: $k is not in both languages"
+done
+grep -q '/api/touch/keep' "$APPJS" && grep -q '/api/touch/undo' "$APPJS" && grep -q 'id: "touch-keep"' "$APPJS" && ok "calibration page: Keep and Undo" || bad "calibration page lacks Keep/Undo"
+grep -q 'TGT = \[\[0.15, 0.15\], \[0.85, 0.15\], \[0.85, 0.85\], \[0.15, 0.85\], \[0.5, 0.5\]\]' "$APPJS" && ok "calibration page: five targets" || bad "calibration page: not five targets"
+grep -q '\.calib-btn { flex: 1; min-height: 44px' "$HERE/../overlay/usr/local/share/alnasl-setup/www/app.css" && grep -q 'width: 48px; height: 48px' "$HERE/../overlay/usr/local/share/alnasl-setup/www/app.css" && ok "calibration page: targets 48 px, buttons 44 px" || bad "calibration page: target/button size"
+if grep -l $'\r' "$APPJS" "$HERE/../overlay/usr/local/share/alnasl-setup/www/app.css" "$HERE/../kiosk/Dockerfile" "$HERE"/../module/*.dts* >/dev/null 2>&1; then bad "CRLF in a touch file"; else ok "touch files are LF"; fi
+if command -v node >/dev/null; then node --check "$APPJS" && ok "node --check app.js" || bad "node --check app.js"; fi
 for js in touch.js statusline.js bg.js; do
   if command -v node >/dev/null; then node --check "$HERE/../kiosk/ext/$js" && ok "node --check $js" || bad "node --check $js"; fi
 done

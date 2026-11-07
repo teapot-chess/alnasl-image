@@ -354,3 +354,10 @@ input.range { flex: 1; min-width: 180px; height: 44px; accent-color: var(--accen
   .pin-now { font-size: 24px; }
   .pin-d { display: none; }
 }
+
+/* v7.5: the "Try it" step of the stylus calibration: a dot where the stylus lands, Keep / Undo at 44 px. */
+.calib-dot { position: absolute; display: none; width: 40px; height: 40px; margin: -20px 0 0 -20px; border-radius: 50%; border: 2px solid var(--accent); pointer-events: none; }
+.calib-dot::after { content: ""; position: absolute; left: 17px; top: 17px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.calib-try { top: 12px; transform: none; color: #fff; }
+.calib-bar { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 12px; padding: 8px 12px; background: #000; }
+.calib-btn { flex: 1; min-height: 44px; }

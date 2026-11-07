@@ -17,7 +17,7 @@ defmodule AlnaslSetup.Server do
   """
   use Supervisor
   alias AlnaslSetup.{Compact, Diag, Http, Json, Lock, SmallScreen, Sys, Wifi}
-  alias AlnaslSetup.Server.{Box, Help, Net, Pin, PortalApi, Printers, Py, Resolution, State}
+  alias AlnaslSetup.Server.{Box, Help, Net, Pin, PortalApi, Printers, Py, Resolution, State, TouchCal}
 
   @port 4041
   @www "/usr/local/share/alnasl-setup/www"
@@ -397,17 +397,26 @@ defmodule AlnaslSetup.Server do
       "/api/resolution/undo" ->
         Resolution.cancel()
 
-      # v7.3, Settings > Touch screen: {"samples": [[cross x, cross y, tap x, tap y] x4]}, fractions of the screen.
-      # The new matrix is in the udev database at once; X reads it when it starts, so the screen restarts.
+      # v7.5, Settings > Touch screen: {"samples": [[cross x, cross y, tap x, tap y] x5]}, fractions of the screen.
+      # "Try it": the calibration is used at once (udev rule + xinput in the running X), not saved; /keep saves it,
+      # /undo (or the timer in TouchCal) puts the saved one back. Only when X cannot be told live does the screen restart.
       "/api/touch/calibrate" ->
-        {_c, res} = SmallScreen.save_calibration(g(b, "samples"))
-        Box.restart_kiosk()
-        %{"ok" => true, "error_pct" => Float.round(res * 100, 1)}
+        r = TouchCal.try_it(g(b, "samples"))
+        if not r["live"], do: Box.restart_kiosk()
+        r
+
+      "/api/touch/keep" ->
+        TouchCal.keep()
+
+      "/api/touch/undo" ->
+        r = TouchCal.undo()
+        if not r["live"], do: Box.restart_kiosk()
+        r
 
       "/api/touch/reset" ->
-        SmallScreen.reset_calibration()
-        Box.restart_kiosk()
-        %{"ok" => true}
+        st = SmallScreen.reset_calibration()
+        if st["live"] == false, do: Box.restart_kiosk()
+        %{"ok" => true, "live" => st["live"] != false}
 
       "/api/finish" ->
         finish(b)

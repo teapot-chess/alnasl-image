@@ -413,7 +413,11 @@ defmodule AlnaslSetup.ServerTest do
         })
 
       assert r.status == 400 and r.json["error"] =~ "touch screen is off"
-      assert ok!(post("/api/touch/reset", %{})) == %{"ok" => true}
+      assert ok!(post("/api/touch/reset", %{})) == %{"ok" => true, "live" => true}
+      # v7.5: nothing on trial, so nothing to keep; undo with nothing on trial is a harmless no-op
+      r = post("/api/touch/keep", %{})
+      assert r.status == 400 and r.json["error"] =~ "nothing to keep"
+      assert ok!(post("/api/touch/undo", %{})) == %{"ok" => true, "live" => true}
     end
 
     test "POST /api/lang" do

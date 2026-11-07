@@ -13,7 +13,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       cage chromium seatd wlr-randr \
       libgl1-mesa-dri libegl1 libgles2 mesa-utils-bin libgbm1 \
-      xserver-xorg-core xserver-xorg-video-fbdev xserver-xorg-input-libinput xinit x11-xserver-utils matchbox-window-manager \
+      xserver-xorg-core xserver-xorg-video-fbdev xserver-xorg-input-libinput xinput xinit x11-xserver-utils matchbox-window-manager \
       libinput-bin udev xkb-data fonts-dejavu-core fonts-noto-color-emoji \
       procps curl ca-certificates \
  && rm -rf /var/lib/apt/lists/* /usr/share/doc/* /usr/share/man/* /usr/share/locale/*

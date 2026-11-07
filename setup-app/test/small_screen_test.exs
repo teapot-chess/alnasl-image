@@ -199,7 +199,7 @@ defmodule AlnaslSetup.SmallScreenTest do
 
     test "calibrate refuses what a person must redo" do
       cur = S.identity()
-      assert_raise ArgumentError, "four taps are needed", fn -> S.calibrate([[0.1, 0.1, 0.1, 0.1]], cur, 0) end
+      assert_raise ArgumentError, "four to nine taps are needed", fn -> S.calibrate([[0.1, 0.1, 0.1, 0.1]], cur, 0) end
 
       assert_raise ArgumentError, "a tap is four numbers", fn ->
         S.calibrate(List.duplicate(["a", 1, 1, 1], 4), cur, 0)
@@ -336,6 +336,63 @@ defmodule AlnaslSetup.SmallScreenTest do
       S.reset_calibration()
       refute Sys.exists?("/var/lib/alnasl-setup/touch-calibration.json")
       assert state()["source"] == "default" and Sys.read("/run/udev/rules.d/90-alnasl-touch.rules") == old
+    end
+
+    @tag :unix
+    test "v7.5 try it / keep / undo: five taps used at once through xinput, saved only on keep" do
+      Box.put("/boot/efi/alnasl-screen.txt", "TOUCH=xpt2046\n")
+      pi4_tree()
+      applied(~w(alnasl-spidev1-off alnasl-xpt2046))
+      Box.put("/sys/class/input/event0/device/name", "ADS7846 Touchscreen\n")
+      assert S.main([]) == 0
+      st = state()
+      cur = List.to_tuple(st["matrix"])
+      truth = S.evdev_matrix({300, 3800, 3600, 500, false})
+      rule_before = Sys.read("/run/udev/rules.d/90-alnasl-touch.rules")
+
+      samples =
+        for {tx, ty} <- [{0.15, 0.15}, {0.85, 0.15}, {0.85, 0.85}, {0.15, 0.85}, {0.5, 0.5}] do
+          {rx, ry} = S.transform(S.invert(truth), tx, ty)
+          {ox, oy} = S.transform(cur, rx, ry)
+          [tx, ty, ox, oy]
+        end
+
+      {c, res, live} = S.try_calibration(samples)
+      assert res < 1.0e-5 and live and close?(c, truth, 1.0e-5)
+      # in use now, not saved
+      assert state()["source"] == "trying"
+      refute Sys.exists?("/var/lib/alnasl-setup/touch-calibration.json")
+      assert Sys.read("/run/udev/rules.d/90-alnasl-touch.rules") != rule_before
+
+      xin = for ["docker", "exec" | _] = cmd <- Box.ran(), do: cmd
+      assert [_ | _] = xin
+      last = List.last(xin)
+      assert "xinput" in last and "ADS7846 Touchscreen" in last and "libinput Calibration Matrix" in last
+      # six matrix numbers and the fixed 0 0 1
+      assert Enum.take(last, -3) == ["0.000000", "0.000000", "1.000000"]
+
+      # undo: the earlier rule is back, nothing saved
+      assert S.revert_calibration() == true
+      assert Sys.read("/run/udev/rules.d/90-alnasl-touch.rules") == rule_before
+      assert state()["source"] == "default"
+
+      # try again, keep: saved for this screen, and the next boot uses it
+      {c2, _, _} = S.try_calibration(samples)
+      assert S.keep_calibration(c2) == :ok
+      saved = Json.decode_or_nil(Sys.read("/var/lib/alnasl-setup/touch-calibration.json"))
+      assert saved["screen"] == "hdmi-xpt2046" and length(saved["matrix"]) == 6
+      assert state()["source"] == "screen"
+      assert S.reset_calibration()["live"] == true
+      assert state()["source"] == "default"
+    end
+
+    test "a calibration that xinput refuses is reported as not live (the caller restarts the screen)" do
+      Box.runner!(fn
+        ["docker", "exec" | _] -> {1, "no X"}
+        _ -> {0, ""}
+      end)
+
+      assert S.apply_live([1.0, 0.0, 0.0, 0.0, 1.0, 0.0]) == false
     end
 
     test "the overlays go in but no panel answers: no_panel, and the kiosk stays on HDMI" do

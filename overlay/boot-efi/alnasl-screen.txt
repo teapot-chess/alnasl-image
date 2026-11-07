@@ -32,9 +32,10 @@
 #                        y min, y max for ROTATE=0, e.g. 390 3750 3700 400,
 #                        and SWAPXY=1 if the two axes are swapped. Leave both
 #                        empty for the built-in values of the screen.
-# Calibrating on the screen itself: menu > Settings > Touch screen, tap the four
-# crosses with the stylus. The box keeps that result (through updates) and it
-# wins over the CALIBRATION= line; "Back to the defaults" there undoes it.
+# Calibrating on the screen itself: menu > Settings > Touch screen, tap the five
+# crosses with the stylus, try the result, then Keep it or Undo. The box keeps
+# that result (through updates) and it wins over the CALIBRATION= line;
+# "Back to the defaults" there undoes it.
 #
 # The pages the screen shows:
 #   UI=auto              a screen on the pins gets the compact pages, HDMI the
@@ -88,7 +89,7 @@
 #                        SWAPXY=1 als de twee assen omgewisseld zijn. Laat ze
 #                        allebei leeg voor de ingebouwde waarden van het scherm.
 # Kalibreren op het scherm zelf: menu > Instellingen > Aanraakscherm, tik met de
-# stylus de vier kruisjes aan. Dat resultaat houdt de kast bij (ook na updates)
+# stylus de vijf kruisjes aan; je kunt het eerst uitproberen. Dat resultaat houdt de kast bij (ook na updates)
 # en het gaat voor op de regel CALIBRATION=; "Terug naar de standaard" daar
 # maakt het ongedaan.
 #

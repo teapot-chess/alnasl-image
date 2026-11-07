@@ -41,6 +41,13 @@
 				pendown-gpio = <&gpio 25 1>;	/* active low */
 				ti,x-plate-ohms = /bits/ 16 <150>;
 				ti,pressure-max = /bits/ 16 <255>;
+				/* v7.5: a resistive panel jitters; average up to 10 samples, accept a reading that repeats within
+				   30 units, let the plates settle first and keep the reference on between samples (as the 3.5A). */
+				ti,debounce-max = /bits/ 16 <10>;
+				ti,debounce-tol = /bits/ 16 <30>;
+				ti,debounce-rep = /bits/ 16 <1>;
+				ti,settle-delay-usec = /bits/ 16 <150>;
+				ti,keep-vref-on;
 			};
 		};
 	};

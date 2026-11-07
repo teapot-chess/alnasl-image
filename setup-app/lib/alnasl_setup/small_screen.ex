@@ -33,7 +33,7 @@ defmodule AlnaslSetup.SmallScreen do
       scales it and a Pi 4's HDMI will not go as slow as 480x320 needs) and turns it with xrandr.
 
   Calibration: the preset's numbers, CALIBRATION= in the file over those, the on-screen calibration (Settings >
-  Touch screen, four crosses) over both. That one lives on the data partition, for the screen it was made on.
+  Touch screen, five crosses, tried before it is kept) over both. That one lives on the data partition, for the screen it was made on.
   Whatever the file says, a box boots: this never fails, and anything it cannot read means SCREEN=hdmi.
   """
 
@@ -438,13 +438,14 @@ defmodule AlnaslSetup.SmallScreen do
   @max_residual 0.05
 
   @doc """
-  samples: four `[tx, ty, ox, oy]` in the picture's normalised coordinates: where the cross was, where the
+  samples: four to nine (the page sends five) `[tx, ty, ox, oy]` in the picture's normalised coordinates: where the cross was, where the
   stylus landed with the calibration `current` (the full matrix X is using). Returns `{c, residual}`: the
   new calibration in the panel's own frame (ROTATE=0), so a later ROTATE= keeps it. Raises ArgumentError
   with a reason a person can act on.
   """
   def calibrate(samples, current, rotate) do
-    if not is_list(samples) or length(samples) != 4, do: raise(ArgumentError, "four taps are needed")
+    if not is_list(samples) or length(samples) < 4 or length(samples) > 9,
+      do: raise(ArgumentError, "four to nine taps are needed")
 
     pts =
       for s <- samples do
@@ -637,8 +638,9 @@ defmodule AlnaslSetup.SmallScreen do
   end
 
   # The udev rule from the file's settings and the saved calibration; retriggers the device when it is there.
-  defp rewrite_rule(cfg, st) do
-    {c, src} = effective(cfg, stored_for(cfg.preset))
+  # `try_c` (a calibration in the panel's frame) stands in for the saved one while the person is trying it out.
+  defp rewrite_rule(cfg, st, try_c \\ nil) do
+    {c, src} = if try_c, do: {try_c, "trying"}, else: effective(cfg, stored_for(cfg.preset))
     m = compose(rotation(cfg.rotate), c)
     Sys.write_atomic(@rule, udev_rule(m))
     Sys.run(["udevadm", "control", "--reload"])
@@ -859,14 +861,90 @@ defmodule AlnaslSetup.SmallScreen do
     {c, res}
   end
 
+  @doc """
+  Gives the running X server the matrix now (xf86-input-libinput's "libinput Calibration Matrix" property, set with
+  xinput inside the kiosk container), so a calibration needs no restart of the screen. The udev rule covers the
+  next start of X. false: it did not take (no X, the cage path, xinput missing); the caller restarts the kiosk.
+  """
+  def apply_live(matrix) when is_list(matrix) and length(matrix) == 6 do
+    vals = Enum.map(matrix ++ [0.0, 0.0, 1.0], &f6/1)
+
+    argv =
+      ["docker", "exec", "-e", "DISPLAY=:0", "alnasl-kiosk", "xinput", "set-prop", @touch_name] ++
+        ["libinput Calibration Matrix"] ++ vals
+
+    case Sys.run(argv, timeout: 10) do
+      {0, _} -> true
+      _ -> false
+    end
+  end
+
+  # The state a calibration can start from, or an ArgumentError a person can read.
+  defp touch_ready! do
+    st = read_state()
+    preset = st["preset"]
+
+    if st["touch"] != "xpt2046" or preset == nil or not @presets[preset].touch,
+      do: raise(ArgumentError, "the touch screen is off (alnasl-screen.txt)")
+
+    {st, preset}
+  end
+
+  @doc """
+  "Try it": fit the taps and use the result at once (rule in /run, X told live), without saving it.
+  `keep_calibration/1` saves it, `revert_calibration/0` puts the saved (or built-in) one back.
+  Returns `{c, residual, live?}`.
+  """
+  def try_calibration(samples) do
+    {st, _preset} = touch_ready!()
+    current = st["matrix"]
+    if not sane?(current), do: raise(ArgumentError, "no calibration in use to start from")
+    current = List.to_tuple(Enum.map(current, &(&1 * 1.0)))
+    {c, res} = calibrate(samples, current, st["rotate"] || 0)
+    st2 = rewrite_rule(cfg_now(st), st, c)
+    write_state(st2)
+    live = apply_live(st2["matrix"])
+
+    log(
+      "calibration on trial (fit within #{:erlang.float_to_binary(res * 100, decimals: 1)} % of the screen; live: #{live})"
+    )
+
+    {c, res, live}
+  end
+
+  @doc "Keeps the calibration that was tried (c, in the panel's frame): saved on the data partition, for this screen."
+  def keep_calibration(c) do
+    {st, preset} = touch_ready!()
+    if not sane?(c), do: raise(ArgumentError, "nothing to keep")
+    save_stored(preset, c)
+    write_state(rewrite_rule(cfg_now(st), st))
+    log("on-screen calibration kept; saved")
+    :ok
+  end
+
+  @doc "Undo: back to the saved calibration (or the file's, or the built-in), live. Returns live?"
+  def revert_calibration do
+    {st, _preset} = touch_ready!()
+    st2 = rewrite_rule(cfg_now(st), st)
+    write_state(st2)
+    live = apply_live(st2["matrix"])
+    log("calibration trial undone (live: #{live})")
+    live
+  end
+
   def reset_calibration do
     rm(@cal_file)
     st = read_state()
     preset = st["preset"]
 
-    if st["touch"] == "xpt2046" and preset != nil and @presets[preset].touch do
-      write_state(rewrite_rule(cfg_now(st), st))
-    end
+    live =
+      if st["touch"] == "xpt2046" and preset != nil and @presets[preset].touch do
+        st2 = rewrite_rule(cfg_now(st), st)
+        write_state(st2)
+        apply_live(st2["matrix"])
+      else
+        true
+      end
 
     st = read_state()
 
@@ -874,7 +952,7 @@ defmodule AlnaslSetup.SmallScreen do
       "on-screen calibration removed; back to #{if st["source"] == "file", do: "alnasl-screen.txt's", else: "the built-in"} values"
     )
 
-    st
+    Map.put(st, "live", live)
   end
 
   def main(["--status" | _]) do

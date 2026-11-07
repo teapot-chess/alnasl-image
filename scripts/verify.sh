@@ -1144,6 +1144,9 @@ grep -a -q 'waveshare,rpi-lcd-35' $OV/alnasl-waveshare35a-r0.dtbo && grep -a -q 
 # INPUT_PROP_DIRECT (build-modules.sh patches it), the image has that very module, and the udev rule makes it a
 # touchscreen and nothing else.
 grep -q '__set_bit(INPUT_PROP_DIRECT, input_dev->propbit);' $W/modsrc/ads7846.c && ok "ads7846 built with INPUT_PROP_DIRECT (a touchscreen, so a tap clicks)" || bad "ads7846.c in modsrc lacks the INPUT_PROP_DIRECT patch"
+for o in alnasl-waveshare35a-r0 alnasl-waveshare32b-r90 alnasl-xpt2046; do
+  grep -a -q 'ti,debounce-max' $OV/$o.dtbo && grep -a -q 'ti,settle-delay-usec' $OV/$o.dtbo && ok "$o: stylus debounce is in the overlay" || bad "$o: no debounce in the overlay"
+done
 ko=$(find $R/lib/modules/$KVER -name 'ads7846.ko*' | head -n 1)
 [ -n "$ko" ] && [ "$(sha256sum < $ko)" = "$(sha256sum < $W/modules-out/ads7846.ko)" ] && ok "the image's ads7846.ko is the patched build (${ko#$R})" || bad "the image's ads7846.ko is not the one just built"
 cmount $R
@@ -1156,6 +1159,8 @@ EX
 cumount $R
 docker run --rm --platform linux/arm64 --entrypoint grep alnasl-kiosk:latest -q 'MatchIsTouchscreen "on"' /kiosk.sh \
   && ok "the kiosk's X takes touchscreens through libinput (MatchIsTouchscreen)" || bad "the kiosk's X has no touchscreen InputClass"
+docker run --rm --platform linux/arm64 --entrypoint sh alnasl-kiosk:latest -c 'command -v xinput' >/dev/null \
+  && ok "the kiosk image has xinput (live touch calibration)" || bad "the kiosk image has no xinput"
 # The unit: enabled, before the kiosk, after the partitions and udev; the wrapper runs the release.
 s=$(chroot $R systemctl is-enabled alnasl-small-screen.service 2>&1 | tail -1); [ "$s" = enabled ] && ok "alnasl-small-screen enabled" || bad "alnasl-small-screen: $s"
 U=$SU/alnasl-small-screen.service

@@ -127,16 +127,18 @@ const TX = {
     upd_err_busy: "An update is already running.", upd_err_updates_off: "System updates are off on this box.",
     upd_err_not_ab: "This card does not have the update layout.", upd_err_bad_train: "That is not a newer release line.",
     touch: "Touch screen", touch_tile: "Calibrate the stylus",
-    touch_d: "The small screen's stylus touch, switched on in alnasl-screen.txt on the SD card (SCREEN=). If taps land beside what you aim at, calibrate: tap the centre of four crosses with the stylus.",
+    touch_d: "The small screen's stylus touch, switched on in alnasl-screen.txt on the SD card (SCREEN=). If taps land beside what you aim at, calibrate: tap the centre of five crosses with the stylus. You can try the result before you keep it.",
     touch_off: "No stylus touch screen is switched on. alnasl-screen.txt on the SD card does that: SCREEN=waveshare35a or waveshare32b for a small screen on the pins, or TOUCH=xpt2046 for a 3.5-inch HDMI screen whose stylus touch is on the pins.",
     touch_st_ready: "The touch panel works.", touch_st_no_touch: "The touch panel does not answer. Is the screen seated on the pins?",
     touch_st_no_panel: "The screen on the pins did not appear; the picture stays on HDMI. Is it seated on the pins, and is SCREEN= the right model?",
     touch_st_overlay_failed: "The touch panel could not be switched on (device tree). Diagnostics has the details.",
     touch_st_no_overlay_support: "This system cannot switch the touch panel on.", touch_st_not_started: "The touch panel has not been set up yet.",
-    touch_now: "Rotation %s degrees, picture %s, calibration: %s.", touch_src_default: "built in", touch_src_file: "from alnasl-screen.txt", touch_src_screen: "made on this screen",
-    touch_cal: "Calibrate", touch_reset: "Back to the defaults", touch_reset_done: "Done. The screen restarts with the defaults.",
+    touch_now: "Rotation %s degrees, picture %s, calibration: %s.", touch_src_default: "built in", touch_src_file: "from alnasl-screen.txt", touch_src_screen: "made on this screen", touch_src_trying: "being tried",
+    touch_cal: "Calibrate", touch_reset: "Back to the defaults", touch_reset_done: "Done. The defaults are in use.",
+    touch_try: "Try it: tap anywhere. The dot should land under the stylus. Keep this calibration, or it goes back by itself in %s seconds.",
+    touch_keep: "Keep", touch_undo: "Undo", touch_kept: "Kept. This calibration is saved and stays after a restart.", touch_undone: "Undone. The earlier calibration is back.",
     touch_tap_n: "Tap the centre of the cross with the stylus (%s of %s)",
-    touch_timeout: "Nothing was tapped for 30 seconds, so the calibration stopped.", touch_saving: "Saving...", touch_saved: "Saved. The screen goes black for about 20 seconds while it restarts; the boards and the relay keep running.",
+    touch_timeout: "Nothing was tapped for 30 seconds, so the calibration stopped.", touch_saving: "Working...",
     res_forced: "A small screen is switched on in alnasl-screen.txt on the SD card: it sets the picture (a screen on the pins has one size; a 3.5-inch HDMI screen takes MODE=).",
     upd_url: "Where updates come from", upd_url_d: "An https:// address of a release index. Keep the default unless the Alnasl team tells you otherwise.",
     cmp_menu: "Menu", cmp_qr_setup: "Scan to set up this box", cmp_qr_in: "Scan to reach this box", cmp_qr_url: "Scan for %s",
@@ -274,16 +276,18 @@ const TX = {
     upd_err_busy: "Er loopt al een update.", upd_err_updates_off: "Systeemupdates staan uit op deze box.",
     upd_err_not_ab: "Deze kaart heeft niet de indeling voor updates.", upd_err_bad_train: "Dat is geen nieuwere releaselijn.",
     touch: "Aanraakscherm", touch_tile: "De stylus kalibreren",
-    touch_d: "De stylus-aanraking van het kleine scherm, aangezet in alnasl-screen.txt op de SD-kaart (SCREEN=). Kom je met een tik naast wat je bedoelt, kalibreer dan: tik met de stylus het midden van vier kruisjes aan.",
+    touch_d: "De stylus-aanraking van het kleine scherm, aangezet in alnasl-screen.txt op de SD-kaart (SCREEN=). Kom je met een tik naast wat je bedoelt, kalibreer dan: tik met de stylus het midden van vijf kruisjes aan. Je kunt het resultaat uitproberen voor je het bewaart.",
     touch_off: "Er staat geen stylus-aanraakscherm aan. Dat doe je in alnasl-screen.txt op de SD-kaart: SCREEN=waveshare35a of waveshare32b voor een klein scherm op de pinnen, of TOUCH=xpt2046 voor een 3,5-inch HDMI-scherm met stylus-aanraking op de pinnen.",
     touch_st_ready: "Het aanraakpaneel werkt.", touch_st_no_touch: "Het aanraakpaneel antwoordt niet. Zit het scherm goed op de pinnen?",
     touch_st_no_panel: "Het scherm op de pinnen kwam niet tevoorschijn; het beeld blijft op HDMI. Zit het goed op de pinnen, en klopt het model bij SCREEN=?",
     touch_st_overlay_failed: "Het aanraakpaneel kon niet aangezet worden (device tree). Diagnose toont de details.",
     touch_st_no_overlay_support: "Dit systeem kan het aanraakpaneel niet aanzetten.", touch_st_not_started: "Het aanraakpaneel is nog niet ingesteld.",
-    touch_now: "Rotatie %s graden, beeld %s, kalibratie: %s.", touch_src_default: "ingebouwd", touch_src_file: "uit alnasl-screen.txt", touch_src_screen: "op dit scherm gemaakt",
-    touch_cal: "Kalibreren", touch_reset: "Terug naar de standaard", touch_reset_done: "Klaar. Het scherm herstart met de standaardwaarden.",
+    touch_now: "Rotatie %s graden, beeld %s, kalibratie: %s.", touch_src_default: "ingebouwd", touch_src_file: "uit alnasl-screen.txt", touch_src_screen: "op dit scherm gemaakt", touch_src_trying: "wordt uitgeprobeerd",
+    touch_cal: "Kalibreren", touch_reset: "Terug naar de standaard", touch_reset_done: "Klaar. De standaardwaarden zijn in gebruik.",
+    touch_try: "Probeer maar: tik ergens. De stip moet onder de stylus verschijnen. Bewaar deze kalibratie, anders gaat ze over %s seconden vanzelf terug.",
+    touch_keep: "Bewaren", touch_undo: "Ongedaan maken", touch_kept: "Bewaard. Deze kalibratie blijft ook na een herstart.", touch_undone: "Ongedaan gemaakt. De vorige kalibratie is terug.",
     touch_tap_n: "Tik met de stylus het midden van het kruisje aan (%s van %s)",
-    touch_timeout: "Er werd 30 seconden niets aangetikt, dus de kalibratie is gestopt.", touch_saving: "Opslaan...", touch_saved: "Opgeslagen. Het scherm is zo een twintigtal seconden zwart terwijl het herstart; de borden en de doorgifte blijven gewoon werken.",
+    touch_timeout: "Er werd 30 seconden niets aangetikt, dus de kalibratie is gestopt.", touch_saving: "Bezig...",
     res_forced: "Er staat een klein scherm aan in alnasl-screen.txt op de SD-kaart: dat bepaalt het beeld (een scherm op de pinnen heeft één formaat; een 3,5-inch HDMI-scherm neemt MODE=).",
     upd_url: "Waar updates vandaan komen", upd_url_d: "Een https://-adres van een release-index. Laat de standaard staan tenzij het Alnasl-team iets anders zegt.",
     cmp_menu: "Menu", cmp_qr_setup: "Scan om deze kast in te stellen", cmp_qr_in: "Scan om deze kast te bereiken", cmp_qr_url: "Scan voor %s",
@@ -1150,8 +1154,8 @@ function resKeepDialog(secs, redraw) {
 }
 
 /* ------------------------------------------------------ touch screen ----- */
-// v7.3: a small stylus screen, on the pins or a 3.5-inch HDMI one (alnasl-screen.txt). Four crosses, one at a time; where the stylus landed goes to
-// the box, which works out the calibration, keeps it on the data partition and restarts the screen with it.
+// v7.3: a small stylus screen, on the pins or a 3.5-inch HDMI one (alnasl-screen.txt). v7.5: five crosses, one at a time; where the stylus landed goes
+// to the box, which works out the calibration and uses it at once (no restart); Keep saves it on the data partition, Undo goes back.
 async function touchPage() {
   const card = h("div", { class: "card", id: "touch-card" }, busy("..."));
   sub(t("touch"), card);
@@ -1169,8 +1173,11 @@ async function touchPage() {
     h("div", { class: "row" }, ok ? h("button", { class: "btn primary", id: "touch-cal", onclick: () => calibrator(out) }, t("touch_cal")) : null, reset),
     out);
 }
+// v7.5: five crosses (near the four corners, and the middle), then "Try it": the box uses the result at once, without
+// restarting anything, and a test pad shows a dot where the stylus lands. Keep saves it (kept across reboots); Undo, or 20 seconds
+// of nothing, puts the earlier one back. The crosses are 48 px, the buttons 44 px: a stylus on 3.5 inches is not a mouse.
 function calibrator(out) {
-  const TGT = [[0.15, 0.15], [0.85, 0.15], [0.85, 0.85], [0.15, 0.85]];
+  const TGT = [[0.15, 0.15], [0.85, 0.15], [0.85, 0.85], [0.15, 0.85], [0.5, 0.5]];
   const samples = [];
   const cross = h("div", { class: "calib-x" });
   const hint = h("div", { class: "calib-hint" });
@@ -1181,17 +1188,51 @@ function calibrator(out) {
   const idle = () => { clearTimeout(timer); timer = setTimeout(() => { close(); out.replaceChildren(msg("bad", t("touch_timeout"))); }, 30000); };
   ov.addEventListener("pointerdown", async (e) => {
     e.preventDefault();
+    if (samples.length >= TGT.length) return;
     if (e.timeStamp - last < 500) return;   // a resistive panel bounces; one tap is one tap
     last = e.timeStamp;
     const [x, y] = TGT[samples.length];
     samples.push([x, y, e.clientX / window.innerWidth, e.clientY / window.innerHeight]);
     if (samples.length < TGT.length) { place(); idle(); return; }
-    close();
-    out.replaceChildren(busy(t("touch_saving")));
-    try { await api("/api/touch/calibrate", { samples }); out.replaceChildren(msg("ok", t("touch_saved"))); }
-    catch (err) { out.replaceChildren(msg("bad", err.message)); }
+    clearTimeout(timer);
+    hint.textContent = t("touch_saving"); cross.style.display = "none";
+    let r;
+    try { r = await api("/api/touch/calibrate", { samples }); }
+    catch (err) { close(); out.replaceChildren(msg("bad", err.message)); return; }
+    tryPad(ov, hint, out, r);
   });
   document.body.append(ov); place(); idle();
+}
+function tryPad(ov, hint, out, r) {
+  let left = r.seconds || 20, tick = 0, done = false;
+  const dot = h("div", { class: "calib-dot" });
+  const text = h("div", { class: "calib-hint calib-try" });
+  const say = () => { text.textContent = tf("touch_try", left); };
+  const finish = (m) => { done = true; clearInterval(tick); ov.remove(); out.replaceChildren(m); };
+  const keep = h("button", { class: "btn primary calib-btn", id: "touch-keep", onclick: async () => {
+    try { await api("/api/touch/keep", {}); finish(msg("ok", t("touch_kept"))); } catch (e) { finish(msg("bad", e.message)); }
+  } }, t("touch_keep"));
+  const undo = h("button", { class: "btn calib-btn", id: "touch-undo", onclick: async () => {
+    try { await api("/api/touch/undo", {}); finish(msg("ok", t("touch_undone"))); } catch (e) { finish(msg("bad", e.message)); }
+  } }, t("touch_undo"));
+  const bar = h("div", { class: "calib-bar" }, undo, keep);
+  hint.remove();
+  ov.append(dot, text, bar);
+  say();
+  ov.addEventListener("pointerdown", (e) => {
+    if (e.target.closest(".calib-bar")) return;
+    e.preventDefault();
+    dot.style.left = e.clientX + "px"; dot.style.top = e.clientY + "px"; dot.style.display = "block";
+  });
+  ov.addEventListener("pointermove", (e) => {
+    if (e.buttons && !e.target.closest(".calib-bar")) { dot.style.left = e.clientX + "px"; dot.style.top = e.clientY + "px"; }
+  });
+  tick = setInterval(() => {
+    left -= 1;
+    if (left > 0) { say(); return; }
+    // The box puts the earlier calibration back by itself when the time is up; the page only has to say so.
+    if (!done) finish(msg("ok", t("touch_undone")));
+  }, 1000);
 }
 
 /* ----------------------------------------------------------- network ----- */
