@@ -93,7 +93,7 @@ if ($Skip -notcontains "setup") {
 Vm-Run "rm -rf $W/kiosk/ext"
 & scp -r @ssh (Join-Path $here "kiosk\ext") "$Vm`:$W/kiosk/"
 $scripts = @("build-alnasl.sh", "build-arkab.sh", "build-polis.sh", "build-nunki.sh", "build-setup.sh", "build-espeak.sh", "build-modules.sh", "build-kiosk.sh", "build-iw.sh", "build-hostapd.sh",
-  "test-kiosk-logic.sh", "test-scripts.sh", "test-compact-css.sh", "test-pin.sh", "verify.sh", "qemu-smoke.sh", "assemble.sh", "lib-chroot.sh", "prepare-base.sh", "bootscreen.sh", "uboot-env.exs",
+  "test-kiosk-logic.sh", "test-scripts.sh", "test-compact-css.sh", "test-pin.sh", "test-replica.sh", "verify.sh", "qemu-smoke.sh", "assemble.sh", "lib-chroot.sh", "prepare-base.sh", "bootscreen.sh", "uboot-env.exs",
   "grub-ab.cfg", "make-release.sh", "release-index.exs", "debug-ssh.pub")
 & scp @ssh @($scripts | ForEach-Object { Join-Path $here "scripts\$_" }) "$Vm`:$W/"
 & scp @ssh (Join-Path $here "module\Makefile") "$Vm`:$W/module-Makefile"

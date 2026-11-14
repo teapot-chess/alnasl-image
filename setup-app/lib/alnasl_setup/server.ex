@@ -508,7 +508,7 @@ defmodule AlnaslSetup.Server do
       "/api/reset" ->
         Box.factory_reset(g(b, "confirm", ""))
 
-      # {"mode": "alnasl"|"arkab"|"polis"|"nunki" (or v6's "master"|"slave"), "confirm": "SWITCH"};
+      # {"mode": "alnasl"|"arkab"|"polis"|"nunki"|"spare" (or v6's "master"|"slave"), "confirm": "SWITCH"};
       # Settings and Arkab's page
       "/api/mode" ->
         Box.switch_mode(Py.str(g(b, "mode", "")), g(b, "confirm", ""))
@@ -603,7 +603,8 @@ defmodule AlnaslSetup.Server do
     Sys.write_atomic(Box.done_file(), "1\n")
     Box.page_ping("")
 
-    if want != nil and want != Box.running_role() do
+    # A spare is the alnasl role too, but Alnasl learns it only at its start (v7.5): a reboot as well.
+    if want != nil and Box.mode_pending?() do
       # the other app takes the box over at the next boot
       Box.power("reboot")
       %{"ok" => true, "reboot" => true}

@@ -88,6 +88,37 @@ Off by default; how it works and what was never tried on a real panel: `docs/spi
 
 `image-version` v7, `photon-alnasl-v7.img`, `ALNASL_TRAIN=v7`, 7.0. The release index keeps 6.1 and 6.2.
 
+## 5. The spare, and Litestream (v7.5, branch spare-role)
+
+A spare box takes over a hall when the box running it dies (Alnasl's docs/takeover.md). Alnasl does the
+work; the image only has to say "this one is a spare" and give it what the replica needs.
+
+- **The word.** `spare` in `/var/lib/alnasl-setup/mode` (or `alnasl-mode.txt`, or `POST /api/mode`). It is
+  the alnasl role: same units, same port, same firewall, `/run/alnasl-mode/role` says `alnasl`, `mode` says
+  `master`. What differs: the flag `/run/alnasl-mode/spare`, and `/run/alnasl-mode/takeover.env` saying
+  `ALNASL_TAKEOVER_ROLE=spare` (`active` on every other box). `alnasl.service.d/alnasl-takeover.conf` hands
+  it to Alnasl. Alnasl reads it once, when the box is paired with a hall in the cloud: after that its own
+  record decides, so a spare that took over stays in charge across reboots and system updates, whatever
+  the mode file says. Switching between alnasl and spare restarts the box (Alnasl hears it at its start).
+  `GET /api/mode` adds `spare` and `running_spare`. The wizard and Settings do not offer it yet: a spare is
+  set up with the boot-partition file or the API.
+- **Litestream.** 0.5.17, linux-arm64, pinned by version and SHA-256 in assemble.sh (3d), installed as
+  `/usr/local/bin/litestream` in the slot. Alnasl runs it itself (`Alnasl.Takeover.Replicator`) while the
+  box is the active box of a hall and a replica is configured, and stops it when the box steps down; at a
+  takeover it runs `litestream restore` once. It only calls out: no port, no firewall change.
+- **The replica's settings.** `alnasl-replica.txt` on the boot partition (example shipped), lines
+  `KEY=VALUE`: `ALNASL_TAKEOVER_REPLICA` (s3/gs/abs/sftp/file URL), `_ENDPOINT`, `_REGION`, `_SYNC`,
+  `LITESTREAM_ACCESS_KEY_ID`, `LITESTREAM_SECRET_ACCESS_KEY`. `alnasl-replica` (run by alnasl-mode at boot)
+  checks it, writes `/var/lib/alnasl-setup/replica.env` (data partition, root, 0600) and deletes the card's
+  file, which holds a key. systemd reads the env file for alnasl.service; the alnasl user cannot. `off` on
+  the first line removes it. A factory reset wipes it with the data partition. Tests: scripts/test-replica.sh
+  (Git Bash or the VM), verify.sh's v7.5 block and the alnasl-mode run in the image.
+- **The fallback store.** The user's own server (MinIO under Tanzu, at home or in the hall) or any S3
+  bucket. Every box of a hall gets the same file; each writes under its own uid, the spare reads the one
+  that ran the hall.
+- **Not tried on hardware.** Two Pis, a store, a pulled plug: nobody has yet. Nor has Litestream 0.5.17 run
+  on Photon 5 (verify.sh only asks it its version).
+
 ## Open, outside this image
 - Polis: no raster drivers, so a printer that does not take PDF does not print. Every role has an access PIN
   since universal-pin (alnasl-pin). Nunki: needs a real Pi to hear HDMI and the jack. Neither repo is changed by v7.

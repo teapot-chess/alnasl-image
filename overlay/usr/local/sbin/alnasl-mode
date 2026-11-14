@@ -6,6 +6,11 @@
 #   polis    Polis: prints what the arbiter publishes (CUPS).
 #   nunki    Nunki: reads the pairings aloud (espeak-ng, ALSA).
 #
+#   spare    (v7.5) the alnasl role, as a spare: the same units, and Alnasl is told
+#            ALNASL_TAKEOVER_ROLE=spare, so that pairing it with a hall in the cloud makes it stand by
+#            instead of running the hall (docs/v7-plan.md section 5). Not a fifth role: everything below
+#            that speaks of roles sees alnasl. Only the mode file keeps the word.
+#
 # Four words and a default; that is all the logic there is. /var/lib/alnasl-setup/mode holds the word (it
 # lives on the data partition, so it survives system updates and is gone after a factory reset: back to the
 # wizard, back to alnasl). v6 wrote "master" and "slave": they still mean alnasl and arkab, in that file and
@@ -26,6 +31,10 @@
 #     partition, so a v6 slave that updated came up with Arkab switched off; v7 does not.
 #   - never touches any role's data: switching back loses nothing.
 #
+#   - writes /run/alnasl-mode/takeover.env (ALNASL_TAKEOVER_ROLE=spare on a spare, active otherwise), which
+#     alnasl.service reads (alnasl.service.d/alnasl-takeover.conf), and the flag /run/alnasl-mode/spare.
+#   - runs alnasl-replica: the Litestream replica's settings from the boot partition, if any.
+#
 #   alnasl-mode            at boot
 #   alnasl-mode --status   prints the role this boot runs as
 set -u
@@ -45,10 +54,10 @@ units() {
     nunki)  echo "alnasl-sound.service nunki.service nunki-update.path" ;;
   esac
 }
-# The v6 words and the v7 ones; anything else is not a role.
+# The v6 words and the v7 ones; anything else is not a role. A spare is an alnasl box.
 canon() {
   case "$1" in
-    master|alnasl) echo alnasl ;;
+    master|alnasl|spare) echo alnasl ;;
     slave|arkab) echo arkab ;;
     polis|nunki) echo "$1" ;;
   esac
@@ -69,27 +78,42 @@ if [ -f "$TXT" ]; then
   word=$(head -n 1 "$TXT" | tr -d '\r[:space:]' | tr '[:upper:]' '[:lower:]')
   rm -f "$TXT"; sync
   r=$(canon "$word")
+  [ "$word" = spare ] && r=spare   # the one word the file keeps as it is
   if [ -n "$r" ]; then
     echo "$r" > "$MODEFILE.new" && mv -f "$MODEFILE.new" "$MODEFILE"
     say "set to $r by $TXT"
   else
-    say "$TXT did not say alnasl, arkab, polis or nunki on its first line; removed it, changed nothing"
+    say "$TXT did not say alnasl, arkab, polis, nunki or spare on its first line; removed it, changed nothing"
   fi
 fi
 
 # 2. the role: what the file says, alnasl when it says nothing (or nonsense)
-role=$(canon "$({ tr -d '[:space:]' < "$MODEFILE"; } 2>/dev/null)")  # no file is the normal case
+saved=$({ tr -d '[:space:]' < "$MODEFILE" | tr '[:upper:]' '[:lower:]'; } 2>/dev/null)  # no file is the normal case
+role=$(canon "$saved")
 [ -n "$role" ] || role=alnasl
+spare=no
+[ "$saved" = spare ] && spare=yes
 applied=$(canon "$({ tr -d '[:space:]' < "$APPLIED"; } 2>/dev/null)")
 want=$(units "$role")
 other=""
 for r in $ROLES; do [ "$r" = "$role" ] || other="$other $(units "$r")"; done
 
-for r in $ROLES master slave; do rm -f "$RUN/$r"; done
+for r in $ROLES master slave spare; do rm -f "$RUN/$r"; done
 legacy "$role" > "$RUN/mode"
 echo "$role" > "$RUN/role"
 touch "$RUN/$role"
-say "this boot runs as $role"
+# What Alnasl is told (alnasl.service.d/alnasl-takeover.conf). It counts only until the box is paired with a
+# hall in the cloud: after that the box's own record decides, so a spare that took over stays in charge.
+if [ "$spare" = yes ]; then
+  touch "$RUN/spare"
+  echo "ALNASL_TAKEOVER_ROLE=spare" > "$RUN/takeover.env"
+  say "this boot runs as $role, as a spare"
+else
+  echo "ALNASL_TAKEOVER_ROLE=active" > "$RUN/takeover.env"
+  say "this boot runs as $role"
+fi
+# The replica's settings from the boot partition (alnasl-replica; a box with none of it has nothing to do).
+[ -x /usr/local/sbin/alnasl-replica ] && { /usr/local/sbin/alnasl-replica || say "alnasl-replica failed"; }
 
 # 3. the units. The other roles are switched off every boot; only what is still enabled is touched (enable
 # and disable make systemd reload, and a boot where nothing changed needs none of that).
