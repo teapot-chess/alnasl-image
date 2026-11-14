@@ -480,6 +480,7 @@ bar = Enum.find(cs, &("external-bar.js" in Map.get(&1, "js", [])))
 for p <- [4040, 4041, 4050, 4061, 4062],
     do: a.("http://localhost:#{p}/*" in bar["exclude_matches"] and "http://127.0.0.1:#{p}/*" in bar["exclude_matches"], "external-bar excludes #{p}")
 a.(String.starts_with?(m["version"], "7."), "version 7.x")
+with_js = fn f -> Enum.find(cs, &(f in Map.get(&1, "js", []))) end
 sl = with_js.("statusline.js")
 a.(sl["matches"] == Enum.map([4040, 4050, 4061, 4062], &"http://localhost:#{&1}/*") and !sl["all_frames"], "statusline matches the four app ports, top frame only")
 EX
