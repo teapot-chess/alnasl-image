@@ -93,13 +93,16 @@ SCALE=$(awk "BEGIN{printf \"%.2f\", ${KIOSK_SCALE:-100}/100}")
 state() { echo "$*" > "$STATE"; echo "kiosk: $*"; }
 upt() { cut -d' ' -f1 /proc/uptime 2>/dev/null || echo '?'; }   # seconds since boot, for the time-to-picture log
 
-CHROMIUM_FLAGS="--kiosk --no-sandbox --user-data-dir=$TMPD/chromium --disk-cache-dir=$TMPD/chromium-cache \
+# v7.5: CHROMIUM_FLAGS is the one browser of every single-screen box; the nunki screens (below) run one browser per
+# window, each with its own profile (CHROMIUM_COMMON plus its own two directories).
+CHROMIUM_COMMON="--kiosk --no-sandbox \
  --disable-gpu --disable-dev-shm-usage --no-first-run --no-default-browser-check --noerrdialogs \
  --disable-infobars --disable-session-crashed-bubble --disable-translate \
  --load-extension=/opt/kiosk-ext \
  --check-for-update-interval=31536000 --overscroll-history-navigation=0 --touch-events=enabled \
  --password-store=basic --disable-pinch --autoplay-policy=no-user-gesture-required \
  --disable-save-password-bubble --disable-component-update --disable-sync --disable-background-networking  --num-raster-threads=4 --disable-features=Translate,MediaRouter,DisableLoadExtensionCommandLineSwitch,AutofillServerCommunication,PasswordLeakDetection  --force-device-scale-factor=$SCALE"
+CHROMIUM_FLAGS="--user-data-dir=$TMPD/chromium --disk-cache-dir=$TMPD/chromium-cache $CHROMIUM_COMMON"
 
 echo "kiosk: start at t=$(upt)s since boot, mode=$MODE"
 # v7.3: an SPI panel: its card only (HDMI, connected or not, is left to the console and the boot screen).
@@ -116,6 +119,76 @@ case "${KIOSK_CARD:-}" in
     fi ;;
   *) echo "kiosk: ignoring a malformed KIOSK_CARD" ;;
 esac
+
+# --- v7.5: the nunki box's screens (docs/nunki-displays.md) -------------------------------------------------------
+# Every other role: nothing below applies, the screen is what it was. A nunki box drives every HDMI output it has:
+#   single  one broadcast (the hall screen, Nunki's /hall?screen=hdmi1) on the first output, the second one off
+#   manage  the management display (Nunki's control page, the menu) on the first, the broadcast on the second
+#   mirror  the broadcast on both
+#   two     two broadcasts: hdmi1 on the first, hdmi2 on the second (each its own tournament, in Nunki)
+#   auto    (the default) single with one monitor, manage with two
+# KIOSK_SWAP=1 swaps which physical output is "first". A layout that wants two outputs with only one connected falls
+# back to single; a plugged or pulled monitor restarts the screens (hotplug_watch). An SPI touch panel on the pins
+# is then the third screen, the control menu only, on an X server of its own (:1). Why two X servers and not one
+# with two screens: docs/nunki-displays.md, "Why it is built this way".
+hdmi_connected() { # the connected HDMI connectors, in connector order (card0-HDMI-A-1 before card0-HDMI-A-2)
+  for d in "$DRM"/card*-HDMI-A-*; do
+    [ -r "$d/status" ] && [ "$(cat "$d/status")" = connected ] && echo "${d##*/}"
+  done
+  return 0
+}
+xname() { echo "${1#card*-}" | sed 's/^HDMI-A-/HDMI-/'; }   # card0-HDMI-A-2 -> HDMI-2 (the modesetting driver's name)
+NUNKI=0; MULTI=0; PANEL_COMPANION=0; HOTPLUG=0; O1=""; O2=""; LAY=""; WIN1=""; WIN2=""
+[ "${KIOSK_ROLE:-}" = nunki ] && NUNKI=1
+case "${KIOSK_LAYOUT:-auto}" in auto|single|manage|mirror|two) ;; *) echo "kiosk: ignoring a malformed KIOSK_LAYOUT"; KIOSK_LAYOUT=auto ;; esac
+case "${KIOSK_ROT1:-normal}" in normal|right|inverted|left) ;; *) echo "kiosk: ignoring a malformed KIOSK_ROT1"; KIOSK_ROT1=normal ;; esac
+case "${KIOSK_ROT2:-normal}" in normal|right|inverted|left) ;; *) echo "kiosk: ignoring a malformed KIOSK_ROT2"; KIOSK_ROT2=normal ;; esac
+# The pure part (scripts/test-kiosk-logic.sh): HDMI list, layout, swap -> LAY O1 O2 WIN1 WIN2.
+# WIN1/WIN2: what the first/second output shows (manage | hall1 | hall2 | "" = off); mirror shows hall1 on both.
+nunki_plan() { # "conn conn ..." layout swap
+  set -- $1 "" ""; o1=$1; o2=$2; shift 2
+  lay=${KIOSK_LAYOUT:-auto}; [ "${KIOSK_SWAP:-0}" = 1 ] && [ -n "$o2" ] && { t=$o1; o1=$o2; o2=$t; }
+  if [ "$lay" = auto ]; then if [ -n "$o2" ]; then lay=manage; else lay=single; fi; fi
+  if [ -z "$o2" ] && [ "$lay" != single ]; then echo "kiosk: layout $lay wants two monitors and one is connected; one broadcast until the second is back"; lay=single; fi
+  O1=$o1; O2=$o2; LAY=$lay
+  case "$lay" in
+    single) WIN1=hall1; WIN2="" ;;
+    manage) WIN1=manage; WIN2=hall1 ;;
+    mirror) WIN1=hall1; WIN2=hall1 ;;
+    two)    WIN1=hall1; WIN2=hall2 ;;
+  esac
+}
+if [ "$NUNKI" = 1 ]; then
+  HDMI_NOW=$(hdmi_connected | tr '\n' ' ' | sed 's/ $//')
+  HOTPLUG=1
+  if [ -n "$HDMI_NOW" ]; then
+    nunki_plan "$HDMI_NOW"
+    if [ "$SPI_PANEL" = 1 ]; then
+      # The panel is the control menu now, the HDMI outputs are the job: X :0 goes back to HDMI.
+      PANEL_COMPANION=1; PANEL_FB=$FBDEV; SPI_PANEL=0; FBDEV=/dev/fb0
+    fi
+    # X :0 drives the HDMI outputs' card, and only that one (no second GPU: the panel is :1's).
+    CARDS=${O1%%-*}
+    [ "$LAY" != single ] && MULTI=1
+    echo "kiosk: nunki screens: layout $LAY (asked ${KIOSK_LAYOUT:-auto}${KIOSK_SWAP:+, swap ${KIOSK_SWAP}}); ${O1:-none}: ${WIN1:-off}${O2:+, $O2: ${WIN2:-off}}${PANEL_COMPANION:+$([ "$PANEL_COMPANION" = 1 ] && echo ", touch panel: the menu")}"
+  else
+    echo "kiosk: nunki screens: no HDMI monitor connected; $([ "$SPI_PANEL" = 1 ] && echo "the touch panel alone, as on any box" || echo "the screen as on any box")"
+  fi
+fi
+# The kiosk's own pages for each window (/boot first, as always: it hands over to the right page by itself).
+#  where=hdmi|panel tells the menu pages which screen they are on (the compact look is the panel's only);
+#  to=hall1|hall2|manage|compact is where /boot hands over to; solo=1: this broadcast is the only screen anybody
+#  can touch, so before setup (or with Nunki switched off) it shows the wizard or the menu instead of waiting.
+win_url() { # job solo
+  case "$1" in
+    manage) echo "http://localhost:4041/boot?to=manage&where=hdmi" ;;
+    hall1|hall2) echo "http://localhost:4041/boot?to=$1&where=hdmi${2:+&solo=1}" ;;
+  esac
+}
+if [ "$NUNKI" = 1 ] && [ -n "$WIN1" ] && [ "$MULTI" = 0 ]; then
+  solo=1; [ "$PANEL_COMPANION" = 1 ] && solo=""
+  URL=$(win_url hall1 $solo)
+fi
 FBN=${FBDEV#/dev/}
 # --- what does the hardware say the screen is? (logged for the next report) ---
 drm_size=""; kms_card=""
@@ -143,7 +216,7 @@ case "${KIOSK_RES:-auto}" in
   *[!0-9x]*) echo "kiosk: ignoring a malformed KIOSK_RES" ;;
   *) if echo "$conn_modes" | grep -qx "$KIOSK_RES"; then RES=$KIOSK_RES; else echo "kiosk: saved resolution $KIOSK_RES is not offered by ${conn_name:-the screen}; using the preferred mode"; fi ;;
 esac
-[ "$CARDS" != "card*" ] && [ "$RES" != auto ] && { echo "kiosk: the SPI panel has one mode; saved resolution $RES not used"; RES=auto; }
+[ "$SPI_PANEL" = 1 ] && [ "$RES" != auto ] && { echo "kiosk: the SPI panel has one mode; saved resolution $RES not used"; RES=auto; }
 # v7.3: a 3.5-inch HDMI stylus screen (alnasl-screen.txt, by way of alnasl-small-screen) fixes the mode and the rotation.
 # The mode need not be one the screen lists (kiosk-res adds it); the Resolution setting has no say while it is on.
 ROT=normal
@@ -154,6 +227,11 @@ case "${KIOSK_FORCE_MODE:-}" in
   *x*) RES=$KIOSK_FORCE_MODE ;;
 esac
 if [ -n "${KIOSK_FORCE_MODE:-}" ] || [ "$ROT" != normal ]; then echo "kiosk: small stylus screen: mode ${KIOSK_FORCE_MODE:-auto}, rotation $ROT (alnasl-screen.txt)"; fi
+# v7.5: a nunki box's monitors turn as its screen wizard says; with two connected each takes its own preferred mode.
+if [ "$NUNKI" = 1 ] && [ -n "$WIN1" ]; then
+  [ "$ROT" = normal ] && ROT=${KIOSK_ROT1:-normal}
+  if [ -n "$O2" ] && [ "$RES" != auto ]; then echo "kiosk: two HDMI monitors: each gets its preferred mode; saved resolution $RES not used"; RES=auto; fi
+fi
 echo "kiosk: resolution setting=$RES connector=${conn_name:-none}"
 [ "$RES" != auto ] && drm_size=$RES
 # "1920x1080" or "1920x1080i" -> "1920,1080"; fb: "1920,1080"
@@ -266,6 +344,124 @@ run_cage() {
   return 1
 }
 
+# --- v7.5: the nunki screens' helpers ------------------------------------------------------------------------
+INPUT=${KIOSK_INPUT:-/sys/class/input}   # (overridable for scripts/test-kiosk-logic.sh, like the DRM tree)
+# The X client of a two-window layout: one X screen over both outputs (xrandr puts the second right of the first, or on
+# top of it for mirror), one browser per output at that output's place, each with its own profile and its own
+# restart loop. No window manager: matchbox makes every window the size of the whole X screen, which here spans
+# both monitors. The values go in as a quoted prelude, the body is a quoted heredoc (nothing in it expands twice).
+write_multi_client() { # vt
+  {
+    printf "X1='%s'\nX2='%s'\nLAY='%s'\nWIN1='%s'\nWIN2='%s'\nROT1='%s'\nROT2='%s'\n" \
+      "$(xname "$O1")" "$(xname "$O2")" "$LAY" "$WIN1" "$WIN2" "$ROT" "${KIOSK_ROT2:-normal}"
+    printf "U1='%s'\nU2='%s'\nTMPD='%s'\nRUN='%s'\nSTATE='%s'\nBASE='%s'\nVT='%s'\nSCALE='%s'\n" \
+      "$(win_url "$WIN1")" "$(win_url "$WIN2")" "$TMPD" "$RUN" "$STATE" "$BASE" "$1" "$SCALE"
+    printf "CHROMIUM_COMMON='%s'\n" "$CHROMIUM_COMMON"
+    cat <<'XCL'
+printf '#define e_width 1\n#define e_height 1\nstatic unsigned char e_bits[] = { 0x00 };\n' > "$TMPD/empty.xbm"
+xsetroot -cursor "$TMPD/empty.xbm" "$TMPD/empty.xbm" 2>/dev/null
+touch "$TMPD/x-up"
+echo "kiosk: X server is up (t=$(cut -d' ' -f1 /proc/uptime)s), two monitors: $X1 and $X2, layout $LAY"
+xset s off s noblank -dpms 2>/dev/null
+if [ "$LAY" = mirror ]; then second="--same-as $X1"; r2=$ROT1; else second="--right-of $X1"; r2=$ROT2; fi
+# shellcheck disable=SC2086
+xrandr --output "$X1" --auto --rotate "$ROT1" --pos 0x0 --primary --output "$X2" --auto --rotate "$r2" $second ||
+  echo "kiosk: xrandr could not lay out $X1 and $X2 ($LAY); the windows go where xrandr says the outputs are"
+geom() { xrandr --current 2>/dev/null | awk -v o="$1" '$1 == o && / connected/ { for (i = 2; i <= NF; i++) if ($i ~ /^[0-9]+x[0-9]+\+[0-9]+\+[0-9]+$/) { print $i; exit } }'; }
+g1=$(geom "$X1"); g2=$(geom "$X2")
+if [ -z "$g1" ]; then
+  sz=$(xrandr --current 2>/dev/null | sed -n 's/.*current \([0-9]*\) x \([0-9]*\).*/\1x\2/p' | head -n 1)
+  g1="${sz:-1920x1080}+0+0"; g2=""
+  echo "kiosk: xrandr does not show $X1 as connected; one window over the whole screen ($g1)"
+fi
+# Where each window is, for the identify button (the menu server reads it) and the System info page.
+{ echo "1 $X1 $WIN1 $g1"; [ -n "$g2" ] && echo "2 $X2 $([ "$LAY" = mirror ] && echo mirror || echo "$WIN2") $g2"; } > "$RUN/outputs.new"
+mv -f "$RUN/outputs.new" "$RUN/outputs"
+echo "path=x driver=modesetting layout=$LAY $X1=$WIN1@$g1 $X2=${WIN2:-off}@${g2:-none} scale=$SCALE vt=$VT" > "$STATE"
+until curl -fsS -o /dev/null --max-time 2 "$BASE/healthz"; do sleep 0.3; done
+win() { # name url WxH+X+Y
+  w=${3%%x*}; r=${3#*x}; h=${r%%+*}; r=${r#*+}; x=${r%%+*}; y=${r#*+}
+  while [ ! -e "$TMPD/x-stop" ]; do
+    echo "kiosk: window $1 at $x,$y, ${w}x$h (t=$(cut -d' ' -f1 /proc/uptime)s)"
+    # shellcheck disable=SC2086
+    /usr/bin/chromium $CHROMIUM_COMMON --user-data-dir="$TMPD/chromium-$1" --disk-cache-dir="$TMPD/chromium-cache-$1" \
+      --window-position="$x,$y" --window-size="$w,$h" "$2"
+    rc=$?
+    [ -e "$TMPD/x-stop" ] && break
+    echo "kiosk: window $1 ended (exit $rc); again in 2 s"; sleep 2
+  done
+}
+win "$WIN1" "$U1" "$g1" &
+if [ "$LAY" != mirror ] && [ -n "$g2" ]; then win "$WIN2" "$U2" "$g2" & fi
+wait
+XCL
+  } > "$TMPD/xclient.sh"
+}
+# The touch panel next to the HDMI screens: an X server of its own (:1) on the panel's framebuffer, sharing the VT
+# with :0, with nothing but the stylus as input (AutoAddDevices off, the event device named). Restarted on its own
+# when it ends; it never takes the HDMI screens with it.
+run_panel() {
+  i=0; while [ ! -e "$TMPD/x-up" ] && [ "$i" -lt 120 ]; do sleep 0.5; i=$((i + 1)); done
+  stylus=""
+  for n in "$INPUT"/event*; do
+    grep -q -i 'ADS7846' "$n/device/name" 2>/dev/null && { stylus=/dev/input/${n##*/}; break; }
+  done
+  while [ ! -e "$TMPD/x-stop" ]; do
+    pvt=$(cat "$TMPD/x-vt" 2>/dev/null); case "$pvt" in vt[0-9]|vt[0-9][0-9]) ;; *) pvt=vt1 ;; esac
+    {
+      printf 'Section "ServerFlags"\n  Option "AutoAddGPU" "false"\n  Option "AutoAddDevices" "false"\n'
+      printf '  Option "BlankTime" "0"\n  Option "StandbyTime" "0"\n  Option "SuspendTime" "0"\n  Option "OffTime" "0"\n  Option "DPMS" "false"\nEndSection\n'
+      printf 'Section "Device"\n  Identifier "panel"\n  Driver "fbdev"\n  Option "fbdev" "%s"\nEndSection\n' "$PANEL_FB"
+      printf 'Section "Screen"\n  Identifier "panel"\n  Device "panel"\nEndSection\n'
+      [ -n "$stylus" ] && printf 'Section "InputDevice"\n  Identifier "stylus"\n  Driver "libinput"\n  Option "Device" "%s"\nEndSection\n' "$stylus"
+      printf 'Section "ServerLayout"\n  Identifier "panel"\n  Screen "panel"\n'
+      [ -n "$stylus" ] && printf '  InputDevice "stylus" "CorePointer"\n'
+      printf 'EndSection\n'
+    } > "$TMPD/xorg-panel.conf"
+    {
+      printf "TMPD='%s'\nBASE='%s'\nCHROMIUM_COMMON='%s'\n" "$TMPD" "$BASE" "$CHROMIUM_COMMON"
+      cat <<'XCL'
+xsetroot -cursor "$TMPD/empty.xbm" "$TMPD/empty.xbm" 2>/dev/null
+xset s off s noblank -dpms 2>/dev/null
+command -v matchbox-window-manager >/dev/null 2>&1 && { matchbox-window-manager -use_titlebar no -use_cursor no & sleep 0.2; }
+sz=$(xrandr --current 2>/dev/null | sed -n 's/.*current \([0-9]*\) x \([0-9]*\).*/\1,\2/p' | head -n 1)
+until curl -fsS -o /dev/null --max-time 2 "$BASE/healthz"; do sleep 0.3; done
+while [ ! -e "$TMPD/x-stop" ]; do
+  echo "kiosk: touch panel: the menu (${sz:-480,320})"
+  # shellcheck disable=SC2086
+  /usr/bin/chromium $CHROMIUM_COMMON --user-data-dir="$TMPD/chromium-panel" --disk-cache-dir="$TMPD/chromium-cache-panel" \
+    --window-position=0,0 --window-size="${sz:-480,320}" --start-fullscreen "http://localhost:4041/boot?to=compact&where=panel"
+  [ -e "$TMPD/x-stop" ] && break
+  sleep 2
+done
+XCL
+    } > "$TMPD/xclient-panel.sh"
+    chmod 0755 "$TMPD/xclient-panel.sh"
+    echo "kiosk: touch panel: X :1 on $PANEL_FB${stylus:+, stylus $stylus}, sharing $pvt with the HDMI screens"
+    xinit "$TMPD/xclient-panel.sh" -- /usr/bin/Xorg :1 -config "$TMPD/xorg-panel.conf" -nolisten tcp -noreset -background none -sharevts -novtswitch "$pvt"
+    rc=$?
+    [ -e "$TMPD/x-stop" ] && break
+    echo "kiosk: touch panel: its X ended (exit $rc); again in 5 s (the HDMI screens carry on)"
+    sleep 5
+  done
+}
+# A monitor plugged in or pulled out: the layout is worked out again from the start (the container ends, alnasl-kiosk
+# starts the next one). Two looks 5 s apart must agree first, so a wobbly connector does not restart the screens.
+hotplug_watch() {
+  n=0
+  while sleep 5; do
+    [ -e "$TMPD/x-stop" ] && return 0
+    now=$(hdmi_connected | tr '\n' ' ' | sed 's/ $//')
+    if [ "$now" = "$HDMI_NOW" ]; then n=0; continue; fi
+    n=$((n + 1)); [ "$n" -lt 2 ] && continue
+    echo "kiosk: HDMI monitors changed (${HDMI_NOW:-none} -> ${now:-none}); laying the screens out again"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') HDMI monitors changed (${HDMI_NOW:-none} -> ${now:-none})" >> "$RELOADLOG"
+    touch "$TMPD/x-stop"
+    pkill -TERM -x Xorg; sleep 3; pkill -KILL -x Xorg; pkill -KILL -x xinit
+    return 0
+  done
+}
+
 # --- X -----------------------------------------------------------------------------------------------------
 X_BUDGET=${KIOSK_X_BUDGET:-12}   # seconds for the X server to come up before it is killed
 run_x() { # $1 = virtual terminal to run X on (vt1 = the kiosk's own, vt7 = fallback); $2 = fbdev | modesetting
@@ -313,14 +509,32 @@ XC
   # (No DontVTSwitch / -novtswitch: Ctrl+Alt+F2 must reach the console.)
   sed -i "s/KBDLAYOUT/$XKB_DEFAULT_LAYOUT/; s/KBDVARIANT/$XKB_DEFAULT_VARIANT/" "$TMPD/xorg.conf"
   # v7.3: an SPI panel is the only screen: X must not add vc4 as a second GPU and spread the desktop over HDMI.
+  # v7.5: likewise a nunki box's X :0 keeps to the HDMI outputs' card (CARDS names it).
   [ "$CARDS" != "card*" ] && sed -i 's/^  Option "DPMS" "false"$/&\n  Option "AutoAddGPU" "false"/' "$TMPD/xorg.conf"
+  # v7.5: the touch panel's stylus belongs to the panel's own X (:1), not to the HDMI screens.
+  [ "$PANEL_COMPANION" = 1 ] && cat >> "$TMPD/xorg.conf" <<'XC'
+Section "InputClass"
+  Identifier "the-panel-stylus-is-for-x1"
+  MatchProduct "ADS7846"
+  Option "Ignore" "on"
+EndSection
+XC
   rm -f "$TMPD/x-up"
+  echo "$vt" > "$TMPD/x-vt"
+  if [ "$MULTI" = 1 ] && [ "$drv" != modesetting ]; then
+    echo "kiosk: two monitors need the modesetting driver; the fbdev fallback shows one broadcast on one of them"
+    s=1; [ "$PANEL_COMPANION" = 1 ] && s=""
+    URL=$(win_url hall1 $s)
+  fi
   # The X client: measure the screen X really has, then size the window to it.
   # v7.3: the mode/rotation call is written only when there is one to make (an if inside the heredoc would always be
   # there as text, and a harmless call is still a call).
   apply_line=":"
   if [ "$drv" = modesetting ]; then
     { [ "$RES" != auto ] || [ "$ROT" != normal ]; } && apply_line="/usr/local/bin/kiosk-res apply - \"$RES\" \"$ROT\""
+    # v7.5: a nunki box with two monitors and one broadcast: the first output only, the other one dark.
+    [ "$NUNKI" = 1 ] && [ "$MULTI" = 0 ] && [ -n "$O2" ] &&
+      apply_line="xrandr --output $(xname "$O1") --auto --rotate $ROT --pos 0x0 --primary --output $(xname "$O2") --off || echo 'kiosk: xrandr could not switch $(xname "$O2") off'"
   elif [ "$ROT" != normal ]; then
     apply_line="echo 'kiosk: rotation $ROT needs the modesetting driver; the fbdev fallback shows the picture unturned'"
   fi
@@ -352,6 +566,7 @@ until curl -fsS -o /dev/null --max-time 2 $BASE/healthz; do sleep 0.3; done
 echo "kiosk: starting the browser (t=\$(cut -d' ' -f1 /proc/uptime)s)"
 exec /usr/bin/chromium $CHROMIUM_FLAGS --window-position=0,0 --window-size=\$sz --start-fullscreen "$URL"
 XCL
+  [ "$MULTI" = 1 ] && [ "$drv" = modesetting ] && write_multi_client "$vt"
   chmod 0755 "$TMPD/xclient.sh"
   echo "kiosk: starting X ($drv driver${kms_card:+, $kms_card}), on $vt (VT switching allowed), t=$(upt)s"
   # An X server that has not come up within X_BUDGET seconds is killed, so the next driver gets its turn.
@@ -372,6 +587,7 @@ run_x_any() {
     # Real KMS graphics (vc4): modesetting gives the full resolution and real mode switching (xrandr).
     run_x vt1 modesetting
     rc=$?
+    [ -e "$TMPD/x-stop" ] && return 0
     if [ $(( $(date +%s) - t0 )) -lt 15 ]; then
       echo "kiosk: X with the modesetting driver ended after less than 15 s (exit $rc); falling back to fbdev"
       t0=$(date +%s)
@@ -382,6 +598,7 @@ run_x_any() {
     run_x vt1 fbdev
     rc=$?
   fi
+  [ -e "$TMPD/x-stop" ] && return 0
   if [ $(( $(date +%s) - t0 )) -lt 15 ]; then
     echo "kiosk: X on vt1 ended after less than 15 s (exit $rc); trying vt7 (then Ctrl+Alt+F7 returns to the screen)"
     run_x vt7 fbdev
@@ -391,6 +608,23 @@ run_x_any() {
 }
 
 started=$(date +%s)
+rm -f "$TMPD/x-stop" "$TMPD/x-vt" "$RUN/outputs"
+# v7.5: two windows, or a second X server, are X's business; cage shows one window on one output.
+if [ "$MODE" = cage ] && { [ "$MULTI" = 1 ] || [ "$PANEL_COMPANION" = 1 ]; }; then
+  echo "kiosk: the nunki screens need X; KIOSK_PATH=cage is not used for them"; MODE=x
+fi
+BG=""
+if [ "$HOTPLUG" = 1 ] && [ -z "${KIOSK_NO_HOTPLUG:-}" ]; then hotplug_watch & BG="$BG $!"; fi
+if [ "$PANEL_COMPANION" = 1 ]; then run_panel & BG="$BG $!"; fi
+finish() { # exit status: the background helpers (and the panel's X) go with this run
+  if [ -n "$BG" ]; then
+    touch "$TMPD/x-stop"
+    # shellcheck disable=SC2086
+    kill $BG 2>/dev/null
+    pkill -TERM -f 'Xorg :1' 2>/dev/null
+  fi
+  exit "$1"
+}
 case "$MODE" in
   cage)
     if run_cage; then exit 0; fi
@@ -400,5 +634,6 @@ case "$MODE" in
 esac
 run_x_any
 rc=$?
-[ $(( $(date +%s) - started )) -lt 25 ] && { echo "kiosk: X failed too (exit $rc)"; exit 1; }
-exit 0
+[ -e "$TMPD/x-stop" ] && { echo "kiosk: the screens end here for a new layout; the supervisor starts them again"; finish 0; }
+[ $(( $(date +%s) - started )) -lt 25 ] && { echo "kiosk: X failed too (exit $rc)"; finish 1; }
+finish 0

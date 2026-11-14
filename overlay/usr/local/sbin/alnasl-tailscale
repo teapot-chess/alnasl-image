@@ -1,0 +1,116 @@
+#!/bin/bash
+# alnasl-tailscale: remote access to this box through Tailscale. OPT-IN (v7.5, docs/remote-access.md).
+#
+# Nothing of it runs and nothing of it listens until somebody presses Start in the box's menu. Start writes the
+# opt-in flag on the data partition, starts alnasl-tailscale.service (tailscaled, gated by that flag) and runs
+# `tailscale up --ssh` WITHOUT an auth key: the login is interactive, the login URL goes to the menu, which shows
+# it as a QR code; the owner approves the box in their own Tailscale account on their phone. Leave logs out,
+# stops the service, removes the flag and wipes the state, so the next boot is a box without remote access.
+#
+#   start      the flag, the service, `tailscale up` in the background (prints nothing secret; the URL is read
+#              from `tailscale status --json` by the menu)
+#   relogin    a new login URL (the old one expired, or nobody scanned it)
+#   leave      tailscale logout, stop, flag and state gone
+#   status     `tailscale status --json`, or {} while it is off
+#   pre        alnasl-tailscale.service, before tailscaled: the role's page may listen beyond loopback (the
+#              firewall lets it in on tailscale0 only), the firewall learns that remote access is on
+#   stopped    alnasl-tailscale.service, after tailscaled: all of that undone, rules exactly as without it
+#
+# tailscaled runs with --netfilter-mode=off: it never touches iptables; alnasl-firewall owns the rules.
+# Tailscale SSH (--ssh) is tailscaled's own SSH server, answering on the tailnet only; there is no OpenSSH.
+set -u
+DIR=/var/lib/alnasl-tailscale
+FLAG=$DIR/enabled
+RUN=/run/alnasl-tailscale
+TS=/usr/local/bin/tailscale
+TSD=/usr/local/sbin/tailscaled
+UNIT=alnasl-tailscale.service
+log() { echo "alnasl-tailscale: $*"; }
+role() { r=$(cat /run/alnasl-mode/role 2>/dev/null); echo "${r:-alnasl}"; }
+
+# The name the box gets in the tailnet: its host name, if that is a plain one.
+ts_hostname() {
+  h=$(hostname 2>/dev/null)
+  case "$h" in "" | *[!A-Za-z0-9-]* | -*) echo alnasl-box ;; *) echo "$h" ;; esac
+}
+
+up_bg() { # extra flags for tailscale up
+  mkdir -p "$RUN"
+  pkill -f "^$TS up " 2>/dev/null   # one still waiting for a login that never came
+  # timeout 0: it waits for the login as long as the URL is good; the menu offers a new one.
+  setsid "$TS" up --ssh --hostname="$(ts_hostname)" --netfilter-mode=off --accept-dns=false --accept-routes=false \
+    --timeout=0 "$@" > "$RUN/up.log" 2>&1 < /dev/null &
+  log "tailscale up started (login is interactive; no key)"
+}
+
+# The apps whose page is for this box only (Nunki, Polis) listen beyond loopback while remote access is on, so
+# their page is reachable over the tailnet. The firewall still lets their port in on tailscale0 only, never on the
+# hall's network, and their PIN still guards them.
+DROPIN_DIR=/run/systemd/system
+lan_dropin() { # role -> the drop-in path, or nothing
+  case "$1" in
+    nunki) echo "$DROPIN_DIR/nunki.service.d/60-alnasl-tailnet.conf" ;;
+    polis) echo "$DROPIN_DIR/polis.service.d/60-alnasl-tailnet.conf" ;;
+  esac
+}
+restart_app() { # role
+  case "$1" in nunki | polis) systemctl is-active -q "$1.service" && systemctl restart --no-block "$1.service" ;; esac
+  return 0
+}
+
+case "${1:-}" in
+  start)
+    [ -x "$TS" ] && [ -x "$TSD" ] || { log "Tailscale is not in this image"; exit 3; }
+    [ -e /dev/net/tun ] || modprobe tun 2>/dev/null
+    [ -e /dev/net/tun ] || { log "this kernel has no TUN device; remote access cannot start"; exit 4; }
+    install -d -m 0700 "$DIR"
+    : > "$FLAG"
+    systemctl start "$UNIT" || { log "tailscaled did not start (journalctl -u $UNIT)"; exit 5; }
+    for _ in $(seq 1 40); do [ -S /run/tailscale/tailscaled.sock ] && break; sleep 0.25; done
+    up_bg
+    ;;
+  relogin)
+    [ -e "$FLAG" ] || { log "remote access is off"; exit 6; }
+    systemctl is-active -q "$UNIT" || systemctl start "$UNIT"
+    up_bg --force-reauth
+    ;;
+  leave)
+    pkill -f "^$TS up " 2>/dev/null
+    if systemctl is-active -q "$UNIT"; then
+      timeout 20 "$TS" logout 2>&1 | sed 's/^/  tailscale logout: /'
+    fi
+    rm -f "$FLAG"
+    systemctl stop "$UNIT"
+    # The directory is a bind mount from the data partition (alnasl-data): empty it, keep it.
+    find "$DIR" -mindepth 1 -delete 2>/dev/null
+    rm -f "$RUN/up.log"
+    log "left the tailnet; tailscaled stopped, its state wiped"
+    ;;
+  status)
+    if systemctl is-active -q "$UNIT"; then timeout 5 "$TS" status --json 2>/dev/null || echo '{}'; else echo '{}'; fi
+    ;;
+  pre)
+    mkdir -p "$RUN"
+    r=$(role); d=$(lan_dropin "$r")
+    if [ -n "$d" ]; then
+      mkdir -p "$(dirname "$d")"
+      R=$(echo "$r" | tr '[:lower:]' '[:upper:]')
+      printf '# alnasl-tailscale: remote access is on; the firewall lets this port in on tailscale0 only.\n[Service]\nEnvironment=%s_LISTEN=lan\n' "$R" > "$d"
+      systemctl daemon-reload
+    fi
+    : > "$RUN/active"
+    /usr/local/sbin/alnasl-firewall reload
+    restart_app "$r"
+    ;;
+  stopped)
+    r=$(role); d=$(lan_dropin "$r")
+    rm -f "$RUN/active"
+    /usr/local/sbin/alnasl-firewall reload
+    if [ -n "$d" ] && [ -e "$d" ]; then rm -f "$d"; systemctl daemon-reload; restart_app "$r"; fi
+    ;;
+  *)
+    echo "usage: alnasl-tailscale start|relogin|leave|status|pre|stopped" >&2
+    exit 2
+    ;;
+esac
+exit 0

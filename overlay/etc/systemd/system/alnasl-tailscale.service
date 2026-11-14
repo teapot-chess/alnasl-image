@@ -1,0 +1,23 @@
+# Remote access through Tailscale, OPT-IN (v7.5, docs/remote-access.md). Enabled in the image and still never run
+# on a box where nobody pressed Start in the menu: the condition is the opt-in flag on the data partition, which
+# alnasl-tailscale start writes and alnasl-tailscale leave removes. No auth key anywhere; the login is interactive.
+# tailscaled never touches iptables (tailscale up --netfilter-mode=off); alnasl-firewall owns the rules and lets
+# the role's own page in on tailscale0 only while this runs (ExecStartPre/ExecStopPost tell it).
+[Unit]
+Description=Alnasl remote access (Tailscale, opt-in)
+ConditionPathExists=/var/lib/alnasl-tailscale/enabled
+After=network-online.target alnasl-data.service alnasl-mode.service alnasl-firewall.service
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStartPre=/usr/local/sbin/alnasl-tailscale pre
+ExecStart=/usr/local/sbin/tailscaled --state=/var/lib/alnasl-tailscale/tailscaled.state --statedir=/var/lib/alnasl-tailscale --socket=/run/tailscale/tailscaled.sock --port=41641 --tun=tailscale0
+ExecStopPost=/usr/local/sbin/alnasl-tailscale stopped
+RuntimeDirectory=tailscale
+RuntimeDirectoryMode=0755
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

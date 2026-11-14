@@ -179,7 +179,30 @@ install -m 0755 $W/hostapd-out/hostapd_cli $R/usr/sbin/hostapd_cli
 echo "hostapd: $(cat $W/hostapd-out/hostapd.version | tr '\n' ' ')"
 chroot $R /bin/bash -c 'for b in /usr/sbin/hostapd /usr/sbin/hostapd_cli; do ldd $b; if ldd $b | grep -q "not found"; then echo "$b: MISSING LIBRARY"; exit 1; fi; done; hostapd -v 2>&1 | head -1'
 
-# --- 4. (v1-v5: Tailscale. Gone in v6: no VPN, no remote shell.) ---------------------
+# --- 4. Tailscale, opt-in (v7.5, docs/remote-access.md; v1-v5 had it always on, v6-v7.4 not at all) ----------
+# The official static arm64 build, pinned by version and SHA-256 like the Pi firmware below; fetched once into
+# $W/tailscale. Only the two binaries go in. Nothing starts it: alnasl-tailscale.service runs only once somebody
+# pressed Start in the menu (ConditionPathExists on the opt-in flag, which the image never has), and Leave
+# removes the flag and the state again.
+TS_VERSION=1.104.7
+TS_SHA256=d6bed2720310b328b861f943d7b4016c5358a9bad60575eb51e8143b79068484
+TS_TGZ=tailscale_${TS_VERSION}_arm64.tgz
+TS_DIR=$W/tailscale/$TS_VERSION
+mkdir -p $TS_DIR
+if ! echo "$TS_SHA256  $TS_DIR/$TS_TGZ" | sha256sum -c --quiet - >/dev/null 2>&1; then
+  rm -f $TS_DIR/$TS_TGZ.part
+  curl -fsSL --retry 3 -m 300 -o $TS_DIR/$TS_TGZ.part https://pkgs.tailscale.com/stable/$TS_TGZ
+  echo "$TS_SHA256  $TS_DIR/$TS_TGZ.part" | sha256sum -c --quiet - || { echo "$TS_TGZ does not have the pinned SHA-256"; rm -f $TS_DIR/$TS_TGZ.part; exit 1; }
+  mv $TS_DIR/$TS_TGZ.part $TS_DIR/$TS_TGZ
+fi
+rm -rf $TS_DIR/x; mkdir -p $TS_DIR/x
+tar -xzf $TS_DIR/$TS_TGZ -C $TS_DIR/x
+install -D -m 0755 $TS_DIR/x/tailscale_${TS_VERSION}_arm64/tailscale $R/usr/local/bin/tailscale
+install -D -m 0755 $TS_DIR/x/tailscale_${TS_VERSION}_arm64/tailscaled $R/usr/local/sbin/tailscaled
+rm -rf $TS_DIR/x
+mkdir -p $R/usr/share/alnasl
+echo "$TS_VERSION $TS_SHA256" > $R/usr/share/alnasl/tailscale-version
+chroot $R /usr/local/bin/tailscale version | head -n 1 | sed 's/^/  tailscale in the image: /'
 
 # --- 5. overlay (units, scripts, network, modules-load, ...) ------------------------
 # --mode: the overlay was copied from a Windows PC over scp, so its directories
@@ -238,7 +261,7 @@ chmod 0600 $R/usr/share/alnasl/defaults/etc/wpa_supplicant/wpa_supplicant-wlan0.
 # can be replaced whole by an update. PID 1 reads /etc/machine-id, /etc/hostname and /etc/vconsole.conf
 # before anything is mounted, so those stay in the slot (the updater copies them into the new one).
 install -d -m 0755 $R/data
-for d in var/lib/arkab var/lib/polis var/lib/polis-update var/lib/nunki var/lib/nunki-update etc/cups var/lib/alnasl-setup var/lib/alnasl-update var/lib/alnasl-os-update var/lib/docker var/lib/containerd \
+for d in var/lib/arkab var/lib/polis var/lib/polis-update var/lib/nunki var/lib/nunki-update var/lib/alnasl-tailscale etc/cups var/lib/alnasl-setup var/lib/alnasl-update var/lib/alnasl-os-update var/lib/docker var/lib/containerd \
          var/log/journal etc/systemd/network/10-wired.network.d etc/systemd/network/20-wireless.network.d; do
   install -d -m 0755 $R/$d
 done
@@ -363,6 +386,11 @@ IN
   chroot $R chown $app:$app /var/lib/$app
 done
 chroot $R id -nG nunki | grep -qw audio || { echo "nunki is not in the group audio"; exit 1; }
+# v7.5: the box speaks only once somebody switches the sound on (the touch panel, Nunki's own page). This is the
+# default only: the choice Nunki stores on the data partition wins from then on.
+sed -i '/^#\{0,1\}NUNKI_AUDIO=/d' $R/etc/nunki/nunki.env
+printf '\n# The Alnasl box: no sound until somebody switches it on (then Nunki keeps that choice).\nNUNKI_AUDIO=off\n' >> $R/etc/nunki/nunki.env
+grep -q '^NUNKI_AUDIO=off$' $R/etc/nunki/nunki.env || { echo "nunki.env: NUNKI_AUDIO=off did not go in"; exit 1; }
 chroot $R /usr/local/bin/espeak-ng --voices=nl | head -n 3
 chroot $R /usr/local/bin/espeak-ng -v nl -w /tmp/espeak-test.wav "Ronde drie begint nu" && [ -s $R/tmp/espeak-test.wav ] ||
   { echo "espeak-ng does not speak in the image"; exit 1; }
@@ -480,7 +508,11 @@ systemctl enable alnasl-firewall.service alnasl-firstboot.service alnasl-wifi.se
   alnasl-splash.service alnasl-splash-reboot.service alnasl-splash-poweroff.service \
   alnasl-os-update.timer alnasl-reset-boot.service \
   alnasl-data.service alnasl-slot-check.service alnasl-upgrade-boot.service alnasl-mode.service \
-  alnasl-pin.service alnasl-pin-sync.path alnasl-system-update-check.timer alnasl-hotspot.service alnasl-small-screen.service
+  alnasl-pin.service alnasl-pin-sync.path alnasl-system-update-check.timer alnasl-hotspot.service alnasl-small-screen.service \
+  alnasl-tailscale.service
+# v7.5: enabled, and still never run until the opt-in flag exists (ConditionPathExists); the flag is on the data
+# partition, so remote access that was switched on survives an update, and a new box has none.
+rm -f /var/lib/alnasl-tailscale/enabled
 # v6 A/B: Photon's first-boot resizefs grows / to 90 % of the card and adds a swap partition; both
 # would wreck the slot/data layout. The data partition grows instead (alnasl-data).
 systemctl mask resizefs.service

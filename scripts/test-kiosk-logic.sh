@@ -129,6 +129,50 @@ run x ; rc=$?
 ! grep -q 'small stylus screen' $T/out.log && ! cat $T/xclient.*.sh | grep -q 'kiosk-res apply' && ok "without them nothing changes (no small-screen line, no kiosk-res call)" || bad "default run changed"
 pkill -KILL -f 'stubs/' 2>/dev/null
 
+echo "-- 8. (v7.5) a nunki box's monitors: layouts, swap, the touch panel beside them, a monitor pulled out"
+echo quick > $T/xmode
+mkdir -p $T/drm/card0-HDMI-A-2; echo disconnected > $T/drm/card0-HDMI-A-2/status; echo 1920x1080 > $T/drm/card0-HDMI-A-2/modes
+run x KIOSK_ROLE=nunki KIOSK_NO_HOTPLUG=1 ; rc=$?
+grep -q 'nunki screens: layout single' $T/out.log && grep -q 'to=hall1&where=hdmi&solo=1' $T/xclient.1.sh && grep -q 'exec /usr/bin/chromium' $T/xclient.1.sh && ok "nunki, one monitor: the broadcast (hall1) full screen, the only screen (solo)" || bad "nunki single monitor"
+echo connected > $T/drm/card0-HDMI-A-2/status
+run x KIOSK_ROLE=nunki KIOSK_NO_HOTPLUG=1 ; rc=$?
+grep -q 'nunki screens: layout manage (asked auto' $T/out.log && grep -q "^U1='http://localhost:4041/boot?to=manage&where=hdmi'" $T/xclient.1.sh && grep -q "^U2='http://localhost:4041/boot?to=hall1&where=hdmi'" $T/xclient.1.sh && ok "nunki, two monitors, nothing chosen: management on the first, broadcast on the second" || bad "nunki auto with two monitors"
+grep -q "^X1='HDMI-1'" $T/xclient.1.sh && grep -q -- '--right-of' $T/xclient.1.sh && ! grep -q matchbox $T/xclient.1.sh && grep -q 'chromium-\$1' $T/xclient.1.sh && ok "one X screen over both (right-of), one profile per window, no window manager" || bad "two-window X client"
+grep -q 'kmsdev" ".*/card0"' $T/xorg.1.conf && grep -q 'AutoAddGPU" "false"' $T/xorg.1.conf && ! grep -q ADS7846 $T/xorg.1.conf && ok "X :0 on the HDMI card only; no stylus rule without a panel" || bad "nunki xorg.conf"
+grep -q 'two monitors need the modesetting driver' $T/out.log && grep -q 'to=hall1&where=hdmi&solo=1' $T/xclient.2.sh && ok "the fbdev fallback shows one broadcast (not the management page)" || bad "fbdev fallback of two monitors"
+run x KIOSK_ROLE=nunki KIOSK_NO_HOTPLUG=1 KIOSK_SWAP=1 ; rc=$?
+grep -q "^X1='HDMI-2'" $T/xclient.1.sh && grep -q "^X2='HDMI-1'" $T/xclient.1.sh && ok "swap: HDMI-2 is the first output" || bad "swap"
+run x KIOSK_ROLE=nunki KIOSK_NO_HOTPLUG=1 KIOSK_LAYOUT=mirror ; rc=$?
+grep -q "^LAY='mirror'" $T/xclient.1.sh && grep -q -- '--same-as' $T/xclient.1.sh && grep -q "^WIN1='hall1'" $T/xclient.1.sh && ok "mirror: the same broadcast on both" || bad "mirror"
+run x KIOSK_ROLE=nunki KIOSK_NO_HOTPLUG=1 KIOSK_LAYOUT=two KIOSK_ROT2=left ; rc=$?
+grep -q "^WIN1='hall1'" $T/xclient.1.sh && grep -q "^WIN2='hall2'" $T/xclient.1.sh && grep -q "^ROT2='left'" $T/xclient.1.sh && ok "two tournaments: hall1 and hall2, the second turned left" || bad "two broadcasts"
+run x KIOSK_ROLE=nunki KIOSK_NO_HOTPLUG=1 KIOSK_LAYOUT=single ; rc=$?
+grep -q 'nunki screens: layout single' $T/out.log && grep -q -- '--output HDMI-2 --off' $T/xclient.1.sh && grep -q 'matchbox' $T/xclient.1.sh && ok "single with two connected: the second output dark, the old one-window client" || bad "single with two monitors"
+run x KIOSK_ROLE=nunki KIOSK_NO_HOTPLUG=1 'KIOSK_LAYOUT=two;reboot' KIOSK_ROT1=sideways ; rc=$?
+grep -q 'ignoring a malformed KIOSK_LAYOUT' $T/out.log && grep -q 'ignoring a malformed KIOSK_ROT1' $T/out.log && grep -q 'layout manage (asked auto' $T/out.log && ok "a malformed layout or rotation means the default" || bad "malformed layout got through"
+run x KIOSK_ROLE=alnasl ; rc=$?
+! grep -q 'nunki screens' $T/out.log && grep -q '"http://localhost:4041/boot"$' $T/xclient.1.sh && grep -q matchbox $T/xclient.1.sh && ok "another role with two monitors: exactly as before (one window, /boot)" || bad "a non-nunki box changed"
+echo "-- 8b. nunki with the touch panel beside two monitors"
+echo up > $T/xmode
+mkdir -p $T/drm/card1 $T/drm/card1-SPI-1 $T/input/event3/device; echo connected > $T/drm/card1-SPI-1/status; : > $T/dri/card1
+echo "ADS7846 Touchscreen" > $T/input/event3/device/name
+run x KIOSK_ROLE=nunki KIOSK_NO_HOTPLUG=1 KIOSK_CARD=card1 KIOSK_FB=/dev/fb1 KIOSK_INPUT=$T/input ; rc=$?
+sleep 1
+grep -q 'touch panel: the menu' $T/out.log && grep -q 'kmsdev" ".*/card0"' $T/xorg.1.conf && grep -q 'MatchProduct "ADS7846"' $T/xorg.1.conf && ok "panel present: X :0 on HDMI, the stylus ignored there" || bad "companion :0"
+grep -q 'Xorg :1 -config .*xorg-panel.conf.*-sharevts -novtswitch vt1' $T/xinit.log && grep -q 'fbdev" "/dev/fb1"' $T/tmp/xorg-panel.conf && grep -q 'AutoAddDevices" "false"' $T/tmp/xorg-panel.conf && grep -q 'Device" "/dev/input/event3"' $T/tmp/xorg-panel.conf && ok "X :1 on the panel's fb1, sharing vt1, the stylus its only input" || bad "companion :1"
+grep -q 'to=compact&where=panel' $T/tmp/xclient-panel.sh && ok "the panel shows the menu (compact)" || bad "panel URL"
+rm -rf $T/drm/card1 $T/drm/card1-SPI-1 $T/dri/card1 $T/input
+pkill -KILL -f 'stubs/' 2>/dev/null
+echo "-- 8c. a monitor pulled out"
+echo hang > $T/xmode
+( sleep 3; echo disconnected > $T/drm/card0-HDMI-A-2/status ) &
+s0=$(date +%s)
+run x KIOSK_ROLE=nunki KIOSK_X_BUDGET=60 ; rc=$?
+s1=$(date +%s)
+grep -q 'HDMI monitors changed (card0-HDMI-A-1 card0-HDMI-A-2 -> card0-HDMI-A-1)' $T/out.log && grep -q 'screens end here for a new layout' $T/out.log && [ "$rc" = 0 ] && ok "pulled monitor: the screens end within $((s1 - s0)) s for a new layout (exit 0)" || bad "hotplug (rc $rc, $((s1 - s0)) s)"
+rm -rf $T/drm/card0-HDMI-A-2
+pkill -KILL -f 'stubs/' 2>/dev/null
+
 echo "-- 5. no KMS card"
 rm -f $T/dri/card0; echo quick > $T/xmode
 run x ; rc=$?

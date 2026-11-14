@@ -69,6 +69,22 @@ while true; do
   case "$(cat /run/alnasl-mode/role 2>/dev/null)" in
     arkab) app_port=4050 ;; polis) app_port=4061 ;; nunki) app_port=4062 ;; *) app_port=4040 ;;
   esac
+  # v7.5: a nunki box's monitors (docs/nunki-displays.md): the layout its screen wizard saved on the data partition.
+  # Read line by line, never sourced; anything but the expected words means the default.
+  role=$(cat /run/alnasl-mode/role 2>/dev/null)
+  KIOSK_LAYOUT=auto KIOSK_SWAP=0 KIOSK_ROT1=normal KIOSK_ROT2=normal
+  if [ "$role" = nunki ] && [ -r /var/lib/alnasl-setup/displays.conf ]; then
+    while IFS='=' read -r k v; do
+      v=${v%$'\r'}; v=${v//\"/}
+      case "$k=$v" in
+        LAYOUT=auto|LAYOUT=single|LAYOUT=manage|LAYOUT=mirror|LAYOUT=two) KIOSK_LAYOUT=$v ;;
+        SWAP=0|SWAP=1) KIOSK_SWAP=$v ;;
+        ROTATE1=normal|ROTATE1=right|ROTATE1=inverted|ROTATE1=left) KIOSK_ROT1=$v ;;
+        ROTATE2=normal|ROTATE2=right|ROTATE2=inverted|ROTATE2=left) KIOSK_ROT2=$v ;;
+      esac
+    done < /var/lib/alnasl-setup/displays.conf
+  fi
+  [ "$role" = nunki ] && echo "kiosk: nunki screens: layout $KIOSK_LAYOUT, swap $KIOSK_SWAP, rotation $KIOSK_ROT1/$KIOSK_ROT2"
   echo "kiosk: starting container (mode $mode, keyboard $KBD_LAYOUT/$KBD_VARIANT, scale $KIOSK_SCALE, resolution $KIOSK_RES${KIOSK_CARD:+, small screen on $KIOSK_CARD}${KIOSK_FORCE_MODE:+, small screen $KIOSK_FORCE_MODE}, rotation $KIOSK_ROTATE)"
   docker run --rm --name "$NAME" --privileged --network host --ipc host \
     -v /dev:/dev -v /run/udev:/run/udev:ro -v /run/alnasl-kiosk:/run/alnasl-kiosk \
@@ -76,6 +92,7 @@ while true; do
     -e KIOSK_MODE="$mode" -e KIOSK_URL=http://localhost:4041/boot -e KIOSK_APP_PORT="$app_port" \
     -e KBD_LAYOUT="$KBD_LAYOUT" -e KBD_VARIANT="$KBD_VARIANT" -e KIOSK_SCALE="$KIOSK_SCALE" -e KIOSK_RES="$KIOSK_RES" \
     -e KIOSK_CARD="$KIOSK_CARD" -e KIOSK_FB="$KIOSK_FB" -e KIOSK_FORCE_MODE="$KIOSK_FORCE_MODE" -e KIOSK_ROTATE="$KIOSK_ROTATE" \
+    -e KIOSK_ROLE="$role" -e KIOSK_LAYOUT="$KIOSK_LAYOUT" -e KIOSK_SWAP="$KIOSK_SWAP" -e KIOSK_ROT1="$KIOSK_ROT1" -e KIOSK_ROT2="$KIOSK_ROT2" \
     "$IMG"
   rc=$?
   /usr/local/sbin/alnasl-splash --once

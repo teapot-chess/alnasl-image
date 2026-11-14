@@ -30,6 +30,16 @@ rewritten on every build.
 `check.ps1 -SkipSiblings` is the part that works without the sibling checkouts, for CI once there is a remote.
 CI cannot run `build.ps1` or `verify.sh`.
 
+
+## Nunki on two monitors, remote access (7.5)
+
+A nunki box puts the broadcast (`/hall?screen=hdmi1|hdmi2`) on its HDMI monitors: one monitor, management +
+broadcast, mirror or two tournaments, chosen in Settings > Screens with an Identify button; a panel on the pins
+becomes the remote control (Live / Pause / Black, tournament, sound). One X server spans both HDMI outputs, a
+second one drives the panel: `docs/nunki-displays.md`. Every role can join its owner's Tailscale network from
+the menu (a QR code, no key in the image, off until Start; the role's port on tailscale0 only, Tailscale SSH):
+`docs/remote-access.md`. Neither has met a real Pi as of 7.5; both docs list what has not.
+
 ## Tests
 
 ## The box's own programs (setup-app)

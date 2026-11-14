@@ -17,7 +17,7 @@ defmodule AlnaslSetup.Server do
   """
   use Supervisor
   alias AlnaslSetup.{Compact, Diag, Http, Json, Lock, SmallScreen, Sys, Wifi}
-  alias AlnaslSetup.Server.{Box, Help, Net, Pin, PortalApi, Printers, Py, Resolution, State}
+  alias AlnaslSetup.Server.{Box, Displays, Help, Net, Nunki, Pin, PortalApi, Printers, Py, Remote, Resolution, State}
 
   @port 4041
   @www "/usr/local/share/alnasl-setup/www"
@@ -86,7 +86,9 @@ defmodule AlnaslSetup.Server do
   # method, path and status only; never a body
   defp access_log(method, target, status) do
     if target != "/healthz" and not String.starts_with?(target, "/api/ping") and
-         not String.contains?(target, "/api/kiosk-busy"),
+         not String.contains?(target, "/api/kiosk-busy") and
+         not (method == "GET" and hd(String.split(target, "?")) in ~w(/api/displays/identify /api/nunki /api/remote)),
+       # v7.5: asked every second or few by every window / the panel; a log line each would bury the rest
        do: Py.log("#{method} #{target |> String.split("?") |> hd()} #{status}")
   end
 
@@ -143,7 +145,7 @@ defmodule AlnaslSetup.Server do
 
     cond do
       path == "/" ->
-        start_page()
+        start_page(q)
 
       path in ["/boot", "/screen"] ->
         # The kiosk's first page, and where it waits while Alnasl is away: the boot screen.
@@ -172,7 +174,44 @@ defmodule AlnaslSetup.Server do
     end
   end
 
-  defp start_page do
+  # v7.5 (docs/nunki-displays.md): a nunki box's windows say where they belong (?to=, from the kiosk through /boot):
+  #   hall1 / hall2  a broadcast: Nunki's /hall?screen=hdmiN once Nunki answers; until then the boot screen waits
+  #                  (solo=1: this broadcast is the only screen anybody can touch, so it gets the wizard or the menu)
+  #   manage         the management display: the usual start, but never the compact page (that is the panel's)
+  #   compact        the touch panel beside the HDMI screens
+  @to ~w(hall1 hall2 manage compact)
+
+  defp start_page(q) do
+    qs = Py.parse_qs(q || "")
+    to = List.first(qs["to"] || [])
+    solo = List.first(qs["solo"] || []) == "1"
+
+    cond do
+      to in ["hall1", "hall2"] -> hall_page(to, solo)
+      to == "compact" -> reply(302, "", "application/json", [{"Location", "/compact"}])
+      to == "manage" -> start_page_usual(false)
+      true -> start_page_usual(true)
+    end
+  end
+
+  defp hall_page(to, solo) do
+    n = String.last(to)
+
+    cond do
+      Box.running_role() == "nunki" and Box.setup_done?() and Box.role_up?() ->
+        reply(302, "", "application/json", [{"Location", "http://localhost:4062/hall?screen=hdmi#{n}"}])
+
+      solo ->
+        start_page_usual(false)
+
+      true ->
+        reply(302, "", "application/json", [{"Location", "/boot?to=#{to}&where=hdmi"}])
+    end
+  end
+
+  def to_targets, do: @to
+
+  defp start_page_usual(compact_ok) do
     cond do
       # A browser that was restarted while a menu page was open goes back to that page.
       back = Box.resume_page() ->
@@ -180,7 +219,7 @@ defmodule AlnaslSetup.Server do
         reply(302, "", "application/json", [{"Location", back}])
 
       # v7.4: a small screen shows the compact page, set up or not: the QR code and the status, no touch needed.
-      SmallScreen.compact_ui?() ->
+      compact_ok and SmallScreen.compact_ui?() ->
         reply(302, "", "application/json", [{"Location", "/compact"}])
 
       # Where the kiosk starts: the wizard until setup is done, then the role's own page (Alnasl, Arkab,
@@ -280,8 +319,28 @@ defmodule AlnaslSetup.Server do
 
       "/api/ping" ->
         qs = Py.parse_qs(q)
-        Box.page_ping(List.first(qs["p"] || [""]), Map.has_key?(qs, "first"))
+
+        # v7.5: the touch panel beside a nunki box's HDMI screens is a browser of its own; its pages must not
+        # hold off the watchdog for the HDMI windows, nor be where a restarted HDMI window goes back to.
+        if List.first(qs["w"] || []) != "panel",
+          do: Box.page_ping(List.first(qs["p"] || [""]), Map.has_key?(qs, "first"))
+
         %{"ok" => true}
+
+      # v7.5: a nunki box's screens (the screen wizard) and the identify overlay
+      "/api/displays" ->
+        Displays.status()
+
+      "/api/displays/identify" ->
+        Displays.identify()
+
+      # v7.5: the touch panel's Nunki controls, through Nunki's local API
+      "/api/nunki" ->
+        Nunki.state()
+
+      # v7.5: remote access (opt-in)
+      "/api/remote" ->
+        Remote.status()
 
       # the kiosk watchdog reads the ping file itself; this is the same answer for people
       "/api/kiosk-busy" ->
@@ -483,6 +542,33 @@ defmodule AlnaslSetup.Server do
       # The access PIN of whatever this box runs (Settings > PIN, the compact screen): set one or a random one.
       "/api/pin" ->
         Pin.change(obj!(b))
+
+      # v7.5: a nunki box's screens: {layout, swap, rotate1, rotate2}; the screens restart with it
+      "/api/displays" ->
+        Displays.set(obj!(b))
+
+      "/api/displays/identify" ->
+        Displays.identify_start()
+
+      # v7.5: the touch panel's Nunki controls (Nunki's local API on the loopback does the work)
+      "/api/nunki/" <> what when what in ["screen", "audio", "tournament"] ->
+        if Box.running_role() != "nunki", do: raise(ArgumentError, "not_nunki")
+
+        case what do
+          "screen" -> Nunki.set_screen(obj!(b))
+          "audio" -> Nunki.set_audio(obj!(b))
+          "tournament" -> Nunki.set_tournament(obj!(b))
+        end
+
+      # v7.5: remote access, opt-in (docs/remote-access.md). Every role; nothing runs before Start.
+      "/api/remote/start" ->
+        Remote.start()
+
+      "/api/remote/new-code" ->
+        Remote.new_code()
+
+      "/api/remote/leave" ->
+        Remote.leave(g(b, "confirm", ""))
 
       # The hotspot's setup page may set one, and is never told what it is.
       "/api/portal/pin" ->

@@ -39,6 +39,16 @@
 <script>
 (function () {
   var BOOT = location.pathname === "/boot";
+  // v7.5 (docs/nunki-displays.md): a nunki box has more than one window. where= says which screen this one is on
+  // (remembered by this browser profile, for the menu pages: the compact look is the touch panel's only), to= where
+  // the hand-over goes (hall1/hall2: a broadcast; manage; compact). A broadcast that is not alone (HOLD) never
+  // goes to the wizard or the menu: it waits here, with the log, until Nunki answers.
+  var Q = new URLSearchParams(location.search);
+  var WHERE = Q.get("where"), TO = Q.get("to") || "", SOLO = Q.get("solo") === "1";
+  if (WHERE === "hdmi" || WHERE === "panel") { try { localStorage.setItem("alnasl-where", WHERE); } catch (e) { /* ignore */ } }
+  if (!/^(hall1|hall2|manage|compact)$/.test(TO)) TO = "";
+  var HOLD = /^hall/.test(TO) && !SOLO;
+  var NEXT = "/" + (TO ? "?to=" + TO + (SOLO ? "&solo=1" : "") : "");
   var LANGNOW = "en";
   var PLAIN = "/splash/alnasl-splash.png";
   var LOG_STATES = ["", "boot", "waiting", "firstboot-1", "firstboot-2", "firstboot-3"];
@@ -64,7 +74,7 @@
     if (leaving) return;
     leaving = true;
     window.name = "alnasl-fade:" + shown;  // the next page starts on this picture and fades in
-    location.replace("/");
+    location.replace(NEXT);
   }
   // The value line and the bar of the update states (see the style above).
   var valEl = document.getElementById("val"), barEl = document.getElementById("bar"), valShown = null;
@@ -214,7 +224,8 @@
           var waited = Date.now() - t0;
           // The role's app is meant to run but does not answer yet: wait for it (a while at boot, longer after
           // an update). Then / decides: the wizard, the app or the menu.
-          if (!(s.alnasl_wanted && !s.alnasl_up && waited < (BOOT ? 120000 : 600000))) return leave();
+          if (HOLD) { if (s.alnasl_wanted && s.alnasl_up) return leave(); }
+          else if (!(s.alnasl_wanted && !s.alnasl_up && waited < (BOOT ? 120000 : 600000))) return leave();
           // v7: the log says what is going on; v6's "Starting Alnasl" picture only when there is no log.
           show(LOG.view || waited <= 2500 ? PLAIN : "/splash/screens/" + lang + "/waiting.png");
           logShow("boot", true);
