@@ -608,6 +608,8 @@ function compactStats(r) {
     h("div", { class: "cmp-rows" },
       cmpRow(eth.length > 0, t("ethernet"), eth.join("  ") || t("cmp_none")),
       cmpRow(wl.length > 0, t("wifi"), wl.join("  ") || (r.hotspot && r.hotspot.active ? t("cmp_hotspot") + " " + (r.hotspot.ssid || "") : t("cmp_none"))),
+      // v7.5: remote access connected: where to reach the box (and its app) from the tailnet
+      r.tailscale ? cmpRow(true, "Tailscale", r.tailscale.ip + (r.role_port ? ":" + r.role_port : "")) : null,
       r.role_port ? cmpRow(r.role_up, ROLE_NAME[role], r.role_up ? t("cmp_running") : t("cmp_stopped")) : null,
       // the box's access PIN: this panel is the box's own screen (alnasl-pin); a phone needs it, this screen never
       h("div", { class: "cmp-row cmp-pin-row", id: "cmp-pin" }, h("span", { class: "cmp-k" }, t("pin")), h("span", { class: "cmp-v cmp-pin-v" }, r.pin || "-"))),
