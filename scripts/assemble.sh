@@ -189,7 +189,7 @@ TS_SHA256=d6bed2720310b328b861f943d7b4016c5358a9bad60575eb51e8143b79068484
 TS_TGZ=tailscale_${TS_VERSION}_arm64.tgz
 TS_DIR=$W/tailscale/$TS_VERSION
 mkdir -p $TS_DIR
-if ! echo "$TS_SHA256  $TS_DIR/$TS_TGZ" | sha256sum -c --quiet - 2>/dev/null; then
+if ! echo "$TS_SHA256  $TS_DIR/$TS_TGZ" | sha256sum -c --quiet - >/dev/null 2>&1; then
   rm -f $TS_DIR/$TS_TGZ.part
   curl -fsSL --retry 3 -m 300 -o $TS_DIR/$TS_TGZ.part https://pkgs.tailscale.com/stable/$TS_TGZ
   echo "$TS_SHA256  $TS_DIR/$TS_TGZ.part" | sha256sum -c --quiet - || { echo "$TS_TGZ does not have the pinned SHA-256"; rm -f $TS_DIR/$TS_TGZ.part; exit 1; }

@@ -151,7 +151,7 @@ fwts() { # role -> both rulesets with the remote-access flag set
 for rp in alnasl:4040 arkab:4050 polis:4061 nunki:4062; do
   r=${rp%%:*}; p=${rp#*:}; on=$(fwts $r)
   [ "$(echo "$on" | grep -c -i tailscale)" = 2 ] && [ "$(echo "$on" | grep -c -x -- "-A ALNASL-IN -i tailscale0 -p tcp --dport $p -j ACCEPT")" = 2 ] \
-    && ! echo "$on" | grep -q 41641 && [ "$(diff <(fwrole $r) <(echo "$on") | grep -c '^[<>]')" = 2 ] \
+    && ! echo "$on" | grep -q 41641 && [ "$(fwrole $r)" = "$(grep -v -- '-i tailscale0' <<<"$on")" ] \
     && ok "firewall, $r with remote access on: only tcp $p on tailscale0 (IPv4 + IPv6), nothing else changed" || bad "firewall, $r with remote access on: $(echo "$on" | grep -i -E 'tailscale|41641' | tr '\n' ' ')"
 done
 # (the debug image's 22 is counted above; the roles' own ports are the same in both)
@@ -279,12 +279,14 @@ for d in $(cd $W/overlay && find . -type d ! -path './boot-efi*' | sed 's#^\./##
 echo "== v3: console access, Wi-Fi tooling, kiosk script"
 # getty@tty2/3 are enabled explicitly (the enabled check above), and nothing may disable VT switching.
 # Comments stripped once; here-strings, not pipes: with pipefail a writer killed by SIGPIPE (grep -q stops at its first match) turns a hit into a FAIL.
-ksrc=$(grep -v '^[[:space:]]*#' $W/kiosk/kiosk.sh)
+# v7.5: the touch panel's own X (:1: no keyboard, sharing :0's VT) keeps -novtswitch. Ctrl+Alt+F2 is :0's to
+# handle, and :1 must not follow it away; that one line is the exception, nothing else may.
+ksrc=$(grep -v '^[[:space:]]*#' $W/kiosk/kiosk.sh | grep -v '/usr/bin/Xorg :1 ')
 if grep -q -E 'DontVTSwitch|novtswitch|DontZap' <<<"$ksrc"; then bad "kiosk.sh (source) still disables VT switching"; else ok "kiosk.sh (source) has no DontVTSwitch / -novtswitch"; fi
 grep -q -E 'cage -s ' <<<"$ksrc" && ok "cage runs with -s (VT switching allowed)" || bad "cage without -s"
 # the kiosk script INSIDE the image that is baked into the card: the docker image on this VM, and the tarball on the card must be the same one
 dk=$(docker run --rm --platform linux/arm64 --entrypoint cat alnasl-kiosk:latest /kiosk.sh 2>/dev/null)
-dknc=$(grep -v '^[[:space:]]*#' <<<"$dk")
+dknc=$(grep -v '^[[:space:]]*#' <<<"$dk" | grep -v '/usr/bin/Xorg :1 ')
 if [ -n "$dk" ]; then
   grep -q -E 'DontVTSwitch|novtswitch' <<<"$dknc" && bad "kiosk image's kiosk.sh disables VT switching" || ok "kiosk image's kiosk.sh: no DontVTSwitch / -novtswitch"
   grep -q 'reload.log' <<<"$dk" && ok "kiosk image has the v3 watchdog (reload.log)" || bad "kiosk image is not the v3 kiosk"
