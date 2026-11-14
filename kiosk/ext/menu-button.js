@@ -25,4 +25,17 @@
   }, true);
   root.appendChild(b);
   document.documentElement.appendChild(host);
+  // v7.5: on a nunki broadcast (/hall) the hall sees the screen, so the button stays out of sight until somebody
+  // moves the mouse or touches the screen, and goes again after five seconds. F10 works all the time.
+  if (location.port === "4062" && /^\/hall\b/.test(location.pathname)) {
+    var hideT = null;
+    host.style.display = "none";
+    var wake = function () {
+      host.style.display = "";
+      clearTimeout(hideT);
+      hideT = setTimeout(function () { host.style.display = "none"; }, 5000);
+    };
+    window.addEventListener("mousemove", wake, true);
+    window.addEventListener("pointerdown", wake, true);
+  }
 })();

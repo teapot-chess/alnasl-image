@@ -102,6 +102,8 @@ dir /var/lib/polis-update root:root 0755
 dir /var/lib/nunki "$(owner nunki)" 0750
 dir /var/lib/nunki/update "$(owner nunki)" 0750
 dir /var/lib/nunki-update root:root 0755
+# v7.5: remote access (opt-in): its flag and tailscaled's state; Leave empties it (docs/remote-access.md).
+dir /var/lib/alnasl-tailscale root:root 0700
 dir /etc/cups root:root 0755
 dir /var/lib/alnasl-setup root:root 0700
 dir /var/lib/alnasl-update root:root 0755
@@ -131,7 +133,7 @@ if [ -d $DEFAULTS/etc/cups ]; then
   [ -d $DATA/etc/cups/ppd ] || install -d -m 0755 $DATA/etc/cups/ppd
 fi
 
-for d in /var/lib/alnasl /var/lib/arkab /var/lib/polis /var/lib/polis-update /var/lib/nunki /var/lib/nunki-update /etc/cups \
+for d in /var/lib/alnasl /var/lib/arkab /var/lib/polis /var/lib/polis-update /var/lib/nunki /var/lib/nunki-update /var/lib/alnasl-tailscale /etc/cups \
          /var/lib/alnasl-setup /var/lib/alnasl-update /var/lib/alnasl-os-update \
          /var/lib/docker /var/lib/containerd /var/log/journal /etc/wpa_supplicant \
          /etc/systemd/network/10-wired.network.d /etc/systemd/network/20-wireless.network.d; do

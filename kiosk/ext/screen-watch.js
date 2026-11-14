@@ -8,7 +8,10 @@
     try {
       chrome.runtime.sendMessage({ type: "bootscreen" }, function (s) {
         if (chrome.runtime.lastError || !s) return;
-        if (s.state && AWAY.test(s.state)) location.href = "http://localhost:4041/screen";
+        if (!s.state || !AWAY.test(s.state)) return;
+        // v7.5: a nunki broadcast comes back to its own broadcast afterwards (see bg.js, screenFor).
+        var m = /^\/hall\b/.test(location.pathname) && location.port === "4062" && /[?&]screen=hdmi([12])\b/.exec(location.search);
+        location.href = "http://localhost:4041/screen" + (m ? "?to=hall" + m[1] + "&where=hdmi" : "");
       });
     } catch (e) { /* the extension was reloaded; the next page load starts a fresh watcher */ }
   }

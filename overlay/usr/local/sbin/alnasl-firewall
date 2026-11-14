@@ -19,7 +19,13 @@
 #   alnasl  4040 (Alnasl, for the hall's network)
 #   arkab   4050 (Arkab's status page)
 #   polis, nunki  no port at all: they dial out, and their pages are for this box's own screen
-# plus mDNS, DHCP replies and ICMP. Nothing else: no ssh (22), no Tailscale (41641, tailscale0).
+# plus mDNS, DHCP replies and ICMP. Nothing else: no ssh (22), nothing for Tailscale on the LAN (41641 stays shut).
+# v7.5, remote access (opt-in, docs/remote-access.md): only while alnasl-tailscale.service runs
+# (/run/alnasl-tailscale/active, which its ExecStartPre writes and its ExecStopPost removes, each followed by a
+# reload of this), the role's own page is let in on tailscale0 and nowhere else: 4040, 4050, 4061 (polis), 4062
+# (nunki; Polis and Nunki then listen beyond loopback, their PIN still asks). Tailscale SSH never reaches these
+# rules: tailscaled answers it itself on the tailnet address. With remote access off this prints nothing and the
+# rules are exactly the ones above.
 # The setup hotspot (docs/captive-portal.md), while it is up (/run/alnasl-hotspot/active, which
 # alnasl-hotspot writes before it reloads this): DNS (53), DHCP (67) and the setup page (80), on wlan0
 # and on the hotspot's address only, never on Ethernet; and the hotspot's phones get nothing else, not
@@ -61,6 +67,9 @@ hotspot_v6() { [ -e "$HS_FLAG" ] && echo "-A $CHAIN -i $HS_IF -j DROP"; return 0
 DBG_SSH_FLAG=/etc/alnasl/debug-ssh
 ssh_rule() { [ -e "$DBG_SSH_FLAG" ] && echo "-A $CHAIN -p tcp --dport 22 -j ACCEPT"; return 0; }
 app_rule() { [ -n "$PORT" ] && echo "-A $CHAIN -p tcp --dport $PORT -j ACCEPT"; }
+TS_FLAG=/run/alnasl-tailscale/active
+case "$ROLE" in arkab) TS_PORT=4050 ;; polis) TS_PORT=4061 ;; nunki) TS_PORT=4062 ;; *) TS_PORT=4040 ;; esac
+tailnet_rule() { [ -e "$TS_FLAG" ] && echo "-A $CHAIN -i tailscale0 -p tcp --dport $TS_PORT -j ACCEPT"; return 0; }
 
 unhook() { # tool
   local t=$1
@@ -85,6 +94,7 @@ rules_v4() {
 -A $CHAIN -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 $(hotspot_v4)
 $(app_rule)
+$(tailnet_rule)
 $(ssh_rule)
 -A $CHAIN -p icmp -j ACCEPT
 -A $CHAIN -p udp --sport 67 --dport 68 -j ACCEPT
@@ -102,6 +112,7 @@ rules_v6() {
 -A $CHAIN -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 $(hotspot_v6)
 $(app_rule)
+$(tailnet_rule)
 $(ssh_rule)
 -A $CHAIN -p ipv6-icmp -j ACCEPT
 -A $CHAIN -p udp --dport 546 -j ACCEPT
@@ -140,7 +151,7 @@ apply() { # tool rules-function
     open_everything "$t"
     return 1
   fi
-  log "$t: ruleset active for $ROLE (${PORT:-no app port}, DHCP, mDNS, ICMP$([ -e "$HS_FLAG" ] && echo "; setup hotspot on $HS_IF: DNS, DHCP, page")$([ -e "$DBG_SSH_FLAG" ] && echo "; DEBUG IMAGE: ssh on 22"); everything else dropped)"
+  log "$t: ruleset active for $ROLE (${PORT:-no app port}, DHCP, mDNS, ICMP$([ -e "$HS_FLAG" ] && echo "; setup hotspot on $HS_IF: DNS, DHCP, page")$([ -e "$DBG_SSH_FLAG" ] && echo "; DEBUG IMAGE: ssh on 22")$([ -e "$TS_FLAG" ] && echo "; remote access on: $TS_PORT on tailscale0"); everything else dropped)"
   return 0
 }
 

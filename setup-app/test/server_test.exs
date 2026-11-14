@@ -277,6 +277,33 @@ defmodule AlnaslSetup.ServerTest do
       assert json("/api/bootscreen")["alnasl_up"] == true
     end
 
+    test "v7.5: a nunki box's windows: broadcasts wait for Nunki, then go to /hall?screen=hdmiN; manage never compacts" do
+      Box.put("/run/alnasl-mode/role", "nunki\n")
+      Box.put("/run/alnasl-small-screen/state.json", ~s({"ui": "compact", "status": "ready"}))
+      # not set up yet: a broadcast that is not alone waits; one that is alone gets the wizard
+      assert get("/?to=hall1").headers["location"] == "/boot?to=hall1&where=hdmi"
+      assert get("/?to=hall1&solo=1").headers["location"] == "/setup"
+      assert get("/?to=manage").headers["location"] == "/setup"
+      assert get("/?to=compact").headers["location"] == "/compact"
+      assert get("/").headers["location"] == "/compact"
+      done!()
+      assert get("/?to=hall2").headers["location"] == "/boot?to=hall2&where=hdmi"
+      assert get("/?to=manage").headers["location"] == "/menu"
+      Application.put_env(:alnasl_setup, :connect_ports, %{4062 => listening_port()})
+
+      runner(fn
+        ["systemctl", "is-enabled", "nunki.service"] -> {0, "enabled\n"}
+        _ -> nil
+      end)
+
+      assert get("/?to=hall1").headers["location"] == "http://localhost:4062/hall?screen=hdmi1"
+      assert get("/?to=hall2&solo=1").headers["location"] == "http://localhost:4062/hall?screen=hdmi2"
+      assert get("/?to=manage").headers["location"] == "http://localhost:4062/"
+      # the touch panel's pages do not count as the open page (the HDMI windows' watchdog and resume)
+      get("/api/ping?p=%2Fsettings%2Fpin&w=panel")
+      assert Sys.read("/run/alnasl-kiosk/ping") == ""
+    end
+
     test "a restarted browser goes back to the menu page it was on (resume), within 180 s" do
       done!()
       assert ok!(get("/api/ping?p=%2Fsettings%2Fnetwork%3Ftab%3Dwifi&first=1")) == %{"ok" => true}

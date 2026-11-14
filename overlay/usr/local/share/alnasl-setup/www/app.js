@@ -150,6 +150,31 @@ const TX = {
     pin_new: "New PIN", pin_random: "New random PIN", pin_saved: "Saved. %s starts again to use it; every other browser has to give the new PIN.",
     pin_short: "At least 6 characters.", pin_long: "64 characters at most.", pin_edges: "No space at the start or the end.",
     pin_control: "Only plain characters, no invisible ones.", app_missing: "The app is not installed on this box.", pin_failed: "The box could not change the PIN. Try again.",
+    // v7.5: Nunki's hall screens, the screen wizard, remote access
+    nk: "Hall screens", nk_tile: "Live, pause, black, tournament, sound", nk_down: "Nunki does not answer. It may still be starting; if this stays, restart the box.",
+    nk_old: "This Nunki is too old for these buttons. Update Nunki (or the box), then try again.", nk_refused: "Nunki said no to that.",
+    nk_bad: "Nunki answered something this page does not understand.", nk_screen: "Hall screen %s", nk_live: "Live", nk_paused: "Pause", nk_black: "Black",
+    nk_tour: "Tournament", nk_auto: "Nunki's choice", nk_pick: "Which tournament on hall screen %s?", nk_sound: "Sound", nk_on: "On", nk_off: "Off",
+    nk_status: "Nunki %s, %s of %s tournaments connected", nk_one: "This Nunki drives one hall screen.", nk_countdown: "Countdown running",
+    scr: "Screens", scr_tile: "One or two monitors, which is which", scr_only: "Only a Nunki box drives two monitors. Switch the box to Nunki first.",
+    scr_1: "1. What the monitors show", scr_2: "2. Which monitor is which", scr_3: "3. Turned", scr_4: "4. Tournaments", scr_conn: "Connected now: %s",
+    scr_none: "no monitor", scr_ident: "Identify screens", scr_ident_d: "Puts a big number on every monitor for eight seconds.", scr_swap: "Swap the two monitors",
+    scr_save: "Save and restart the screens", scr_saved: "Saved. The screens restart with it; this takes about half a minute.",
+    scr_fallback: "Only one monitor is connected: it shows the broadcast until the second comes back.", scr_tour_later: "Nunki is not answering; pick the tournaments later under Hall screens.",
+    lay_auto: "Automatic", lay_auto_d: "One monitor: the broadcast. Two: management on HDMI 0, broadcast on HDMI 1.",
+    lay_single: "One broadcast", lay_single_d: "Only the first monitor; a second stays dark.", lay_manage: "Management + broadcast",
+    lay_manage_d: "Nunki's own page on one, the hall screen on the other.", lay_mirror: "Mirror", lay_mirror_d: "The same broadcast on both.",
+    lay_two: "Two tournaments", lay_two_d: "Hall screen 1 and hall screen 2, each its own tournament.",
+    rot_normal: "Normal", rot_right: "Right", rot_inverted: "Upside down", rot_left: "Left", job_manage: "Management", job_hall1: "Hall 1", job_hall2: "Hall 2",
+    rm: "Remote access", rm_tile: "Reach this box from anywhere (Tailscale)", rm_none: "Remote access is not part of this image.",
+    rm_off_d: "Off. With it on, this box joins your own Tailscale network: anyone in that network can open this box's page (port %s) and log in to the box itself over Tailscale SSH. Nothing new opens on the hall's network. Leave undoes all of it.",
+    rm_start: "Start", rm_starting: "Asking Tailscale for a login link...", rm_scan: "Scan with your phone and log in to Tailscale: this box joins that account's network.",
+    rm_stale: "This link is over ten minutes old and may have expired.", rm_new: "New code", rm_noinet: "No answer from Tailscale. Is this box on the internet?",
+    rm_approve: "Logged in. The box now waits for approval in the Tailscale admin console (Machines).", rm_conn: "Connected", rm_ip: "Tailnet address",
+    rm_dns: "Name", rm_net: "Network", rm_ssh: "Tailscale SSH: on", rm_stopped: "Logged out of Tailscale. Get a new code to log in again, or leave.",
+    rm_leave: "Leave", rm_leave_q: "Leave remote access? The box logs out, forgets its Tailscale key and is off the network. Remove it from the admin console too.",
+    rm_left: "Remote access is off.", not_installed: "Remote access is not part of this image.", no_tun: "The kernel has no TUN device; remote access cannot start.",
+    no_daemon: "Tailscale did not start. Try again in a moment.", not_nunki: "Only a Nunki box does this.",
   },
   nl: {
     welcome: "Welkom bij je Alnasl-box", welcome_d: "Nog een paar korte stappen en de box is klaar voor de zaal. Je kunt alles later wijzigen via het menu.",
@@ -446,9 +471,12 @@ window.addEventListener("popstate", route);
 // the browser while this is fresh, and a browser that is restarted anyway
 // returns to this page (the server remembers it, including the tab and step).
 let FIRST_PING = true, LEAVING = false;
+// v7.5: which window this is on a box with more than one (screen.html stores it): "panel" (the touch panel next
+// to the HDMI screens: its pings must not move the HDMI window's remembered page) or "hdmi" (never compact).
+const WHERE = (() => { try { return localStorage.getItem("alnasl-where") || ""; } catch (e) { return ""; } })();
 function ping() {
   if (LEAVING) return Promise.resolve();
-  const q = "?p=" + encodeURIComponent(location.pathname + location.search) + (FIRST_PING ? "&first=1" : "");
+  const q = "?p=" + encodeURIComponent(location.pathname + location.search) + (FIRST_PING ? "&first=1" : "") + (WHERE === "panel" ? "&w=panel" : "");
   FIRST_PING = false;
   return api("/api/ping" + q).catch(() => 0);
 }
@@ -472,10 +500,12 @@ async function route() {
     // their Dutch (the hotspot's phone page still speaks it), but nothing here reads S.lang any more.
     LANG = "en";
     applyTheme(S.theme);
+    if (WHERE === "hdmi") S.compact = false;   // the panel is compact; the HDMI monitor beside it is not
   } catch (e) { shell("", [msg("bad", t("error")), h("button", { class: "btn", onclick: route }, t("retry"))], { langToggle: false }); return; }
   ping();
   compactStop();
   if (p === "/compact") return compactPage();
+  if (p === "/nunki") return nunkiPage();
   if (p === "/setup") {
     WIZ = true;
     const st = Number(qget("step") ?? sessionStorage.getItem("wizstep") ?? 0);
@@ -507,7 +537,11 @@ function hotspotCard() {
 // box's status, both refreshed by themselves. The server decides which (AlnaslSetup.Compact); a working stylus
 // adds one Menu button, and the menu's tiles lead to the pages that already fit a small screen.
 let CMP_TIMER = null, CMP_FORCE_QR = false;
-function compactStop() { if (CMP_TIMER) { clearInterval(CMP_TIMER); CMP_TIMER = null; } }
+let PAGE_TIMER = null;    // v7.5: the pages that ask again by themselves (hall screens, remote access)
+function compactStop() {
+  if (CMP_TIMER) { clearInterval(CMP_TIMER); CMP_TIMER = null; }
+  if (PAGE_TIMER) { clearInterval(PAGE_TIMER); PAGE_TIMER = null; }
+}
 function qrCanvas(rows) {
   const n = rows.length, quiet = 4;
   const W = window.innerWidth, H = window.innerHeight;   // portrait: the code on top, the text below
@@ -575,6 +609,8 @@ function compactStats(r) {
       h("div", { class: "cmp-row cmp-pin-row", id: "cmp-pin" }, h("span", { class: "cmp-k" }, t("pin")), h("span", { class: "cmp-v cmp-pin-v" }, r.pin || "-"))),
     h("div", { class: "cmp-foot" },
       h("span", { class: "dim small" }, (r.hostname || "") + (r.version ? "  |  v" + r.version : "") + (r.debug_ssh ? "  |  DEBUG SSH" : "")),
+      // v7.5: on a nunki box the panel is the hall screens' remote control: one big button straight there
+      r.touch && role === "nunki" ? h("button", { class: "btn primary cmp-menu", id: "cmp-nunki", onclick: () => go("/nunki?from=compact") }, t("nk")) : null,
       cmpMenuBtn(r)));
 }
 async function compactDraw() {
@@ -598,6 +634,10 @@ function compactMenu(r) {
     tile(t("cmp_t_role"), ROLE_NAME[role], done(modeDialog)),
     tile(t("cmp_t_pin"), "", done(() => go("/settings/pin?from=compact"))),
     tile(t("wifi"), "", done(() => go("/settings/network?tab=wifi&from=compact"))),
+    role === "nunki" ? tile(t("nk"), "", done(() => go("/nunki?from=compact"))) : null,
+    role === "nunki" ? tile(t("scr"), "", done(() => go("/settings/screens?from=compact"))) : null,
+    tile(t("rm"), "", done(() => go("/settings/remote?from=compact"))),
+    // room here for Logs and Update (not built yet: they are the phone's, through the QR, for now)
     tile(t("cmp_t_qr"), "", done(() => { CMP_FORCE_QR = true; compactDraw(); })),
     tile(t("touch"), "", done(() => go("/settings/touch?from=compact"))),
     tile(t("power"), "", done(powerDialog)),
@@ -649,6 +689,7 @@ function menu() {
   const r = roleNow();
   shell(t("menu"), [statusStrip(r), hotspotCard(), h("div", { class: "grid" },
     tile(ROLE_NAME[r], t(r === "alnasl" ? "m_alnasl_d" : "m_" + r + "_d"), openAlnasl),
+    r === "nunki" ? tile(t("nk"), t("nk_tile"), () => go("/nunki")) : null,
     tile(t("m_settings"), t("m_settings_d"), () => go("/settings")),
     pinTile(),
     tile(t("m_info"), t("m_info_d"), () => go("/info")),
@@ -864,7 +905,7 @@ function updPage() {
 
 function settings(sub) {
   const subs = { network: netPage, keyboard: kbdPage, services: svcPage, display: dispPage, help: helpSettings, updates: updPage,
-    printers: printersPage, sound: soundPage, touch: touchPage, pin: pinPage };
+    printers: printersPage, sound: soundPage, touch: touchPage, pin: pinPage, screens: screensPage, remote: remotePage };
   if (!sub || !subs[sub]) {
     return shell(t("settings"), [
       h("div", { class: "grid" },
@@ -877,6 +918,8 @@ function settings(sub) {
         tile(t("pin"), t("pin_tile"), () => go("/settings/pin")),
         roleNow() === "polis" ? tile(t("printers"), t("printers_tile"), () => go("/settings/printers")) : null,
         roleNow() === "nunki" ? tile(t("sound"), t("sound_tile"), () => go("/settings/sound")) : null,
+        roleNow() === "nunki" ? tile(t("scr"), t("scr_tile"), () => go("/settings/screens")) : null,
+        tile(t("rm"), t("rm_tile"), () => go("/settings/remote")),
         S.touch === "xpt2046" ? tile(t("touch"), t("touch_tile"), () => go("/settings/touch")) : null),
       h("p", { class: "dim", id: "role-now", style: "margin-top:22px" }, tf("role_now", ROLE_NAME[roleNow()])),
       h("div", { class: "row" }, h("button", { class: "btn sm", onclick: rerun }, t("rerun")),
@@ -1074,6 +1117,194 @@ async function soundPage() {
   } }, t("sound_test"));
   sub(t("sound"), [h("p", { class: "dim" }, t("sound_d")), outs.length ? list : msg("warn", t("sound_none")),
     h("div", { class: "card" }, h("h2", {}, t("volume")), h("div", { class: "row" }, vol, val)), h("div", { class: "row" }, test), status]);
+}
+
+/* ------------------------------------------------------- hall screens -- */
+// v7.5 (docs/nunki-displays.md): Nunki's hall screens from the box's own screens, through Nunki's local API (the
+// server proxies it: /api/nunki). Live / Pause / Black and the tournament per hall screen, Nunki's sound on or off
+// and the box's volume. Asked again every three seconds; a Nunki that is down or too old is said plainly.
+const NK_MODES = ["live", "paused", "black"];
+function nkBack() { return qget("from") === "compact" ? ["/compact", t("back")] : [S.compact ? "/compact" : "/menu", t("menu")]; }
+function nkReason(reason) { return t({ down: "nk_down", old: "nk_old", refused: "nk_refused" }[reason] || "nk_bad"); }
+async function nunkiPage() {
+  const back = nkBack();
+  const holder = h("div", { id: "nk-state" }, busy("..."));
+  const status = h("div", { id: "nk-msg" });
+  const sound = h("div", { class: "card nk-sound", id: "nk-sound" });
+  let last = null;
+  const act = async (path, body) => {
+    try {
+      const r = await api(path, body);
+      status.replaceChildren(r.ok ? "" : msg("bad", nkReason(r.reason)));
+    } catch (e) { status.replaceChildren(msg("bad", errText(e))); }
+    draw();
+  };
+  const pickTournament = (sc, st) => {
+    const close = modal([h("h2", {}, tf("nk_pick", sc.slice(-1))),
+      h("div", { class: "list nk-list" },
+        h("button", { class: "item" + (st.screens[sc].tournament == null ? " sel" : ""), onclick: () => { close(); act("/api/nunki/tournament", { screen: sc, id: null }); } },
+          h("span", { class: "grow" }, t("nk_auto"))),
+        st.tournaments.map((x) => h("button", { class: "item" + (String(x.id) === String(st.screens[sc].tournament) ? " sel" : ""),
+          onclick: () => { close(); act("/api/nunki/tournament", { screen: sc, id: x.id }); } },
+          h("i", { class: "dot " + (x.connected ? "ok" : "bad") }), h("span", { class: "grow" }, x.name)))),
+      h("div", { class: "row" }, h("button", { class: "btn", onclick: () => close() }, t("cancel")))]);
+  };
+  const screenCard = (sc, st) => {
+    const s = st.screens[sc];
+    const tour = st.tournaments.find((x) => String(x.id) === String(s.tournament));
+    return h("div", { class: "card nk-screen", id: "nk-" + sc },
+      h("h2", {}, tf("nk_screen", sc.slice(-1))),
+      h("div", { class: "seg" }, NK_MODES.map((m) => h("button", { class: "btn" + (s.mode === m ? " on" : "") + (m === "black" ? " nk-black" : ""),
+        id: "nk-" + sc + "-" + m, onclick: () => act("/api/nunki/screen", { screen: sc, mode: m }) }, t("nk_" + m)))),
+      h("button", { class: "btn nk-tour", id: "nk-" + sc + "-tour", onclick: () => pickTournament(sc, st) },
+        h("span", { class: "dim" }, t("nk_tour") + ": "), tour ? tour.name : t("nk_auto")));
+  };
+  async function draw() {
+    let r;
+    try { r = await api("/api/nunki"); } catch (e) { r = { ok: false, reason: "down" }; }
+    if (location.pathname !== "/nunki" || !$("#modal").hidden) return;
+    if (!r.ok) { holder.replaceChildren(msg("bad", nkReason(r.reason))); last = null; return; }
+    const st = r.state;
+    const key = JSON.stringify(st);
+    if (key === last) return;
+    last = key;
+    const conn = st.tournaments.filter((x) => x.connected).length;
+    holder.replaceChildren(
+      h("p", { class: "dim small nk-line", id: "nk-line" }, tf("nk_status", st.version || "?", conn, st.tournaments.length),
+        st.countdown ? "  |  " + t("nk_countdown") : ""),
+      h("div", { class: "nk-screens" }, Object.keys(st.screens).sort().map((sc) => screenCard(sc, st))),
+      st.two_screens ? null : h("p", { class: "dim small" }, t("nk_one")),
+      h("div", { class: "row nk-audio" }, h("span", {}, t("nk_sound")),
+        h("div", { class: "seg" },
+          h("button", { class: "btn" + (st.audio ? " on" : ""), id: "nk-audio-on", onclick: () => act("/api/nunki/audio", { enabled: true }) }, t("nk_on")),
+          h("button", { class: "btn" + (st.audio ? "" : " on"), id: "nk-audio-off", onclick: () => act("/api/nunki/audio", { enabled: false }) }, t("nk_off")))));
+  }
+  // the box's volume (alnasl-sound), once: a slider redrawn under a finger is a slider nobody can use
+  api("/api/sound").then((r) => {
+    const val = h("b", {}, r.volume + "%");
+    const vol = h("input", { type: "range", min: "0", max: "100", step: "5", value: String(r.volume), id: "nk-volume", class: "range",
+      oninput: () => { val.textContent = vol.value + "%"; },
+      onchange: () => api("/api/sound", { volume: Number(vol.value) }).catch((e) => status.replaceChildren(msg("bad", errText(e)))) });
+    sound.replaceChildren(h("div", { class: "row" }, h("span", {}, t("volume")), vol, val));
+  }).catch(() => sound.remove());
+  shell(t("nk"), [holder, sound, status], { home: true, back });
+  draw();
+  PAGE_TIMER = setInterval(draw, 3000);
+}
+
+/* ------------------------------------------------------ screen wizard -- */
+// v7.5: which layout a nunki box's monitors get, which monitor is which, how each is turned, and which tournament
+// each broadcast shows. One page, four numbered steps; Save restarts the screens (AlnaslSetup.Server.Displays).
+function layPicture(lay) {
+  const jobs = { auto: ["manage", "hall1"], single: ["hall1", null], manage: ["manage", "hall1"], mirror: ["hall1", "hall1"], two: ["hall1", "hall2"] }[lay];
+  return h("div", { class: "lay-pic" }, jobs.map((j) => h("div", { class: "lay-mon" + (j ? " " + j : " dark") }, j ? t("job_" + j) : "")));
+}
+async function screensPage() {
+  let r;
+  try { r = await api("/api/displays"); } catch (e) { sub(t("scr"), [msg("bad", errText(e))]); return; }
+  if (r.role !== "nunki") { sub(t("scr"), [msg("warn", t("scr_only"))]); return; }
+  const cfg = Object.assign({}, r.config);
+  const status = h("div", { id: "scr-msg" });
+  const conn = r.connected.map((c) => c.label).join(", ") || t("scr_none");
+  const lays = h("div", { class: "lay-grid", id: "scr-layouts" });
+  const drawLays = () => lays.replaceChildren(...r.layouts.map((l) => h("button", { class: "lay" + (cfg.layout === l ? " sel" : ""), id: "lay-" + l,
+    onclick: () => { cfg.layout = l; drawLays(); } }, layPicture(l), h("div", { class: "t" }, t("lay_" + l)), h("div", { class: "d dim small" }, t("lay_" + l + "_d")))));
+  drawLays();
+  const ident = h("button", { class: "btn", id: "scr-identify", onclick: async () => {
+    ident.disabled = true;
+    await api("/api/displays/identify", {}).catch(() => 0);
+    setTimeout(() => { ident.disabled = false; }, 8000);
+  } }, t("scr_ident"));
+  const swap = h("button", { class: "btn" + (cfg.swap ? " on" : ""), id: "scr-swap", onclick: () => { cfg.swap = !cfg.swap; swap.classList.toggle("on", cfg.swap); } }, t("scr_swap"));
+  const rotSel = (k) => h("select", { id: "scr-" + k, onchange: (e) => { cfg[k] = e.target.value; } },
+    r.rotations.map((x) => h("option", { value: x, selected: cfg[k] === x }, t("rot_" + x))));
+  // the tournaments are Nunki's own setting: asked and set through its API, only when it answers
+  const tours = h("div", { id: "scr-tours" }, busy("..."));
+  const pick = {};
+  api("/api/nunki").then((n) => {
+    if (!n.ok) { tours.replaceChildren(msg("warn", t("scr_tour_later"))); return; }
+    const st = n.state;
+    tours.replaceChildren(...["hdmi1", "hdmi2"].filter((sc) => st.screens[sc]).map((sc) => {
+      pick[sc] = st.screens[sc].tournament;
+      return h("label", { class: "f" }, h("span", {}, tf("nk_screen", sc.slice(-1))),
+        h("select", { id: "scr-tour-" + sc, onchange: (e) => { pick[sc] = e.target.value === "" ? null : st.tournaments.find((x) => String(x.id) === e.target.value).id; } },
+          h("option", { value: "", selected: pick[sc] == null }, t("nk_auto")),
+          st.tournaments.map((x) => h("option", { value: String(x.id), selected: String(x.id) === String(pick[sc]) }, x.name))));
+    }));
+  }).catch(() => tours.replaceChildren(msg("warn", t("scr_tour_later"))));
+  const save = h("button", { class: "btn primary", id: "scr-save", onclick: async () => {
+    save.disabled = true;
+    try {
+      for (const [sc, id] of Object.entries(pick)) await api("/api/nunki/tournament", { screen: sc, id }).catch(() => 0);
+      await api("/api/displays", cfg);
+      status.replaceChildren(msg("ok", t("scr_saved")));
+    } catch (e) { status.replaceChildren(msg("bad", errText(e))); save.disabled = false; }
+  } }, t("scr_save"));
+  sub(t("scr"), [
+    h("p", { class: "dim", id: "scr-conn" }, tf("scr_conn", conn)),
+    r.plan && r.plan.fallback ? msg("warn", t("scr_fallback")) : null,
+    h("div", { class: "card" }, h("h2", {}, t("scr_1")), lays),
+    h("div", { class: "card" }, h("h2", {}, t("scr_2")), h("p", { class: "dim small" }, t("scr_ident_d")), h("div", { class: "row" }, ident, swap)),
+    h("div", { class: "card" }, h("h2", {}, t("scr_3")), h("div", { class: "row" },
+      h("label", { class: "f" }, h("span", {}, "HDMI 0"), rotSel("rotate1")), h("label", { class: "f" }, h("span", {}, "HDMI 1"), rotSel("rotate2")))),
+    h("div", { class: "card" }, h("h2", {}, t("scr_4")), tours),
+    h("div", { class: "row" }, save), status]);
+}
+
+/* ------------------------------------------------------ remote access -- */
+// v7.5 (docs/remote-access.md): opt-in Tailscale. Start -> a login link as a big QR code -> the owner logs in on a
+// phone -> connected. Leave logs out and wipes the key. The page asks the box every three seconds.
+async function remotePage() {
+  const holder = h("div", { id: "rm-state" }, busy("..."));
+  const status = h("div", { id: "rm-msg" });
+  let last = null;
+  const act = async (btn, path, body) => {
+    if (btn) btn.disabled = true;
+    try {
+      const r = await api(path, body);
+      status.replaceChildren(r.ok === false ? msg("bad", t(r.error || "error")) : "");
+    } catch (e) { status.replaceChildren(msg("bad", errText(e))); }
+    last = null; draw();
+  };
+  const leaveBtn = () => h("button", { class: "btn danger", id: "rm-leave", onclick: () => {
+    const close = modal([h("p", {}, t("rm_leave_q")), h("div", { class: "row" },
+      h("button", { class: "btn danger", id: "rm-leave-yes", onclick: async (e) => { close(); await act(null, "/api/remote/leave", { confirm: "LEAVE" }); status.replaceChildren(msg("ok", t("rm_left"))); } }, t("rm_leave")),
+      h("button", { class: "btn", onclick: () => close() }, t("cancel")))]);
+  } }, t("rm_leave"));
+  const newBtn = (primary) => { const b = h("button", { class: "btn" + (primary ? " primary" : ""), id: "rm-new", onclick: () => act(b, "/api/remote/new-code", {}) }, t("rm_new")); return b; };
+  function view(r) {
+    if (!r.available) return [msg("warn", t("rm_none"))];
+    switch (r.state) {
+      case "off": {
+        const b = h("button", { class: "btn primary", id: "rm-start", onclick: () => act(b, "/api/remote/start", {}) }, t("rm_start"));
+        return [h("p", {}, tf("rm_off_d", ROLE_PORT[roleNow()])), h("div", { class: "row" }, b)];
+      }
+      case "starting": return [busy(t("rm_starting")), h("div", { class: "row" }, leaveBtn())];
+      case "login": return [h("div", { class: "rm-login", id: "rm-login" }, qrCanvas(r.rows || []),
+        h("div", { class: "rm-side" }, h("p", {}, t("rm_scan")), h("p", { class: "rm-url", id: "rm-url" }, r.url),
+          r.stale ? msg("warn", t("rm_stale")) : null, h("div", { class: "row" }, newBtn(r.stale), leaveBtn())))];
+      case "no_internet": return [msg("bad", t("rm_noinet")), h("div", { class: "row" }, newBtn(true), leaveBtn())];
+      case "approve": return [msg("warn", t("rm_approve")), h("div", { class: "row" }, leaveBtn())];
+      case "connected": return [h("div", { class: "card", id: "rm-connected" }, h("h2", {}, h("span", { class: "pill ok" }, t("rm_conn"))),
+        h("dl", { class: "kv" }, h("dt", {}, t("rm_ip")), h("dd", { id: "rm-ip" }, r.ip || "-"),
+          h("dt", {}, t("rm_dns")), h("dd", { id: "rm-dns" }, r.dns_name || "-"),
+          r.tailnet ? [h("dt", {}, t("rm_net")), h("dd", {}, r.tailnet)] : null),
+        h("p", { class: "dim small" }, t("rm_ssh"))), h("div", { class: "row" }, leaveBtn())];
+      default: return [msg("warn", t("rm_stopped")), h("div", { class: "row" }, newBtn(true), leaveBtn())];
+    }
+  }
+  async function draw() {
+    let r;
+    try { r = await api("/api/remote"); } catch (e) { return; }
+    if (location.pathname !== "/settings/remote" || !$("#modal").hidden) return;
+    const key = JSON.stringify(r);
+    if (key === last) return;
+    last = key;
+    holder.replaceChildren(...view(r));
+  }
+  sub(t("rm"), [holder, status]);
+  draw();
+  PAGE_TIMER = setInterval(draw, 3000);
 }
 
 /* --------------------------------------------------------------- pin ----- */

@@ -52,6 +52,9 @@ libraries and data (glibc 2.36, the same as Photon 5) into `/opt/espeak-ng`, beh
 `/usr/local/bin/espeak-ng`. ALSA from Photon (`alsa-lib`, `alsa-utils`). `alnasl-sound` (at start of the
 nunki role and when Settings changes) writes `/etc/asound.conf`: the default device is a softvol "Alnasl"
 control on HDMI or on the 3.5 mm jack. Settings > Sound (nunki role only): output, volume, test.
+7.5: the HDMI monitors show the broadcast, not the admin page; two monitors, the screen wizard and the panel's
+hall-screen controls are in `docs/nunki-displays.md`. Nunki's sound is off in a fresh image (`NUNKI_AUDIO=off`).
+Remote access for every role (opt-in Tailscale): `docs/remote-access.md`.
 
 ## 2. Boot screen: the log
 

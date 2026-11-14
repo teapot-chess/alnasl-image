@@ -112,7 +112,7 @@ echo "$T" | grep -q -x -E 'permitrootlogin (without-password|prohibit-password)'
   && echo "$T" | grep -q -x 'pubkeyauthentication yes' && echo "$T" | grep -q -x 'authenticationmethods publickey' && echo "$T" | grep -q -x 'permitemptypasswords no' \
   && ok "sshd -T: root by key only (prohibit-password), no passwords, no keyboard-interactive" || bad "sshd -T: $(echo "$T" | grep -E '^(permitrootlogin|passwordauthentication|kbdinteractiveauthentication|pubkeyauthentication|authenticationmethods)' | tr '\n' ' ')$(echo "$T" | head -c 300)"
 else
-echo "== v6 lockdown: no ssh, no Tailscale, nothing inbound but the hall's"
+echo "== v6 lockdown: no ssh, nothing inbound but the hall's (v7.5: Tailscale opt-in, off)"
 grep -q '^DEBUG_SSH' $R/etc/alnasl/image-release && bad "image-release says DEBUG_SSH in a normal image" || ok "image-release: no DEBUG_SSH"
 for u in sshd.service sshd.socket sshd-keygen.service; do
   s=$(chroot $R systemctl is-enabled $u 2>&1 | tail -1)
@@ -130,7 +130,7 @@ fi
 # v7: the ports depend on the role (/run/alnasl-mode/role); each role's ruleset, as the script makes it.
 fwrole() { # role -> both rulesets
   local d; d=$(mktemp -d); [ -n "$1" ] && echo "$1" > $d/role
-  bash -c "source <(sed -n '/^CHAIN=/p;/^log()/p;/^ROLE=/,/^app_rule()/p;/^rules_v4()/,/^}/p;/^rules_v6()/,/^}/p' $R/usr/local/sbin/alnasl-firewall | sed 's#/run/alnasl-mode/role#$d/role#;s#/etc/alnasl/debug-ssh#$R/etc/alnasl/debug-ssh#'); rules_v4; rules_v6"
+  bash -c "source <(sed -n '/^CHAIN=/p;/^log()/p;/^ROLE=/,/^tailnet_rule()/p;/^rules_v4()/,/^}/p;/^rules_v6()/,/^}/p' $R/usr/local/sbin/alnasl-firewall | sed 's#/run/alnasl-mode/role#$d/role#;s#/run/alnasl-tailscale/active#$d/no-such-flag#;s#/etc/alnasl/debug-ssh#$R/etc/alnasl/debug-ssh#'); rules_v4; rules_v6"
   rm -rf $d
 }
 fw=$(for r in alnasl arkab polis nunki; do fwrole $r; done)
@@ -140,7 +140,20 @@ if [ $DBG = 1 ]; then
 else
   echo "$fw" | grep -q -E -- '--dport 22( |$)' && bad "firewall lets port 22 in" || ok "firewall: port 22 closed"
 fi
-echo "$fw" | grep -q -i -E 'tailscale|41641' && bad "firewall still has the Tailscale rules" || ok "firewall: no Tailscale rules"
+# v7.5: remote access (docs/remote-access.md) adds ONE rule, and only while it is on (/run/alnasl-tailscale/active):
+# the role's own port, on tailscale0 only. Off (the image as built, and every box that never pressed Start) is today.
+echo "$fw" | grep -q -i -E 'tailscale|41641' && bad "firewall has Tailscale rules with remote access off" || ok "firewall, remote access off: no Tailscale rule at all"
+fwts() { # role -> both rulesets with the remote-access flag set
+  local d; d=$(mktemp -d); echo "$1" > $d/role; touch $d/active
+  bash -c "source <(sed -n '/^CHAIN=/p;/^log()/p;/^ROLE=/,/^tailnet_rule()/p;/^rules_v4()/,/^}/p;/^rules_v6()/,/^}/p' $R/usr/local/sbin/alnasl-firewall | sed 's#/run/alnasl-mode/role#$d/role#;s#/run/alnasl-tailscale/active#$d/active#;s#/etc/alnasl/debug-ssh#$R/etc/alnasl/debug-ssh#'); rules_v4; rules_v6"
+  rm -rf $d
+}
+for rp in alnasl:4040 arkab:4050 polis:4061 nunki:4062; do
+  r=${rp%%:*}; p=${rp#*:}; on=$(fwts $r)
+  [ "$(echo "$on" | grep -c -i tailscale)" = 2 ] && [ "$(echo "$on" | grep -c -x -- "-A ALNASL-IN -i tailscale0 -p tcp --dport $p -j ACCEPT")" = 2 ] \
+    && ! echo "$on" | grep -q 41641 && [ "$(diff <(fwrole $r) <(echo "$on") | grep -c '^[<>]')" = 2 ] \
+    && ok "firewall, $r with remote access on: only tcp $p on tailscale0 (IPv4 + IPv6), nothing else changed" || bad "firewall, $r with remote access on: $(echo "$on" | grep -i -E 'tailscale|41641' | tr '\n' ' ')"
+done
 # (the debug image's 22 is counted above; the roles' own ports are the same in both)
 ports() { fwrole "$1" | grep -o -- '-p tcp --dport [0-9]* -j ACCEPT' | awk '$4 != 22 {print $4}' | sort -u | tr '\n' ' '; }
 [ "$(ports alnasl)" = "4040 " ] && ok "firewall, alnasl box: only 4040 (Alnasl) let in" || bad "firewall, alnasl box: tcp ports '$(ports alnasl)'"
@@ -151,15 +164,30 @@ for r in alnasl arkab polis nunki; do
   [ "$(fwrole $r | grep -c -- '^-A ALNASL-IN -j DROP$')" = 2 ] && [ "$(fwrole $r | grep -c '^$')" = 0 ] && ok "firewall, $r: both rulesets end in DROP, no blank lines" || bad "firewall, $r: no final DROP, or blank lines"
 done
 grep -q 'After=.*alnasl-mode.service' $R/etc/systemd/system/alnasl-firewall.service && ok "alnasl-firewall runs after alnasl-mode (it reads the role)" || bad "alnasl-firewall.service not ordered after alnasl-mode"
-ts=$(ls $R/usr/local/bin/tailscale* $R/usr/bin/tailscale* $R/usr/sbin/tailscale* $R/usr/local/sbin/alnasl-tailscale-up \
-        $R/etc/systemd/system/tailscale* $R/etc/systemd/system/alnasl-tailscale* $R/usr/lib/systemd/system/tailscale* $B/tailscale* 2>/dev/null)
-[ -z "$ts" ] && ok "no Tailscale binary, unit, script or key file" || bad "Tailscale pieces: $ts"
-# The setup server's modules (Server, Server.*): no unit, binary or switch of either in any string they hold.
+# v7.5: Tailscale is in the image, off. The pinned binaries, one unit that does nothing until Start writes its flag
+# on the data partition, no flag, no state and no key in the image; no other Tailscale unit or script.
+[ -x $R/usr/local/bin/tailscale ] && [ -x $R/usr/local/sbin/tailscaled ] && [ -x $R/usr/local/sbin/alnasl-tailscale ] \
+  && ok "Tailscale $(cat $R/usr/share/alnasl/tailscale-version 2>/dev/null): tailscale, tailscaled, alnasl-tailscale installed" || bad "Tailscale binaries or alnasl-tailscale missing"
+file $R/usr/local/sbin/tailscaled | grep -q -E 'ARM aarch64|aarch64' && ok "tailscaled is arm64" || bad "tailscaled: $(file -b $R/usr/local/sbin/tailscaled | cut -c1-80)"
+[ "$(chroot $R systemctl is-enabled alnasl-tailscale.service 2>&1 | tail -1)" = enabled ] \
+  && grep -q '^ConditionPathExists=/var/lib/alnasl-tailscale/enabled$' $R/etc/systemd/system/alnasl-tailscale.service \
+  && ok "alnasl-tailscale.service enabled, but runs only once Start wrote /var/lib/alnasl-tailscale/enabled" || bad "alnasl-tailscale.service not enabled or not gated"
+grep -q -- '--ssh' $R/usr/local/sbin/alnasl-tailscale && grep -q -- '--netfilter-mode=off' $R/usr/local/sbin/alnasl-tailscale \
+  && ! grep -q -i -E 'auth-?key|tskey' $R/usr/local/sbin/alnasl-tailscale $R/etc/systemd/system/alnasl-tailscale.service \
+  && ok "alnasl-tailscale: Tailscale SSH, our own firewall, no auth key anywhere" || bad "alnasl-tailscale flags or an auth key"
+ts=$(ls -A $R/var/lib/alnasl-tailscale 2>/dev/null; ls $R/usr/bin/tailscale* $R/usr/sbin/tailscale* $R/etc/systemd/system/tailscale* $R/usr/lib/systemd/system/tailscale* $B/tailscale* 2>/dev/null)
+[ -z "$ts" ] && ok "no Tailscale flag, state or key in the image; no other Tailscale unit" || bad "Tailscale pieces: $ts"
+grep -q 'alnasl-tailscale' $R/usr/local/sbin/alnasl-data && ok "alnasl-data keeps /var/lib/alnasl-tailscale on the data partition" || bad "alnasl-data has no /var/lib/alnasl-tailscale"
+find $R/lib/modules/$KVER -name 'tun.ko*' | grep -q . || grep -q -E '^CONFIG_TUN=y' $R/boot/config-$KVER 2>/dev/null \
+  && ok "the kernel has TUN (tailscaled's tailscale0)" || bad "no TUN in the kernel: remote access cannot start"
+# The setup server: no sshd anywhere; Tailscale only through alnasl-tailscale, from its Remote module, never /api/services.
 [ -n "$EB" ] && [ -f $EB/Elixir.AlnaslSetup.Server.Box.beam ] || bad "no setup-app release in /opt/alnasl-setup"
 [ -f $SRC/server.ex ] || bad "no setup-app source in $SRC (build-setup.sh unpacks it there)"
-{ grep -a -q -i -E 'sshd|tailscale' $EB/Elixir.AlnaslSetup.Server.beam $EB/Elixir.AlnaslSetup.Server.*.beam || grep -q -i -E 'sshd|tailscale' $SRC/server.ex $SRC/server/*.ex; } \
-  && bad "the setup server can still reach sshd/tailscale" || ok "setup server: /api/services cannot start sshd or Tailscale (no such string in its .beam files or source)"
-grep -q -i -E 'tailscale|"ssh"|s_ssh' $R/usr/local/share/alnasl-setup/www/app.js && bad "app.js still offers ssh/Tailscale" || ok "app.js: no ssh/Tailscale switches"
+{ grep -a -q -i 'sshd' $EB/Elixir.AlnaslSetup.Server.beam $EB/Elixir.AlnaslSetup.Server.*.beam || grep -q -i 'sshd' $SRC/server.ex $SRC/server/*.ex; } \
+  && bad "the setup server can reach sshd" || ok "setup server: no sshd in its .beam files or source"
+grep -a -q -i 'tailscale' $EB/Elixir.AlnaslSetup.Server.Box.beam $SRC/server/box.ex && bad "Server.Box (/api/services) knows Tailscale" || ok "setup server: /api/services cannot start Tailscale (Server.Box has no such string)"
+grep -q -i -E 'tailscale up|auth-?key' $SRC/server/remote.ex && bad "Server.Remote runs tailscale itself" || ok "setup server: remote access only through /usr/local/sbin/alnasl-tailscale"
+grep -q -E '"ssh"|s_ssh' $R/usr/local/share/alnasl-setup/www/app.js && bad "app.js offers an ssh switch" || ok "app.js: no ssh switch (remote access is its own page)"
 
 echo "== units"
 for u in alnasl-firewall alnasl-firstboot alnasl-wifi alnasl-kiosk-load alnasl-kiosk alnasl-setup docker containerd alnasl alnasl-update.path wpa_supplicant@wlan0 systemd-networkd systemd-resolved getty@tty2 getty@tty3 \
@@ -829,7 +857,7 @@ chroot $R id -nG arkab | grep -q -w dialout && ok "arkab in dialout (the serial 
 grep -q '^PORT=4050$' $R/etc/arkab/arkab.env && ! grep -q '^ARKAB_LISTEN=local' $R/etc/arkab/arkab.env && ok "arkab.env: port 4050, the hall's network may look" || bad "arkab.env"
 grep -q 'ARKAB_DATA=/var/lib/arkab' $R/etc/systemd/system/arkab.service && ok "arkab.service keeps its data in /var/lib/arkab (the data partition)" || bad "arkab.service ARKAB_DATA"
 grep -q '^PORT=4061$' $R/etc/polis/polis.env && ! grep -q '^POLIS_LISTEN=lan' $R/etc/polis/polis.env && ok "polis.env: port 4061, this box only (no --lan)" || bad "polis.env"
-grep -q '^PORT=4062$' $R/etc/nunki/nunki.env && ! grep -q '^NUNKI_LISTEN=lan' $R/etc/nunki/nunki.env && ok "nunki.env: port 4062, this box only (no --lan)" || bad "nunki.env"
+grep -q '^PORT=4062$' $R/etc/nunki/nunki.env && ! grep -q '^NUNKI_LISTEN=lan' $R/etc/nunki/nunki.env && [ "$(grep -c '^NUNKI_AUDIO=' $R/etc/nunki/nunki.env)" = 1 ] && grep -q '^NUNKI_AUDIO=off$' $R/etc/nunki/nunki.env && ok "nunki.env: port 4062, this box only (no --lan), sound off by default" || bad "nunki.env"
 chroot $R id -nG nunki | grep -q -w audio && ok "nunki in audio (the sound card)" || bad "nunki not in audio"
 # Polis's printing: CUPS from Photon, switched off unless this is a Polis box; PDFs go to the printer as they are.
 rpm --root=$R -q cups alsa-lib alsa-utils | sed 's/^/       /'

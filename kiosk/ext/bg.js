@@ -32,13 +32,30 @@ chrome.runtime.onMessage.addListener(function (msg, _sender, reply) {
   return true; // async reply
 });
 
+// v7.5: the screen wizard's "Identify screens" (identify.js asks; the menu server knows where each window is).
+chrome.runtime.onMessage.addListener(function (msg, _sender, reply) {
+  if (!msg || msg.type !== "identify") return false;
+  fetch("http://localhost:4041/api/displays/identify", { cache: "no-store" })
+    .then(function (r) { return r.json(); })
+    .then(function (s) { reply(s); })
+    .catch(function () { reply(null); });
+  return true; // async reply
+});
+
+// v7.5: a nunki broadcast window (Nunki's /hall?screen=hdmi1) that loses Nunki waits on the boot screen and comes
+// back to the same broadcast, not to the control page: the boot screen is told where to return (to=hall1).
+function screenFor(u) {
+  var m = /^http:\/\/(localhost|127\.0\.0\.1):4062\/hall\b.*[?&]screen=hdmi([12])\b/.exec(u || "");
+  return m ? SCREEN + "?to=hall" + m[2] + "&where=hdmi" : SCREEN;
+}
+
 function isBoxUrl(u) { return /^http:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(u || ""); }
 
 if (chrome.webNavigation && chrome.webNavigation.onErrorOccurred) {
   chrome.webNavigation.onErrorOccurred.addListener(function (d) {
     if (d.frameId !== 0 || d.error === "net::ERR_ABORTED") return;
     if (APP_RE.test(d.url || "")) {
-      chrome.tabs.update(d.tabId, { url: SCREEN });
+      chrome.tabs.update(d.tabId, { url: screenFor(d.url) });
       return;
     }
     if (isBoxUrl(d.url)) return;
