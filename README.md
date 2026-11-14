@@ -1,7 +1,22 @@
-# photon-image
+# alnasl-image
+
+System-image releases for the Alnasl hall box (Raspberry Pi 4, Photon OS), from v6 on.
+
+Boxes read `index.json` from the `index` release, check its signature against the
+public key their own image carries, and install a newer system image of **their own
+train** (v6.x) into the other A/B slot by themselves. Another train (v7) is only ever
+installed when someone asks for it: the box's menu, Arkab, or `alnasl-upgrade.txt` on
+the boot partition.
+
+Every file here is signed (`.sig`, ECDSA P-256 over SHA-256). An unsigned or wrongly
+signed file is refused, which is the point.
+
+Full SD images for a fresh card are not published here.
+
+## Building the image
 
 Builds the Alnasl Raspberry Pi image on Photon OS (roles alnasl, arkab, polis, nunki; see docs/v7-plan.md,
-docs/v6-plan.md). Local repo, no remote yet. Builds run on the VM (`/root/w-photon-img5`), triggered by hand.
+docs/v6-plan.md). Builds run on the VM (`/root/w-photon-img5`), triggered by hand.
 
 ## What goes into an image
 
@@ -30,7 +45,6 @@ rewritten on every build.
 `check.ps1 -SkipSiblings` is the part that works without the sibling checkouts, for CI once there is a remote.
 CI cannot run `build.ps1` or `verify.sh`.
 
-
 ## Nunki on two monitors, remote access (7.5)
 
 A nunki box puts the broadcast (`/hall?screen=hdmi1|hdmi2`) on its HDMI monitors: one monitor, management +
@@ -56,7 +70,6 @@ painter needs are done by a tiny C helper, `alnasl-fbtool`, built into the relea
 `assemble.sh` unpacks it into the image and removes every python3 package; the build stops if anything else
 depends on one. Build-VM helpers that need more than shell (`uboot-env.exs`, `release-index.exs`,
 `render-splash.exs`) are Elixir scripts run in the same hexpm Elixir image.
-
 
 ## Small screens on the pins (v7.3)
 
@@ -96,3 +109,7 @@ stops the box from hanging on it.
 - `scripts/verify.sh`: needs the finished image, runs on the VM in the verify stage.
 - What none of these can show (hotspot on real Wi-Fi, the iPhone captive sheet, the framebuffer, A/B update and
   rollback, diagnostics upload) is in `docs/no-python-checklist.md`.
+
+## Licence
+
+Source published for reference under the Microsoft Reference Source License (Ms-RSL), copyright 2026 Jorian Burssens. The builds we publish (downloads, app stores, the Alnasl Pi image) may be used free of charge to run chess events; that permission covers our builds, not builds you make yourself. See [LICENSE](LICENSE).
