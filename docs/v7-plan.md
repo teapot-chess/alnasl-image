@@ -55,6 +55,8 @@ control on HDMI or on the 3.5 mm jack. Settings > Sound (nunki role only): outpu
 7.5: the HDMI monitors show the broadcast, not the admin page; two monitors, the screen wizard and the panel's
 hall-screen controls are in `docs/nunki-displays.md`. Nunki's sound is off in a fresh image (`NUNKI_AUDIO=off`).
 Remote access for every role (opt-in Tailscale): `docs/remote-access.md`.
+7.6: Alnasl 0.18.0, Arkab 0.6.0, Polis 0.6.0 (Nunki stays 0.7.0); smoother touch calibration, and the panel's home
+screen shows the Tailscale address and port once remote access is connected.
 
 ## 2. Boot screen: the log
 
