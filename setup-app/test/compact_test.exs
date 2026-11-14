@@ -16,6 +16,26 @@ defmodule AlnaslSetup.CompactTest do
         over
       )
 
+  describe "the tailnet address on the home screen" do
+    test "only a connected box with an address shows one" do
+      alias AlnaslSetup.Server.Remote, as: R
+
+      assert R.address_of(%{"state" => "connected", "ip" => "100.64.1.2", "dns_name" => "alnasl-1.tail.ts.net"}) ==
+               %{"ip" => "100.64.1.2", "dns_name" => "alnasl-1.tail.ts.net"}
+
+      for s <- [
+            %{"state" => "off"},
+            %{"state" => "login", "url" => "https://x"},
+            %{"state" => "connected", "ip" => nil}
+          ],
+          do: assert(R.address_of(s) == nil)
+    end
+
+    test "remote access off: no address, and Tailscale is not asked" do
+      assert AlnaslSetup.Server.Remote.address() == nil
+    end
+  end
+
   describe "which picture" do
     test "a box that is not set up shows the QR code, however long it has been up" do
       for now <- [1000.0, 1119.0, 1121.0, 100_000.0], do: assert(C.decide(i(%{done: false, now: now}))["view"] == "qr")
