@@ -22,6 +22,9 @@ The folder "alnasl" holds the boot loader's choice between the two system slots 
 Files that APPEAR here:
   alnasl-diagnostics-YYYYMMDD-HHMMSS.txt   written by the box's menu: Diagnostics > "Save diagnostics to the SD card".
                                            Plain text, passphrases and keys removed. Send it along when something does not work.
+  alnasl-boot.txt                          written at every boot: the slot (A or B), the image version, what the boot loader decided, the
+                                           kernel command line and the errors the previous boot logged last. Plain text, no Wi-Fi keys, PINs
+                                           or passwords. Open it on a PC when a box will not start properly, and send it along.
   alnasl-hotspot-qr.png                    a QR code that joins the setup hotspot (phone camera, no typing). Print it and
                                            stick it on the case. Written again whenever the password or the box changes.
                                            Whoever has it can open the setup page: keep it with the box, not on the web.

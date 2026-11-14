@@ -290,7 +290,7 @@ defmodule Splash do
   @states [
     {"boot", nil},
     {"firstboot-1", {{1, 3}, {"Setting up this box", "Giving it a name"}, {"Deze box wordt klaargemaakt", "Een naam geven"}}},
-    {"firstboot-2", {{2, 3}, {"Setting up this box", "Unpacking the screen software: a few minutes, only this once"}, {"Deze box wordt klaargemaakt", "De schermsoftware uitpakken: een paar minuten, alleen deze keer"}}},
+    {"firstboot-2", {{2, 3}, {"Setting up this box", "Unpacking the screen software: a few minutes, new box or update"}, {"Deze box wordt klaargemaakt", "De schermsoftware uitpakken: een paar minuten, nieuwe box of update"}}},
     {"firstboot-3", {{3, 3}, {"Setting up this box", "Starting Alnasl"}, {"Deze box wordt klaargemaakt", "Alnasl starten"}}},
     {"waiting", {nil, {"Starting Alnasl", ""}, {"Alnasl starten", ""}}},
     {"update-os", {nil, {"Updating", "Back in a minute"}, {"Bijwerken", "Zo terug"}}},
@@ -312,7 +312,7 @@ defmodule Splash do
   # Which states show a value (in the line's place) and a progress bar (in the step squares' place, or just
   # under them when the state has squares too: unpacking the kiosk at first boot).
   @value %{"update-download" => "pct", "update-restart" => "version"}
-  @bar ["update-download", "update-install", "firstboot-2"]
+  @bar ["update-download", "update-install", "firstboot-1", "firstboot-2", "firstboot-3"]
 
   # Python's round(): halves go to the even neighbour.
   def pyround(x) do

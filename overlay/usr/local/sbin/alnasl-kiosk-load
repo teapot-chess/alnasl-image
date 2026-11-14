@@ -5,11 +5,19 @@
 # loaded at the first boot, after a reset (the store was emptied) and after an update brought a new
 # kiosk. The tarball stays in the slot for exactly those cases; the old image is pruned afterwards.
 TAR=/var/lib/alnasl-image/alnasl-kiosk.tar.gz
+# v7.8: on a first boot the screen shows ONE progress bar from the host name to Alnasl: 0-5 % the name
+# (alnasl-firstboot), 5-15 % docker coming up (the wait below), 15-95 % unpacking the screen software, 100 %
+# starting Alnasl. After an update or a reset the unpacking is the whole screen and the bar runs 0-100 %.
+# FIRST says which of the two this is; BASE and SPAN place the unpacking on the bar.
+FIRST=0; BASE=0; SPAN=100
+case "$(cat /run/alnasl-screen/state 2>/dev/null)" in firstboot-*) FIRST=1; BASE=15; SPAN=80 ;; esac
 # v7.1: docker may still be coming up (or have failed its first start); wait for it, asking it to start.
 for i in $(seq 1 90); do
   docker info >/dev/null 2>&1 && break
   [ "$i" = 1 ] && echo "alnasl-kiosk-load: waiting for docker"
   [ $((i % 10)) = 1 ] && systemctl start --no-block docker.service
+  # (every 30 s: each splash call starts the Elixir release, about a second on a Pi; 5 % creeping up to 15 %)
+  [ "$FIRST" = 1 ] && [ $((i % 3)) = 1 ] && { timeout 20 /usr/local/sbin/alnasl-splash --progress $((5 + i / 9)) || true; }
   sleep 10
 done
 docker info >/dev/null 2>&1 || { echo "alnasl-kiosk-load: docker did not come up in 15 min" >&2; exit 1; }
@@ -24,7 +32,7 @@ if [ ! -f "$TAR" ]; then
   exit 0
 fi
 echo "alnasl-kiosk-load: loading $TAR (${HAVE:+replacing $HAVE; }a few minutes on an SD card)"
-/usr/local/sbin/alnasl-splash --progress 0
+/usr/local/sbin/alnasl-splash --progress "$BASE"
 /usr/local/sbin/alnasl-splash --set firstboot-2
 # The bar follows how much of the tarball has been read: docker load reads as fast as it unpacks, so the
 # pipe keeps the two honest. Last few percent can sit a while as docker commits the layers. It still beats
@@ -43,6 +51,7 @@ while kill -0 "$LOAD" 2>/dev/null; do
   pos=$(sed -n 's/^pos:[[:space:]]*//p' "/proc/$GZ/fdinfo/0" 2>/dev/null)
   [ -n "$pos" ] || continue
   pct=$((pos * 100 / SIZE)); [ "$pct" -le 99 ] || pct=99  # 100 once docker says it is done, not when the last byte leaves
+  pct=$((BASE + pct * SPAN / 100))   # (first boot: 15-95 %)
   [ "$pct" != "$last" ] || continue
   last=$pct
   timeout 20 /usr/local/sbin/alnasl-splash --progress "$pct" || true
@@ -50,7 +59,8 @@ done
 if wait "$LOAD"; then
   /usr/local/sbin/alnasl-splash --progress 100
   docker image prune -f >/dev/null 2>&1
-  /usr/local/sbin/alnasl-splash --progress clear
+  # firstboot-3 has the bar too (full): "Starting Alnasl" ends the first boot's bar. alnasl-kiosk clears it.
+  [ "$FIRST" = 1 ] || /usr/local/sbin/alnasl-splash --progress clear
   /usr/local/sbin/alnasl-splash --set firstboot-3
   echo "alnasl-kiosk-load: done ($(docker image inspect alnasl-kiosk:latest --format '{{.Id}}' 2>/dev/null))"
   exit 0

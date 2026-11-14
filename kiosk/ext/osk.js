@@ -11,8 +11,8 @@
   if (document.getElementById("alnasl-kiosk-osk")) return;
 
   var LABELS = {
-    en: { space: "space", enter: "Enter", hide: "Hide keyboard", sym: "123/#", abc: "ABC", acc: "é à", shift: "Shift" },
-    nl: { space: "spatie", enter: "Enter", hide: "Toetsenbord verbergen", sym: "123/#", abc: "ABC", acc: "é à", shift: "Shift" }
+    en: { space: "space", enter: "Enter", hide: "Hide keyboard", done: "Done", show: "Show", mask: "Hide", empty: "(empty)", sym: "123/#", abc: "ABC", acc: "é à", shift: "Shift" },
+    nl: { space: "spatie", enter: "Enter", hide: "Toetsenbord verbergen", done: "Klaar", show: "Toon", mask: "Verberg", empty: "(leeg)", sym: "123/#", abc: "ABC", acc: "é à", shift: "Shift" }
   };
   var ROWS = {
     azerty: ["azertyuiop", "qsdfghjklm", "wxcvbn"],
@@ -25,6 +25,7 @@
   var cfg = { lang: "en", layout: "be" }, cfgAt = 0;
   var target = null, shift = false, page = "abc"; // page: abc | sym | acc
   var physical = false;                            // a real keyboard was used: stay out of the way
+  var reveal = false, peekTimer = null, lastLen = 0;   // password shown in clear / last typed dot still readable
   var shown = false, repeatTimer = null, repeatDelay = null;
 
   /* ------------------------------------------------------------ which fields ----- */
@@ -57,6 +58,12 @@
     "display:flex;align-items:center;justify-content:center;font-size:22px;cursor:pointer;box-sizing:border-box}" +
     ".k:active,.k.p{background:#2b78c9}" +
     ".k.w{max-width:150px;flex:1.6;font-size:17px}.k.on{background:#2b78c9}" +
+    ".pre{display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:0 4px 0 10px;min-height:46px;border:1px solid #2b3745;border-radius:9px;background:#05080b;color:#eaf0f6}" +
+    ".pre .l{color:#8da0b3;font-size:14px;white-space:nowrap;max-width:30%;overflow:hidden;text-overflow:ellipsis}" +
+    ".pre .v{flex:1;min-width:0;font:20px/1.2 'DejaVu Sans Mono',monospace;white-space:pre;overflow:hidden}" +
+    ".pre .v::after{content:'';display:inline-block;width:2px;height:1.1em;margin-left:1px;vertical-align:-3px;background:#2b78c9;animation:c 1s steps(1) infinite}" +
+    ".pre .v.e{color:#8da0b3}.pre .b{flex:0 0 auto;min-width:64px;height:36px;padding:0 12px;border-radius:8px;border:1px solid #2b3745;background:#202a35;color:#eaf0f6;font-size:15px;display:flex;align-items:center;justify-content:center;cursor:pointer}" +
+    ".pre .b.d{background:#2b78c9}@keyframes c{50%{opacity:0}}@media (prefers-reduced-motion:reduce){.pre .v::after{animation:none}}" +
     ".k.sp{max-width:460px;flex:6;font-size:17px}.k.en{background:#2b78c9;max-width:150px;flex:1.6;font-size:20px}";
   var kb = document.createElement("div");
   kb.className = "kb";
@@ -101,9 +108,58 @@
     return key(ch, "", function () { typeChar(ch); if (shift) { shift = false; draw(); } });
   }
 
+  /* ---------------------------------------- echo line: what is being typed ------ */
+  var preV = null;
+  function labelOf(el) {
+    var t = el.getAttribute("aria-label") || "";
+    if (!t && el.id) { var l = document.querySelector('label[for="' + CSS.escape(el.id) + '"]'); if (l) t = l.textContent; }
+    if (!t) { var p = el.closest && el.closest("label"); if (p) t = p.textContent; }
+    return (t || el.getAttribute("name") || "").replace(/\s+/g, " ").trim().slice(0, 40);
+  }
+  function secret() { return !!target && target.tagName === "INPUT" && (target.getAttribute("type") || "").toLowerCase() === "password"; }
+  function valueOf() {
+    if (!target) return "";
+    return target.isContentEditable ? target.textContent : (target.value || "");
+  }
+  // A password shows dots, the last key typed stays readable for a moment (as phones do), unless Show is on.
+  function preview(typed) {
+    if (!preV || !target) return;
+    var v = valueOf(), t = L();
+    if (secret() && !reveal) {
+      clearTimeout(peekTimer);
+      var keep = typed && v.length > lastLen ? v.slice(-1) : "";
+      v = "•".repeat(Math.max(0, v.length - (keep ? 1 : 0))) + keep;
+      if (keep) peekTimer = setTimeout(function () { preview(false); }, 1200);
+    }
+    lastLen = valueOf().length;
+    var multi = target.tagName === "TEXTAREA" || target.isContentEditable;
+    preV.className = "v" + (v ? "" : " e");
+    preV.textContent = v ? (multi ? v.split("\n").join(" ↵ ") : v) : (target.placeholder || t.empty);
+    preV.scrollLeft = preV.scrollWidth;            // a long value shows its end, where the typing is
+  }
+  function pbtn(label, cls, fn) {
+    var b = document.createElement("div");
+    b.className = "b" + (cls ? " " + cls : ""); b.textContent = label;
+    b.addEventListener("pointerdown", function (e) { e.preventDefault(); e.stopPropagation(); fn(); });
+    b.addEventListener("mousedown", function (e) { e.preventDefault(); });
+    return b;
+  }
+  function preBox() {
+    var t = L(), box = document.createElement("div"), lab = target ? labelOf(target) : "";
+    box.className = "pre";
+    if (lab) { var l = document.createElement("span"); l.className = "l"; l.textContent = lab; box.appendChild(l); }
+    preV = document.createElement("span"); preV.className = "v";
+    box.appendChild(preV);
+    if (secret()) box.appendChild(pbtn(reveal ? t.mask : t.show, "", function () { reveal = !reveal; draw(); }));
+    box.appendChild(pbtn(t.done, "d", function () { hide(true); }));
+    preview(false);
+    return box;
+  }
+
   function draw() {
     var t = L(), r0, rows;
     kb.replaceChildren();
+    kb.appendChild(preBox());
     if (page === "sym") rows = SYM; else if (page === "acc") rows = ACC; else rows = ROWS[kind()];
     if (page === "abc") {
       r0 = row(); "1234567890".split("").forEach(function (c) { r0.appendChild(letter(c)); }); kb.appendChild(r0);
@@ -153,6 +209,7 @@
     target.dispatchEvent(down);
     if (!down.defaultPrevented) insert(c);
     target.dispatchEvent(keyEv("keyup", c));
+    preview(true);
   }
   function backspace() {
     if (!refocus()) return;
@@ -160,6 +217,7 @@
     target.dispatchEvent(down);
     if (!down.defaultPrevented) document.execCommand("delete", false);
     target.dispatchEvent(keyEv("keyup", "Backspace", { keyCode: 8, code: "Backspace" }));
+    preview(false);
   }
   function enter() {
     if (!refocus()) return;
@@ -205,7 +263,7 @@
     if (physical) return;
     loadCfg(function () {
       if (target !== el) return;
-      shift = false; page = "abc";
+      shift = false; page = "abc"; reveal = false;
       draw();
       host.style.display = "block";
       shown = true;
@@ -225,6 +283,9 @@
     if (f) show(f);
   }, true);
   // Tapping a field that is already focused (after "hide") brings the keyboard back.
+  document.addEventListener("input", function (e) {   // LiveView patches, paste, anything that is not our keys
+    if (shown && target && (e.target === target || target.contains(e.target))) preview(false);
+  }, true);
   document.addEventListener("click", function (e) {
     var f = fieldOf(e.target);
     if (f && !shown) { physical = false; show(f); }

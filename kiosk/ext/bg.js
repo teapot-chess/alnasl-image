@@ -69,3 +69,20 @@ if (chrome.webNavigation && chrome.webNavigation.onErrorOccurred) {
     }, 6000);
   });
 }
+
+// v7.8: the status line at the bottom of the screen (statusline.js) asks for slot, address and version.
+// /api/sysinfo: net.eth0 / net.wlan0 are lists of "ip/prefix" (the hotspot's own address is left out),
+// image_release.slot is A or B and image_release.version the image's version.
+chrome.runtime.onMessage.addListener(function (msg, _sender, reply) {
+  if (!msg || msg.type !== "statusline") return false;
+  fetch("http://localhost:4041/api/sysinfo", { cache: "no-store" })
+    .then(function (r) { return r.json(); })
+    .then(function (s) {
+      var net = s.net || {}, ip = "";
+      ["eth0", "wlan0"].forEach(function (i) { if (!ip && net[i] && net[i].length) ip = String(net[i][0]).split("/")[0]; });
+      var rel = s.image_release || {};
+      reply({ slot: rel.slot || "", ip: ip, version: rel.version || "" });
+    })
+    .catch(function () { reply(null); });
+  return true; // async reply
+});

@@ -73,14 +73,30 @@ If the panel does not appear, `KIOSK_CARD` stays empty and the kiosk is on HDMI 
 
 The matrix libinput gets is `rotation(ROTATE) ∘ C`. C comes from, first to last:
 
-1. the on-screen calibration (menu > Settings > Touch screen, four crosses), kept in
+1. the on-screen calibration (menu > Settings > Touch screen, five crosses; "Try it", then Keep or Undo), kept in
    `/var/lib/alnasl-setup/touch-calibration.json` with the preset it was made for. A least-squares affine fit
-   of the four taps, refused when the residual is over 5 % of the screen. Stored per preset, so changing
+   of the five taps, refused when the residual is over 5 % of the screen. Stored per preset, so changing
    `SCREEN=` does not carry another panel's numbers along.
 2. `CALIBRATION=` / `SWAPXY=` in the file.
 3. the preset's built-in raw ranges (waveshare35a: x 390..3750, y 3700..400, measured on a real panel).
 
-The calibration page restarts the kiosk; the udev rule is rewritten and the device retriggered.
+**Smoothing (v7.5).** A resistive panel jitters, and nothing above the driver can fix that well. The ads7846 driver
+does it: every stylus overlay (waveshare35a, waveshare32b, the HDMI-screen `alnasl-xpt2046`) carries
+`ti,debounce-max=10` (average up to ten samples), `ti,debounce-tol=30` (a reading counts when it repeats within 30
+units), `ti,debounce-rep=1`, `ti,settle-delay-usec=150` (let the plates settle) and `ti,keep-vref-on`. libinput has
+no smoothing for touchscreens, so the web page does none either. Too sluggish or still jumpy: those five lines in
+`module/*.dts*` are the knobs (tolerance down = steadier and slower to accept a reading).
+
+**Calibrating without a restart (v7.5).** Settings > Touch screen > Calibrate shows five crosses (corners at 15 %/85 %
+and the middle, 48 px). The box fits them, then `AlnaslSetup.SmallScreen.try_calibration/1` does two things at once:
+rewrites `/run/udev/rules.d/90-alnasl-touch.rules` (the next start of X) and tells the running X server through
+`docker exec alnasl-kiosk xinput set-prop "ADS7846 Touchscreen" "libinput Calibration Matrix" <6 numbers> 0 0 1`.
+Nothing is saved yet: the page turns into a test pad with a dot where the stylus lands, and two 44 px buttons.
+**Keep** writes `/var/lib/alnasl-setup/touch-calibration.json` (reboots and updates keep it). **Undo**, or 20 seconds
+without Keep (the timer lives in `AlnaslSetup.Server.TouchCal`, so a calibration too wrong to reach Keep undoes
+itself), puts the saved one back, again live. Only when xinput cannot be reached (the cage path, a kiosk that is
+not running) does the screen restart, as before. API: `POST /api/touch/calibrate` (try), `/keep`, `/undo`, `/reset`.
+
 
 ## The compact screen (v7.4)
 
@@ -133,7 +149,7 @@ SD-kaart. `SCREEN=hdmi` (standaard) laat de pinnen met rust. `SCREEN=waveshare35
 3,5-inch scherm van 480x320 met stylus, `SCREEN=waveshare32b` het 2,8/3,2-inch scherm van 320x240 met stylus,
 `SCREEN=hx8357d` het Adafruit-type van 3,5 inch, alleen beeld. Een 3,5-inch HDMI-scherm met stylus op de pinnen:
 laat `SCREEN=hdmi` staan en zet `TOUCH=xpt2046`. `ROTATE=` draait beeld en stylus samen. Kom je met de stylus
-naast wat je bedoelt, kalibreer dan in het menu: Instellingen > Aanraakscherm, vier kruisjes. Een wijziging in
+naast wat je bedoelt, kalibreer dan in het menu: Instellingen > Aanraakscherm, vijf kruisjes (eerst uitproberen, dan bewaren of ongedaan maken). Een wijziging in
 het bestand geldt vanaf de volgende start.
 
 Met een klein scherm toont de kast het compacte scherm in plaats van het menu (`UI=auto`; `UI=compact` zet het

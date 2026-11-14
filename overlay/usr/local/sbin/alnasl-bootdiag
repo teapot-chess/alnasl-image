@@ -1,0 +1,77 @@
+#!/bin/bash
+# alnasl-bootdiag: at every boot, a small plain-text file on the boot (FAT) partition that says how this boot
+# went, readable by pulling the SD card and opening it on any PC: /boot/efi/alnasl-boot.txt (v7.8).
+#
+#   boot id            this boot's kernel boot id (told apart from the last one)
+#   slot               A or B, from the kernel command line (alnasl.slot=) and from the partition / is on
+#   image              the image's train and version
+#   grubenv            alnasl_slot, alnasl_try, alnasl_tries, alnasl_failed (what grub decided with)
+#   cmdline            the kernel command line, minus anything that looks like a secret
+#   previous boot      the errors (priority 3 and worse) the previous boot logged last, from the journal, if it kept
+#                      one: the "why did it restart / roll back" lines. None is also an answer.
+#
+# No secrets: no Wi-Fi name or key, no PIN, no hotspot password, no addresses. The kernel command line is
+# filtered word by word (anything with pass, psk, pin, key, secret, token or ssid in its name goes), and so is
+# every journal line (the whole line goes when it mentions one of them). It is written whole to a temporary file
+# and moved into place, so a power cut leaves the last boot's file or none, never half of one. Exits 0 whatever
+# it finds: nothing should wait for it or fail with it.
+#
+# ALNASL_BOOTDIAG_OUT, _CMDLINE, _GRUBENV, _RELEASE, _BOOTID, _JOURNAL (a file standing in for the journal's
+# lines) point it elsewhere (scripts/test-scripts.sh).
+set -u
+OUT=${ALNASL_BOOTDIAG_OUT:-/boot/efi/alnasl-boot.txt}
+CMDLINE=${ALNASL_BOOTDIAG_CMDLINE:-/proc/cmdline}
+GRUBENV=${ALNASL_BOOTDIAG_GRUBENV:-/boot/efi/alnasl/grubenv}
+RELEASE=${ALNASL_BOOTDIAG_RELEASE:-/etc/alnasl/image-release}
+BOOTID=${ALNASL_BOOTDIAG_BOOTID:-/proc/sys/kernel/random/boot_id}
+JOURNAL_FILE=${ALNASL_BOOTDIAG_JOURNAL:-}
+
+SECRET='pass|psk|pin|key|secret|token|ssid|wpa|auth'
+
+val() { sed -n "s/^$2=//p" "$1" 2>/dev/null | head -n 1 | tr -d '"\r'; }
+# Kernel command line, one word per element, minus words that name a secret (name=value or bare).
+clean_cmdline() {
+  local w out=""
+  for w in $(tr '\n' ' ' < "$CMDLINE" 2>/dev/null); do
+    if printf '%s' "${w%%=*}" | grep -q -i -E "$SECRET"; then continue; fi
+    out="$out $w"
+  done
+  printf '%s' "${out# }"
+}
+# Journal lines: error priority of the previous boot, redacted, shortened, newest last, at most 12.
+prev_boot_errors() {
+  local lines
+  if [ -n "$JOURNAL_FILE" ]; then
+    lines=$(cat "$JOURNAL_FILE" 2>/dev/null)
+  else
+    lines=$(journalctl -b -1 -p 3 -n 12 -o short-monotonic --no-pager -q 2>/dev/null)
+  fi
+  [ -n "$lines" ] || return 1
+  printf '%s\n' "$lines" | grep -v -i -E "$SECRET" | cut -c1-200 | tail -n 12
+}
+
+slot_cmd=""
+for w in $(cat "$CMDLINE" 2>/dev/null); do
+  case $w in alnasl.slot=[AB]) slot_cmd=${w#*=} ;; esac
+done
+bootid=$(tr -d '\n' < "$BOOTID" 2>/dev/null)
+
+tmp="$OUT.new"
+{
+  echo "Alnasl boot diagnostics (written at every boot; no Wi-Fi keys, PINs or passwords in it)"
+  echo
+  echo "written     $(date -u '+%Y-%m-%d %H:%M:%S' 2>/dev/null) UTC (the box's clock; it may be wrong until it has a network)"
+  echo "boot id     ${bootid:-unknown}"
+  echo "slot        ${slot_cmd:-unknown} (kernel command line)"
+  echo "image       train $(val "$RELEASE" ALNASL_TRAIN) version $(val "$RELEASE" ALNASL_VERSION)"
+  echo "grubenv     alnasl_slot=$(val "$GRUBENV" alnasl_slot) alnasl_try=$(val "$GRUBENV" alnasl_try) alnasl_tries=$(val "$GRUBENV" alnasl_tries) alnasl_failed=$(val "$GRUBENV" alnasl_failed)"
+  echo "cmdline     $(clean_cmdline)"
+  echo
+  echo "Errors the previous boot logged last (journal, priority error and worse):"
+  if errs=$(prev_boot_errors); then
+    printf '%s\n' "$errs" | sed 's/^/  /'
+  else
+    echo "  none (or the previous boot's journal was not kept)"
+  fi
+} > "$tmp" 2>/dev/null && sync && mv -f "$tmp" "$OUT" && sync && echo "alnasl-bootdiag: wrote $OUT" || { rm -f "$tmp"; echo "alnasl-bootdiag: could not write $OUT" >&2; }
+exit 0

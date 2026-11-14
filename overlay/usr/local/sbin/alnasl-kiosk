@@ -47,7 +47,7 @@ while true; do
 
   docker rm -f "$NAME" >/dev/null 2>&1
   # First boot is over once the screen starts: the browser's /boot page takes it from here.
-  case "$(cat /run/alnasl-screen/state 2>/dev/null)" in firstboot-*) /usr/local/sbin/alnasl-splash --set clear ;; esac
+  case "$(cat /run/alnasl-screen/state 2>/dev/null)" in firstboot-*) /usr/local/sbin/alnasl-splash --set clear; /usr/local/sbin/alnasl-splash --progress clear ;; esac
   start=$(date +%s)
   # Keyboard layout and scale come from the settings pages (re-read at every start).
   KBD_LAYOUT=be KBD_VARIANT="" KIOSK_SCALE=100 KIOSK_RES=auto KIOSK_PATH=x

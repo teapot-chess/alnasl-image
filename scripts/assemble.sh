@@ -509,7 +509,7 @@ systemctl enable alnasl-firewall.service alnasl-firstboot.service alnasl-wifi.se
   alnasl-os-update.timer alnasl-reset-boot.service \
   alnasl-data.service alnasl-slot-check.service alnasl-upgrade-boot.service alnasl-mode.service \
   alnasl-pin.service alnasl-pin-sync.path alnasl-system-update-check.timer alnasl-hotspot.service alnasl-small-screen.service \
-  alnasl-tailscale.service
+  alnasl-tailscale.service alnasl-bootdiag.service
 # v7.5: enabled, and still never run until the opt-in flag exists (ConditionPathExists); the flag is on the data
 # partition, so remote access that was switched on survives an update, and a new box has none.
 rm -f /var/lib/alnasl-tailscale/enabled

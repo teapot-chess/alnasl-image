@@ -48,6 +48,19 @@
     },
     {
       "matches": [
+        "http://localhost:4040/*",
+        "http://localhost:4050/*",
+        "http://localhost:4061/*",
+        "http://localhost:4062/*"
+      ],
+      "js": [
+        "statusline.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": [
         "http://*/*",
         "https://*/*"
       ],

@@ -159,6 +159,66 @@ case $out in *"<3>"*"is missing"*) check "$rc$( [ -e "$T/systemd.cfg" ] && echo 
 for f in "$HERE/grub-ab.cfg" "$HERE/assemble.sh" "$HERE/verify.sh" "$CC"; do
   grep -q -F "$FIX" "$f" && ok "$(basename "$f") names the same option list" || bad "$(basename "$f") does not have the option list '$FIX'"
 done
+# --- alnasl-bootdiag (v7.8: the boot diagnostics file on the boot partition) ---------------
+BD="$HERE/../overlay/usr/local/sbin/alnasl-bootdiag"
+bd() { ALNASL_BOOTDIAG_OUT="$T/alnasl-boot.txt" ALNASL_BOOTDIAG_CMDLINE="$T/bd-cmdline" ALNASL_BOOTDIAG_GRUBENV="$T/bd-grubenv" \
+  ALNASL_BOOTDIAG_RELEASE="$T/bd-release" ALNASL_BOOTDIAG_BOOTID="$T/bd-bootid" ALNASL_BOOTDIAG_JOURNAL="$T/bd-journal" bash "$BD"; }
+echo "console=ttyS0,115200n8 root=PARTUUID=416c6e73-03 rw alnasl.slot=B wifi.psk=hunter2 alnasl.pin=123456 rd.timeout=90 quiet" > "$T/bd-cmdline"
+printf '# GRUB Environment Block\nalnasl_slot=A\nalnasl_try=B\nalnasl_tries=2\nalnasl_failed=none\n' > "$T/bd-grubenv"
+printf 'ALNASL_TRAIN=v7\nALNASL_VERSION=7.4.2\n' > "$T/bd-release"
+echo "0b1f9c3a-1111-2222-3333-444455556666" > "$T/bd-bootid"
+printf '[ 12.3] systemd[1]: Failed to start Something.\n[ 13.0] wpa_supplicant[88]: psk=deadbeef rejected\n[ 14.0] kernel: mmc0: Timeout waiting for hardware cmd interrupt\n[ 15.0] alnasl[5]: PIN 123456 wrong\n' > "$T/bd-journal"
+bd > "$T/bd.out"; rc=$?
+check "$rc" 0 "bootdiag exits 0"
+[ -f "$T/alnasl-boot.txt" ] && ok "bootdiag: writes the file" || bad "bootdiag: no file"
+[ ! -e "$T/alnasl-boot.txt.new" ] && ok "bootdiag: no temporary file left" || bad "bootdiag: temp file left"
+for want in "boot id     0b1f9c3a-1111-2222-3333-444455556666" "slot        B (kernel command line)" "image       train v7 version 7.4.2" \
+            "grubenv     alnasl_slot=A alnasl_try=B alnasl_tries=2 alnasl_failed=none" "Failed to start Something" "mmc0: Timeout"; do
+  grep -q -F -- "$want" "$T/alnasl-boot.txt" && ok "bootdiag: has '$want'" || bad "bootdiag: lacks '$want'"
+done
+if tail -n +2 "$T/alnasl-boot.txt" | grep -q -i -E 'hunter2|deadbeef|123456|psk|pin'; then bad "bootdiag: a secret or a secret-looking word is in the file"; else ok "bootdiag: no Wi-Fi key, PIN or secret-named word in the file"; fi
+grep -q 'rd.timeout=90' "$T/alnasl-boot.txt" && ok "bootdiag: harmless command line words stay" || bad "bootdiag: command line words lost"
+: > "$T/bd-journal"; bd > /dev/null
+grep -q 'none (or the previous boot' "$T/alnasl-boot.txt" && ok "bootdiag: no journal lines is said, not hidden" || bad "bootdiag: empty journal"
+rm -f "$T/bd-grubenv" "$T/bd-release"; bd > /dev/null; rc=$?
+check "$rc" 0 "bootdiag exits 0 with no grubenv and no release file"
+ALNASL_BOOTDIAG_OUT="$T/nodir/alnasl-boot.txt" bash "$BD" > /dev/null 2>&1; check "$?" 0 "bootdiag exits 0 when the boot partition is not there"
+if [ "$(wc -c < "$T/alnasl-boot.txt")" -lt 4096 ]; then ok "bootdiag: a small file"; else bad "bootdiag: file is large"; fi
+
+# --- the first boot's one progress bar and the status line (static checks) ---------------------
+MJ="$HERE/../overlay/usr/share/alnasl/splash/messages.json"
+for st in firstboot-1 firstboot-2 firstboot-3; do
+  if node -e 'const m=JSON.parse(require("fs").readFileSync(process.argv[1]));process.exit(m.states[process.argv[2]].bar===true?0:1)' "$MJ" "$st" 2>/dev/null; then ok "messages.json: $st has the progress bar"; else bad "messages.json: $st has no progress bar (or no node)"; fi
+done
+grep -q '^  @bar .*"firstboot-1", "firstboot-2", "firstboot-3"' "$HERE/render-splash.exs" && ok "render-splash.exs: the same three first-boot states have the bar" || bad "render-splash.exs @bar differs from messages.json"
+KL="$HERE/../overlay/usr/local/sbin/alnasl-kiosk-load"
+bash -n "$KL" && ok "alnasl-kiosk-load: bash -n" || bad "alnasl-kiosk-load: bash -n"
+# the bar's arithmetic: first boot 15-95 %, otherwise 0-100 %
+for c in "0 15 80 0 15" "50 15 80 50 55" "99 15 80 99 94" "100 15 80 100 95" "37 0 100 37 37"; do
+  set -- $c; got=$(( $2 + $1 * $3 / 100 )); [ "$1" = 100 ] || [ "$got" = "$5" ] && ok "bar: $1 % of the unpacking at base $2 span $3 is $got" || bad "bar maths $c ($got)"
+done
+grep -q 'BASE + pct \* SPAN / 100' "$KL" && ok "alnasl-kiosk-load: uses that arithmetic" || bad "alnasl-kiosk-load: arithmetic line changed"
+grep -q 'alnasl-splash --progress 5' "$HERE/../overlay/usr/local/sbin/alnasl-firstboot" && ok "alnasl-firstboot: the name is the first 5 %" || bad "alnasl-firstboot: no progress"
+# v7.5: touch smoothing and live calibration. Sources only (no Pi, no dtc here): every stylus overlay carries the
+# debounce lines, the kiosk image has xinput, the setup page has Keep/Undo and both languages have the strings.
+for d in alnasl-waveshare35a.dts.in alnasl-waveshare32b.dts.in alnasl-xpt2046.dts; do
+  f="$HERE/../module/$d"
+  grep -q 'ti,debounce-max = /bits/ 16 <10>;' "$f" && grep -q 'ti,debounce-tol' "$f" && grep -q 'ti,settle-delay-usec' "$f" && grep -q 'ti,keep-vref-on;' "$f" \
+    && ok "$d: the stylus is debounced (average, tolerance, settle)" || bad "$d: no debounce lines"
+done
+grep -q ' xinput ' "$HERE/../kiosk/Dockerfile" && ok "kiosk image installs xinput (live calibration)" || bad "kiosk Dockerfile lacks xinput"
+APPJS="$HERE/../overlay/usr/local/share/alnasl-setup/www/app.js"
+for k in touch_try touch_keep touch_undo touch_kept touch_undone touch_src_trying; do
+  [ "$(grep -c "^    $k:\|[ ,]$k: " "$APPJS")" -ge 2 ] && ok "app.js: $k in English and Dutch" || bad "app.js: $k is not in both languages"
+done
+grep -q '/api/touch/keep' "$APPJS" && grep -q '/api/touch/undo' "$APPJS" && grep -q 'id: "touch-keep"' "$APPJS" && ok "calibration page: Keep and Undo" || bad "calibration page lacks Keep/Undo"
+grep -q 'TGT = \[\[0.15, 0.15\], \[0.85, 0.15\], \[0.85, 0.85\], \[0.15, 0.85\], \[0.5, 0.5\]\]' "$APPJS" && ok "calibration page: five targets" || bad "calibration page: not five targets"
+grep -q '\.calib-btn { flex: 1; min-height: 44px' "$HERE/../overlay/usr/local/share/alnasl-setup/www/app.css" && grep -q 'width: 48px; height: 48px' "$HERE/../overlay/usr/local/share/alnasl-setup/www/app.css" && ok "calibration page: targets 48 px, buttons 44 px" || bad "calibration page: target/button size"
+if grep -l $'\r' "$APPJS" "$HERE/../overlay/usr/local/share/alnasl-setup/www/app.css" "$HERE/../kiosk/Dockerfile" "$HERE"/../module/*.dts* >/dev/null 2>&1; then bad "CRLF in a touch file"; else ok "touch files are LF"; fi
+if command -v node >/dev/null; then node --check "$APPJS" && ok "node --check app.js" || bad "node --check app.js"; fi
+for js in touch.js statusline.js bg.js; do
+  if command -v node >/dev/null; then node --check "$HERE/../kiosk/ext/$js" && ok "node --check $js" || bad "node --check $js"; fi
+done
 echo
 if [ $fails -eq 0 ]; then echo "all scripts checks passed"; else echo "$fails failed"; fi
 exit $((fails > 0))
