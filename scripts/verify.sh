@@ -1253,6 +1253,13 @@ for key in cmp_menu cmp_qr_setup cmp_qr_in cmp_qr_url cmp_status_in cmp_t_role c
   n=$(grep -c -E "(^|[^A-Za-z0-9_])$key:" $J); [ "$n" = 2 ] && ok "app.js: $key in EN and NL" || bad "app.js: $key found $n times (2 expected)"
 done
 grep -q "pin: pinPage" $J && grep -q "function pinPage" $J && grep -q "/api/pin" $J && grep -q "id: \"cmp-pin\"" $J && ! grep -q "function pinPad" $J && ok "app.js: Settings > PIN, the PIN on the compact status, no number pad" || bad "app.js PIN page or compact PIN row"
+# v7.7: the stylus menu's Last logs (read-only, three levels) and Update (the menu's own updPage, not a second updater)
+grep -q 'function logsPage' $J && grep -q 'p === "/logs"' $J && grep -q '/api/logs?level=' $J && grep -q 'go("/logs?from=compact")' $J && grep -q 'go("/settings/updates?from=compact")' $J \
+  && [ "$(grep -c '/api/system/install' $J)" = 1 ] && [ "$(grep -c '/api/system/upgrade' $J)" = 1 ] \
+  && ok "app.js: stylus menu has Last logs and Update (one update path)" || bad "app.js stylus menu lacks Last logs or Update, or has a second update path"
+for key in cmp_t_logs cmp_t_upd lg_normal lg_warn lg_err lg_none lg_up lg_down lg_paused; do
+  n=$(grep -c -E "(^|[^A-Za-z0-9_])$key:" $J); [ "$n" = 2 ] && ok "app.js: $key in EN and NL" || bad "app.js: $key found $n times (2 expected)"
+done
 ! grep -q -e 'langToggle()' -e '/api/lang' $J && grep -q '^    LANG = "en";' $J && ok "app.js: the box's screens are English only, no language switch" || bad "app.js can still switch language"
 
 echo "== sizes"

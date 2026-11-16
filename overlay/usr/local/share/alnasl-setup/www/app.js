@@ -147,6 +147,8 @@ const TX = {
     cmp_qr_wait: "Starting the setup hotspot", cmp_qr_wait_d: "A QR code appears here in a moment. No Wi-Fi adapter? Plug in Ethernet.",
     cmp_status_in: "Status in %s", cmp_status: "Status", cmp_none: "none", cmp_hotspot: "setup hotspot", cmp_running: "running", cmp_stopped: "stopped",
     cmp_wait: "Waiting for the box...", cmp_t_role: "Use", cmp_t_pin: "PIN", cmp_t_qr: "Show the QR code",
+    cmp_t_logs: "Last logs", cmp_t_upd: "Update", lg_normal: "Normal", lg_warn: "Warnings", lg_err: "Errors", lg_none: "Nothing at this level.",
+    lg_up: "Older", lg_down: "Newest", lg_paused: "Paused: you scrolled up. Newest goes back to the end.",
     pin: "PIN", pin_tile: "Who may in from the hall", pin_now: "The PIN now", pin_none: "not made yet (it is, at the next start)",
     pin_d: "Every browser elsewhere in the hall types this before it sees anything of this box. This screen never needs it. 6 to 64 characters; it is also on the SD card (alnasl-pin.txt).",
     pin_new: "New PIN", pin_random: "New random PIN", pin_saved: "Saved. %s starts again to use it; every other browser has to give the new PIN.",
@@ -321,6 +323,8 @@ const TX = {
     cmp_qr_wait: "De installatiehotspot start", cmp_qr_wait_d: "Zo meteen verschijnt hier een QR-code. Geen wifi-adapter? Steek een netwerkkabel in.",
     cmp_status_in: "Status over %s", cmp_status: "Status", cmp_none: "geen", cmp_hotspot: "installatiehotspot", cmp_running: "draait", cmp_stopped: "gestopt",
     cmp_wait: "Wachten op de kast...", cmp_t_role: "Gebruik", cmp_t_pin: "Pincode", cmp_t_qr: "Toon de QR-code",
+    cmp_t_logs: "Laatste logs", cmp_t_upd: "Bijwerken", lg_normal: "Normaal", lg_warn: "Waarschuwingen", lg_err: "Fouten", lg_none: "Niets op dit niveau.",
+    lg_up: "Ouder", lg_down: "Nieuwste", lg_paused: "Gepauzeerd: je scrolde omhoog. Nieuwste gaat terug naar het einde.",
     pin: "Pincode", pin_tile: "Wie er vanuit de zaal in mag", pin_now: "De pincode nu", pin_none: "nog niet gemaakt (dat gebeurt bij de volgende start)",
     pin_d: "Elke browser elders in de zaal typt deze code voor hij iets van deze kast te zien krijgt. Dit scherm heeft hem nooit nodig. 6 tot 64 tekens; hij staat ook op de SD-kaart (alnasl-pin.txt).",
     pin_new: "Nieuwe pincode", pin_random: "Nieuwe willekeurige pincode", pin_saved: "Opgeslagen. %s start opnieuw om hem te gebruiken; elke andere browser moet de nieuwe pincode geven.",
@@ -520,6 +524,7 @@ async function route() {
   if (p === "/info") return infoPage();
   if (p === "/diag") return diagPage();
   if (p === "/help") return helpPage();
+  if (p === "/logs") return logsPage();
   return menu();
 }
 
@@ -632,7 +637,7 @@ function compactPage() {
   compactDraw();
   CMP_TIMER = setInterval(compactDraw, 4000);
 }
-// The stylus menu: few, big tiles. Everything else (tournaments, updates, logs, a reset) is the phone's, via the QR.
+// The stylus menu: few, big tiles. Everything else (tournaments, a reset) is the phone's, via the QR. v7.7: Last logs and Update.
 function compactMenu(r) {
   const role = canonRole(r.role) || "alnasl";
   const done = (fn) => () => { close(); fn(); };
@@ -643,7 +648,9 @@ function compactMenu(r) {
     role === "nunki" ? tile(t("nk"), "", done(() => go("/nunki?from=compact"))) : null,
     role === "nunki" ? tile(t("scr"), "", done(() => go("/settings/screens?from=compact"))) : null,
     tile(t("rm"), "", done(() => go("/settings/remote?from=compact"))),
-    // room here for Logs and Update (not built yet: they are the phone's, through the QR, for now)
+    tile(t("cmp_t_logs"), "", done(() => go("/logs?from=compact"))),
+    // the menu's own System updates page (updPage), stylus-sized: one updater, two ways in
+    tile(t("cmp_t_upd"), "", done(() => go("/settings/updates?from=compact"))),
     tile(t("cmp_t_qr"), "", done(() => { CMP_FORCE_QR = true; compactDraw(); })),
     tile(t("touch"), "", done(() => go("/settings/touch?from=compact"))),
     tile(t("power"), "", done(powerDialog)),
@@ -654,6 +661,55 @@ function compactMenu(r) {
     h("button", { class: "btn cmp-menu", id: "cmp-close", onclick: () => close() }, t("close"))]);
 }
 
+/* --------------------------------------------------------- last logs ---- */
+// v7.7: the stylus menu's Last logs. The journal of the box's services (the units Diagnostics reads), newest at the
+// bottom, read-only. It follows the end by itself every three seconds; scrolled up, it holds still until Newest. A
+// stylus is a mouse to X (a drag selects, it does not scroll), so Older and the down arrow page through it, and the
+// scrollbar is wide. Sized in vw/vh like the compact page: 320x240, 480x320 and 640x480 alike.
+const LG_LEVELS = [["normal", "lg_normal"], ["warning", "lg_warn"], ["error", "lg_err"]];
+const lgTwo = (n) => String(n).padStart(2, "0");
+function lgTime(ms) {
+  if (ms == null) return "--:--:--";
+  const d = new Date(ms);
+  return lgTwo(d.getHours()) + ":" + lgTwo(d.getMinutes()) + ":" + lgTwo(d.getSeconds());
+}
+function lgLine(l) {
+  const cls = l.p <= 3 ? " bad" : l.p === 4 ? " warn" : "";
+  return h("div", { class: "lg-l" + cls }, h("span", { class: "lg-t" }, lgTime(l.ts)), " ", h("span", { class: "lg-s" }, l.src), " ", l.msg);
+}
+function logsPage() {
+  compactStop();
+  closeOsk();
+  const level = LG_LEVELS.some(([l]) => l === qget("level")) ? qget("level") : "normal";
+  const back = qget("from") === "compact" || S.compact ? "/compact" : "/menu";
+  let follow = true;
+  const box = h("div", { class: "lg-lines", id: "lg-lines" }, busy("..."));
+  const note = h("div", { class: "lg-note", id: "lg-note", hidden: true }, t("lg_paused"));
+  const atEnd = () => box.scrollHeight - box.scrollTop - box.clientHeight < 8;
+  box.addEventListener("scroll", () => { follow = atEnd(); note.hidden = follow; });
+  const toEnd = () => { follow = true; note.hidden = true; box.scrollTop = box.scrollHeight; draw(); };
+  const pageBy = (dir) => box.scrollBy({ top: dir * Math.round(box.clientHeight * 0.8) });
+  const lvBtn = ([l, k]) => h("button", { class: "btn lg-lv" + (l === level ? " on" : ""), id: "lg-" + l, "aria-pressed": l === level ? "true" : "false",
+    onclick: () => { if (l !== level) { qset({ level: l === "normal" ? null : l }); logsPage(); } } }, t(k));
+  app.replaceChildren(h("div", { class: "lg", id: "logs" },
+    h("div", { class: "lg-head" }, h("button", { class: "btn lg-back", id: "lg-back", onclick: () => go(back) }, "← " + t("back")), LG_LEVELS.map(lvBtn)),
+    box, note,
+    h("div", { class: "lg-foot" },
+      h("button", { class: "btn", id: "lg-older", onclick: () => pageBy(-1) }, "▲ " + t("lg_up")),
+      h("button", { class: "btn", id: "lg-down", "aria-label": "down", onclick: () => pageBy(1) }, "▼"),
+      h("button", { class: "btn primary", id: "lg-newest", onclick: toEnd }, t("lg_down") + " ▼▼"))));
+  async function draw() {
+    if (!document.body.contains(box) || !follow) return;   // scrolled up: hold still
+    let r;
+    try { r = await api("/api/logs?level=" + level); } catch (e) { box.replaceChildren(msg("bad", e.message)); return; }
+    if (!document.body.contains(box) || !follow) return;
+    const lines = r.lines || [];
+    box.replaceChildren(...(lines.length ? lines.map(lgLine) : [h("p", { class: "dim" }, t("lg_none"))]));
+    box.scrollTop = box.scrollHeight;
+  }
+  PAGE_TIMER = setInterval(draw, 3000);
+  draw();
+}
 /* -------------------------------------------------------------- menu ---- */
 function tile(title, desc, fn) {
   return h("button", { class: "tile", onclick: fn }, h("div", { class: "t" }, title), h("div", { class: "d" }, desc));
@@ -829,7 +885,9 @@ function helpSettings() {
 // "Upgrade to v7" and its confirmation here, or Arkab's page, or alnasl-upgrade.txt on the SD card.
 let UPD_TIMER = null;
 function updPage() {
-  const holder = h("div", { id: "upd" }, busy("..."));
+  // v7.7: opened from the stylus menu: the same page and the same calls, bigger buttons, no address field to type in
+  const stylus = qget("from") === "compact";
+  const holder = h("div", { id: "upd", class: stylus ? "upd-stylus" : null }, busy("..."));
   const urlF = field(t("upd_url"), { value: "", id: "upd-url" });
   const urlOut = h("div", {});
   async function saveUrl(url) {
@@ -839,7 +897,7 @@ function updPage() {
   const urlCard = h("details", { class: "card", id: "upd-url-card" }, h("summary", {}, t("upd_url")), h("p", { class: "dim small" }, t("upd_url_d")), urlF.el, urlOut,
     h("div", { class: "row" }, h("button", { class: "btn primary", id: "upd-url-save", onclick: () => saveUrl(urlF.input.value) }, t("save")),
       h("button", { class: "btn", onclick: () => saveUrl("") }, t("help_default"))));
-  sub(t("upd"), [holder, urlCard]);
+  sub(t("upd"), stylus ? [holder] : [holder, urlCard]);
   let first = true;
   const errText = (e) => t("upd_err_" + e.message) !== "upd_err_" + e.message ? t("upd_err_" + e.message) : e.message;
   async function draw() {
@@ -897,11 +955,11 @@ function updPage() {
     holder.replaceChildren(...cards);
     function confirmDlg(q, d, yes, call) {
       const o2 = h("div", {});
-      const b = h("button", { class: "btn primary", id: "upd-confirm", onclick: async () => {
+      const b = h("button", { class: "btn primary" + (stylus ? " stylus" : ""), id: "upd-confirm", onclick: async () => {
         b.disabled = true;
         try { await call(); close(); await sleep(1500); draw(); } catch (e) { o2.replaceChildren(msg("bad", errText(e))); b.disabled = false; }
       } }, yes);
-      const close = modal([h("h2", {}, q), h("p", { class: "dim" }, d), h("div", { class: "row" }, b, h("button", { class: "btn", onclick: () => close() }, t("cancel"))), o2]);
+      const close = modal([h("h2", {}, q), h("p", { class: "dim" }, d), h("div", { class: "row" }, b, h("button", { class: "btn" + (stylus ? " stylus" : ""), id: "upd-cancel", onclick: () => close() }, t("cancel"))), o2]);
     }
   }
   clearInterval(UPD_TIMER);

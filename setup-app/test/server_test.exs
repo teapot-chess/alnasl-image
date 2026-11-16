@@ -5,7 +5,7 @@ defmodule AlnaslSetup.ServerTest do
   # server on a free port, a fake root (Box.root!) and fake commands (Box.runner!). The HTTP smoke
   # checks in scripts/verify.sh are part of this; so is every JSON shape the pages read.
   use ExUnit.Case, async: false
-  alias AlnaslSetup.{Http, Json, Server, Sys, Wifi}
+  alias AlnaslSetup.{Diag, Http, Json, Server, Sys, Wifi}
   alias AlnaslSetup.Server.Net
   alias AlnaslSetup.Test.Box
 
@@ -1817,6 +1817,28 @@ defmodule AlnaslSetup.ServerTest do
       assert d["sections"] |> Enum.find(&(&1["id"] == "kiosk")) |> Map.get("text") =~ "browser heartbeat: never"
       j = json("/api/diag/journals")
       assert length(j["journals"]) == 25
+    end
+
+    test "v7.7: /logs is a page, /api/logs the stylus menu's Last logs with its level filter" do
+      runner(fn
+        ["journalctl" | rest] ->
+          if "json" in rest,
+            do:
+              {0,
+               ~s({"__REALTIME_TIMESTAMP":"2000000","PRIORITY":"3","_SYSTEMD_UNIT":"alnasl.service","MESSAGE":"oops"}\n)}
+
+        _ ->
+          nil
+      end)
+
+      assert get("/logs").status == 200
+      assert get("/logs?from=compact&level=error").status == 200
+      r = json("/api/logs?level=error")
+      assert r["level"] == "error"
+      assert r["lines"] == [%{"ts" => 2000, "p" => 3, "src" => "alnasl", "msg" => "oops"}]
+      assert ran?(Diag.recent_logs_argv("error"))
+      assert json("/api/logs")["level"] == "normal"
+      assert json("/api/logs?level=nonsense")["level"] == "normal"
     end
 
     test "/api/diag/save writes the report to the boot partition" do

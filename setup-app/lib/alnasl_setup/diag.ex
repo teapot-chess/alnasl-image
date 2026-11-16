@@ -586,6 +586,107 @@ defmodule AlnaslSetup.Diag do
       ]
   end
 
+  # ---------------------------------------------------------------------------------- last logs --
+  # v7.7: the panel's "Last logs" (app.js logsPage). One merged stream of the same units the journals above read,
+  # newest last, filtered by level in journalctl itself. Read-only, and redacted like everything else here.
+
+  @log_lines 200
+  # page word -> journalctl -p (nil: every level)
+  @log_levels %{"normal" => nil, "warning" => "warning", "error" => "err"}
+
+  def log_levels, do: Map.keys(@log_levels)
+
+  @doc "The journalctl command for `recent_logs/1` (the level is one of `log_levels/0`, anything else is normal)."
+  def recent_logs_argv(level) do
+    prio = Map.get(@log_levels, level)
+
+    [
+      "journalctl",
+      "--no-pager",
+      "-n",
+      Integer.to_string(@log_lines),
+      "-o",
+      "json",
+      "--output-fields=MESSAGE,PRIORITY,_SYSTEMD_UNIT,SYSLOG_IDENTIFIER"
+    ] ++
+      if(prio, do: ["-p", prio], else: []) ++
+      Enum.flat_map(@journal_units, fn {unit, _} -> ["-u", unit] end)
+  end
+
+  @doc "GET /api/logs: %{level, lines: [%{ts (ms since 1970), p (0-7), src, msg}]}, oldest first."
+  def recent_logs(level) do
+    level = if Map.has_key?(@log_levels, level), do: level, else: "normal"
+    {_rc, out} = runo(recent_logs_argv(level), 20)
+    %{"level" => level, "lines" => log_lines(out)}
+  end
+
+  @doc "journalctl -o json output -> the page's lines. A line that is not a journal entry is left out."
+  def log_lines(out) when is_binary(out) do
+    out
+    |> String.split("\n", trim: true)
+    |> Enum.flat_map(fn l ->
+      case Json.decode_or_nil(l) do
+        %{} = e -> log_entry(e)
+        _ -> []
+      end
+    end)
+  end
+
+  defp log_entry(e) do
+    case log_message(e["MESSAGE"]) do
+      nil ->
+        []
+
+      msg ->
+        src =
+          case {e["_SYSTEMD_UNIT"], e["SYSLOG_IDENTIFIER"]} do
+            {u, _} when is_binary(u) and u != "" -> String.replace_suffix(u, ".service", "")
+            {_, s} when is_binary(s) -> s
+            _ -> ""
+          end
+
+        [
+          %{
+            "ts" => log_ts(e["__REALTIME_TIMESTAMP"]),
+            "p" => log_prio(e["PRIORITY"]),
+            "src" => src,
+            "msg" => msg |> redact() |> String.trim_trailing()
+          }
+        ]
+    end
+  end
+
+  # journald gives a message that is not valid UTF-8 as a list of bytes
+  defp log_message(m) when is_binary(m), do: if(String.trim(m) == "", do: nil, else: m)
+
+  defp log_message(m) when is_list(m) and m != [] do
+    if Enum.all?(m, &(is_integer(&1) and &1 in 0..255)),
+      do: m |> :erlang.list_to_binary() |> Json.scrub() |> log_message(),
+      else: nil
+  end
+
+  defp log_message(_), do: nil
+
+  defp log_prio(p) when is_binary(p) do
+    case Integer.parse(p) do
+      {n, ""} when n in 0..7 -> n
+      _ -> 6
+    end
+  end
+
+  defp log_prio(p) when is_integer(p) and p in 0..7, do: p
+  defp log_prio(_), do: 6
+
+  # microseconds as a string -> milliseconds (the page shows them in the box's own time zone)
+  defp log_ts(us) when is_binary(us) do
+    case Integer.parse(us) do
+      {n, ""} -> div(n, 1000)
+      _ -> nil
+    end
+  end
+
+  defp log_ts(_), do: nil
+
   def collect(wpa_summary, last_scan \\ "", extra \\ %{}) do
     extra = extra || %{}
     klog = kernel_log()
