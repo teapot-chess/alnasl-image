@@ -115,8 +115,15 @@ menu and the role's own page. It needs nobody to touch it:
   role's own page on the hall network, `http://<address>:<port>/`; the setup itself listens on localhost only.
 - **With a working stylus** one Menu button (60 px) opens six tiles at most: Use (the role), PIN (every role:
   the PIN now, a new one through the on-screen keyboard, or a new random one), Wi-Fi (the network page and its on-screen keyboard; the phone through the QR code does
-  the same), Show the QR code, Touch screen (calibration), Restart or shut down (asks first). Everything else
-  stays on the phone. Without a stylus there is no button and nothing is missed.
+  the same), Last logs, Update, Show the QR code, Touch screen (calibration), Restart or shut down (asks first).
+  Everything else stays on the phone.
+- **Last logs** (v7.7, `/logs`, `GET /api/logs?level=normal|warning|error`): the last 200 journal lines of the units
+  Diagnostics reads, merged, newest at the bottom, redacted like the diagnostics. Normal is every level, Warnings is
+  `journalctl -p warning`, Errors `-p err`. It follows the end every three seconds; scrolled up, it holds still until
+  Newest. A stylus is a mouse to X (a drag selects text), so Older and the down arrow page through it. Read-only.
+- **Update** (v7.7) is Settings > System updates itself (`/settings/updates?from=compact`): version, check, install,
+  "Upgrade to vN", progress and result, each install or upgrade behind its confirmation. Bigger buttons, no update-address
+  field. One updater, two ways in. Without a stylus there is no button and nothing is missed.
 - Tournament and board counts are not on it: nothing cheap to ask for them.
 
 The page polls `/api/compact` every four seconds; the two minutes count from this boot's first poll.
@@ -156,5 +163,5 @@ Met een klein scherm toont de kast het compacte scherm in plaats van het menu (`
 ook aan voor het 3,5-inch HDMI-scherm, `UI=normal` nooit). Is de kast nog niet ingesteld, dan zie je altijd een
 grote QR-code: scan hem met je telefoon, je komt op de hotspot en de instelpagina. Is ze wel ingesteld, dan zie
 je na elke start twee minuten de QR-code en daarna de status: rol, of de app draait, de adressen, versie. Werkt
-de stylus, dan opent de knop Menu een paar grote tegels: gebruik, pincode (Arkab), wifi, QR-code, aanraakscherm,
+de stylus, dan opent de knop Menu een paar grote tegels: gebruik, pincode (Arkab), wifi, laatste logs, bijwerken, QR-code, aanraakscherm,
 herstarten of afsluiten. De rest doe je met je telefoon.
