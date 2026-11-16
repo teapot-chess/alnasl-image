@@ -1,7 +1,7 @@
 ﻿# One command rebuild of the Alnasl hall-box SD image.
 #
 #   (from inside PowerShell: & .\build.ps1 -Skip alnasl,modules ; with -File the list is read as one word)
-#   powershell -File build.ps1 [-Vm root@172.16.63.81] [-Key ~/.ssh/photon_openpair]
+#   powershell -File build.ps1 [-Vm root@172.16.63.239] [-Key ~/.ssh/photon_openpair]
 #                              [-AlnasLRepo "..\Alnasl"] [-ArkabRepo "..\arkab"] [-PolisRepo "..\polis"] [-NunkiRepo "..\nunki"]
 #                              [-Skip alnasl,arkab,polis,nunki,setup,espeak,modules,iw,hostapd,kiosk]
 #                              [-Version 7.0] [-Release] [-MinFrom 6.2] [-Notes "..."] [-DebugSsh]
@@ -24,7 +24,7 @@
 # The VM needs: docker (started), qemu-user binfmt for aarch64 (the script
 # installs it with tonistiigi/binfmt), curl, xz, losetup, sfdisk, e2fsprogs.
 param(
-  [string]$Vm = "root@172.16.63.81",
+  [string]$Vm = "root@172.16.63.239",
   [string]$Key = "$HOME\.ssh\photon_openpair",
   [string]$AlnasLRepo = (Join-Path $PSScriptRoot "..\Alnasl"),
   [string]$ArkabRepo = (Join-Path $PSScriptRoot "..\arkab"),
