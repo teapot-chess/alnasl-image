@@ -688,7 +688,7 @@ grep -q -- '--security' $R/usr/local/sbin/alnasl-os-update && grep -q 'excludepk
 bhas Diag updates_text alnasl-os-update && ok "diagnostics include the OS update result" || bad "AlnaslSetup.Diag lacks the OS update section"
 grep -q '127.0.0.1:4040/local/status' $R/usr/local/sbin/alnasl-os-update && ! grep -q 'round_in_progress() { return 1; }' $R/usr/local/sbin/alnasl-os-update && ok "OS update asks Alnasl's /local/status before touching anything" || bad "alnasl-os-update still stubs the round check"
 J=$R/usr/local/share/alnasl-setup/www/app.js
-src server.ex "\"/api/help/send\"" "\"/api/help/url\"" " /help)" && bhas Server.Help support/upload valid_support_url && ok "Get help: the setup server sends the report to an https-only upload address" || bad "Get help missing from the setup server"
+src server.ex "\"/api/help/send\"" "\"/api/help/url\"" " /help /logs)" && bhas Server.Help support/upload valid_support_url && ok "Get help: the setup server sends the report to an https-only upload address" || bad "Get help missing from the setup server"
 bhas Server.Help x-alnasl-box x-alnasl-version x-alnasl-mode autoredirect && ok "Get help: /help page, box/version/mode headers, no redirects" || bad "Get help details missing from the setup server"
 grep -q 'helpPage' $J && grep -q 'helpSettings' $J && ok "Get help: menu page and Settings page in app.js" || bad "Get help missing from app.js"
 for key in m_help help_d help_send help_read help_err_no_internet help_err_rate_limited help_err_support_off help_err_too_large help_url; do n=$(grep -c -E "(^|[^A-Za-z0-9_])$key:" $J); [ "$n" = 2 ] && ok "app.js: $key in EN and NL" || bad "app.js: $key found $n times (2 expected)"; done
@@ -789,7 +789,7 @@ grep -q -- '--nightly' $R/usr/local/sbin/alnasl-os-update && ok "the nightly run
 grep -q 'ConditionPathExists=/boot/efi/alnasl-upgrade.txt' $R/etc/systemd/system/alnasl-upgrade-boot.service && ok "headless upgrade: alnasl-upgrade.txt on the boot partition" || bad "alnasl-upgrade-boot.service"
 [ -f $R/usr/share/alnasl/kiosk-image-id ] && [ "$(cat $R/usr/share/alnasl/kiosk-image-id)" = "$(docker image inspect alnasl-kiosk:latest --format '{{.Id}}')" ] && ok "kiosk image id recorded (a new slot reloads its own kiosk)" || bad "kiosk-image-id"
 src server.ex "\"/api/system/upgrade\"" "\"UPGRADE\"" "\"/api/system/install\"" && ok "setup server: /api/system (GET), check, install (INSTALL), upgrade (UPGRADE)" || bad "setup server system API"
-for key in upd upd_install upd_upgrade upd_upgrade_q upd_offer upd_r_rolled_back upd_trial; do n=$(grep -c "$key:" $J); [ "$n" = 2 ] && ok "app.js: $key in EN and NL" || bad "app.js: $key found $n times (2 expected)"; done
+for key in upd upd_install upd_upgrade upd_upgrade_q upd_offer upd_r_rolled_back upd_trial; do n=$(grep -c -E "(^|[^A-Za-z0-9_])$key:" $J); [ "$n" = 2 ] && ok "app.js: $key in EN and NL" || bad "app.js: $key found $n times (2 expected)"; done
 if grep -q 'ALNASL-PLACEHOLDER' $R/etc/alnasl/update-key.pub; then
   if [ "${ALNASL_RELEASE:-0}" = 1 ]; then bad "update-key.pub is the PLACEHOLDER in a release build"; else echo "  WARN update-key.pub is the PLACEHOLDER: boxes with this image install no system update (fine for a test build)"; fi
 else
