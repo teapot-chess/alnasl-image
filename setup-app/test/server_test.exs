@@ -407,7 +407,9 @@ defmodule AlnaslSetup.ServerTest do
                "roles" => ["alnasl", "arkab", "polis", "nunki"],
                "set" => false,
                "running" => "master",
-               "running_role" => "alnasl"
+               "running_role" => "alnasl",
+               "spare" => false,
+               "running_spare" => false
              }
     end
 
@@ -1034,6 +1036,34 @@ defmodule AlnaslSetup.ServerTest do
       assert m["running"] == "slave" and m["running_role"] == "arkab"
 
       assert ok!(post("/api/mode", %{"mode" => "POLIS ", "confirm" => "SWITCH"}))["role"] == "polis"
+    end
+
+    test "v7.5 mode: a spare is the alnasl role, kept as its own word, and switching to or from it restarts" do
+      Box.put("/run/alnasl-mode/role", "alnasl\n")
+
+      assert ok!(post("/api/mode", %{"mode" => "Spare", "confirm" => "SWITCH"})) ==
+               %{"ok" => true, "mode" => "master", "role" => "alnasl", "same" => false}
+
+      assert Sys.read("/var/lib/alnasl-setup/mode") == "spare\n"
+      assert ran?(["systemctl", "reboot", "--no-block"])
+
+      m = json("/api/mode")
+      assert m["role"] == "alnasl" and m["spare"] == true and m["running_spare"] == false
+
+      # Rebooted as a spare: asking for it again changes nothing.
+      Box.put("/run/alnasl-mode/spare", "")
+
+      assert ok!(post("/api/mode", %{"mode" => "spare", "confirm" => "SWITCH"}))["same"] == true
+
+      # And back: the same role, but Alnasl must start again to hear it.
+      assert ok!(post("/api/mode", %{"mode" => "alnasl", "confirm" => "SWITCH"}))["same"] == false
+      assert Sys.read("/var/lib/alnasl-setup/mode") == "alnasl\n"
+    end
+
+    test "v7.5 finish: a new box made a spare in the wizard restarts, though its role stays alnasl" do
+      Box.put("/run/alnasl-mode/role", "alnasl\n")
+      assert ok!(post("/api/finish", %{"mode" => "spare"})) == %{"ok" => true, "reboot" => true}
+      assert Sys.read("/var/lib/alnasl-setup/mode") == "spare\n"
     end
 
     test "finish: the role chosen in the wizard is written at the end; another role reboots" do

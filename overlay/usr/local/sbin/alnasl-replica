@@ -1,0 +1,78 @@
+#!/bin/bash
+# alnasl-replica: where this box's Litestream replica goes (v7.5, docs/v7-plan.md section 5). Run by alnasl-mode
+# at every boot, before Alnasl starts.
+#
+# Alnasl, on an active box paired with a hall in the cloud, runs Litestream (/usr/local/bin/litestream, pinned
+# in assemble.sh) to copy its database about once a second to a store: an S3-compatible bucket (MinIO on a
+# fallback server in the hall or at home), SFTP, or a directory. A spare that takes over reads it and loses
+# seconds, not whatever the cloud had not been sent yet. Alnasl's docs/takeover.md, "The replica".
+#
+# The settings come from the boot partition, like the Wi-Fi: a file alnasl-replica.txt with lines KEY=VALUE.
+# It is read here, checked, written to the data partition as a root-only environment file that systemd hands
+# to alnasl.service (alnasl.service.d/alnasl-takeover.conf), and DELETED from the card: it holds the store's
+# key, and the card's FAT partition is readable by anyone holding the card. The Alnasl user never reads the
+# file; it gets the values in its environment and passes the key on to Litestream only.
+#
+#   ALNASL_TAKEOVER_REPLICA=s3://bucket/prefix         required; s3, gs, abs, sftp or file
+#   ALNASL_TAKEOVER_REPLICA_ENDPOINT=http://10.0.0.5:9000   an S3-compatible store that is not AWS
+#   ALNASL_TAKEOVER_REPLICA_REGION=us-east-1
+#   ALNASL_TAKEOVER_REPLICA_SYNC=1s
+#   LITESTREAM_ACCESS_KEY_ID=...
+#   LITESTREAM_SECRET_ACCESS_KEY=...
+#
+# A first line "off" removes the settings. A key left empty is not set. Other keys, and values with spaces,
+# quotes, backslashes, $ or `, are refused: the whole file then changes nothing, and the box says why in its journal (never the values).
+# A factory reset wipes the data partition, and with it the settings.
+#
+# Paths can be moved for scripts/test-replica.sh: ALNASL_REPLICA_TXT, ALNASL_REPLICA_ENV.
+set -u
+TXT=${ALNASL_REPLICA_TXT:-/boot/efi/alnasl-replica.txt}
+ENV=${ALNASL_REPLICA_ENV:-/var/lib/alnasl-setup/replica.env}
+KEYS="ALNASL_TAKEOVER_REPLICA ALNASL_TAKEOVER_REPLICA_ENDPOINT ALNASL_TAKEOVER_REPLICA_REGION ALNASL_TAKEOVER_REPLICA_SYNC LITESTREAM_ACCESS_KEY_ID LITESTREAM_SECRET_ACCESS_KEY"
+
+say() { echo "alnasl-replica: $*"; }
+
+[ -f "$TXT" ] || exit 0
+
+# The card's copy goes whatever happens next: a key must not stay on the FAT partition.
+lines=$(tr -d '\r' < "$TXT")
+rm -f "$TXT"; sync
+
+first=$(printf '%s\n' "$lines" | grep -v -E '^[[:space:]]*(#|$)' | head -n 1 | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+if [ "$first" = off ]; then
+  rm -f "$ENV"
+  say "replica settings removed"
+  exit 0
+fi
+
+out=""
+have_url=no
+n=0
+while IFS= read -r line; do
+  n=$((n + 1))
+  case "$line" in ''|'#'*) continue ;; esac
+  key=${line%%=*}
+  value=${line#*=}
+  if [ "$key" = "$line" ]; then say "line $n is not KEY=VALUE; nothing changed"; exit 1; fi
+  case " $KEYS " in *" $key "*) ;; *) say "line $n: $key is not a replica setting; nothing changed"; exit 1 ;; esac
+  case "$value" in
+    '') continue ;;   # left empty, as the example has it: not set
+    *[[:space:]\"\'\\\$\`]*)
+      say "line $n: the value of $key has a space, quote, backslash, \$ or backtick; nothing changed"; exit 1 ;;
+  esac
+  if [ "$key" = ALNASL_TAKEOVER_REPLICA ]; then
+    case "$value" in s3://?*|gs://?*|abs://?*|sftp://?*|file:///?*) have_url=yes ;;
+      *) say "line $n: ALNASL_TAKEOVER_REPLICA must start with s3://, gs://, abs://, sftp:// or file:///; nothing changed"; exit 1 ;;
+    esac
+  fi
+  out="$out$key=$value"$'\n'
+done <<< "$lines"
+
+[ "$have_url" = yes ] || { say "no ALNASL_TAKEOVER_REPLICA line; nothing changed"; exit 1; }
+
+mkdir -p "$(dirname "$ENV")"
+( umask 077; printf '# Written by alnasl-replica from the boot partition; read by systemd for alnasl.service.\n%s' "$out" > "$ENV.new" )
+chmod 0600 "$ENV.new"
+mv -f "$ENV.new" "$ENV"
+say "replica settings taken from the boot partition ($(printf '%s' "$out" | grep -c .) lines)"
+exit 0
