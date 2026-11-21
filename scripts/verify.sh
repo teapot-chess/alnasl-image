@@ -46,7 +46,7 @@ ls $R/lib/modules/ | tr '\n' ' '; echo
 [ "$(ls $R/lib/modules/)" = "$KVER" ] && ok "one modules dir: $KVER" || bad "modules dirs: $(ls $R/lib/modules/)"
 [ -f $R/boot/vmlinuz-$KVER ] && [ -f $R/boot/initrd.img-$KVER ] && ok "kernel+initrd in /boot ($KVER)" || bad "kernel files"
 grep -q "vmlinuz-$KVER" $R/boot/photon.cfg && ok "grub env points at $KVER" || bad "photon.cfg"
-rpm --root=$R -q linux linux-drivers-gpu dtb-rpi4 dtb-rpi-overlay dtb-raspberrypi raspberrypi-firmware-pi4 u-boot-rpi4 grub2-efi-image linux-firmware docker | sed 's/^/       /'
+rpm --root=$R -q linux linux-drivers-gpu dtb-rpi4 dtb-rpi3 dtb-rpi-overlay dtb-raspberrypi raspberrypi-firmware-pi4 raspberrypi-firmware-pi3 u-boot-rpi4 u-boot-rpi3 grub2-efi-image linux-firmware docker | sed 's/^/       /'
 vc4=$(find $R/lib/modules/$KVER -name 'vc4.ko*'); [ -n "$vc4" ] && ok "vc4: ${vc4#$R}" || bad "no vc4 module"
 for m in vc4 hid-multitouch cdc-acm ch341 drm_kms_helper; do
   chroot $R modinfo -k $KVER $m 2>/dev/null | grep -E '^(filename|vermagic)' | tr '\n' ' ' | sed 's/^/       /'; echo
@@ -58,6 +58,42 @@ chroot $R modprobe -n -v -d / -S $KVER hid-multitouch 2>&1 | sed 's/^/       /'
 chroot $R modprobe -n -v -S $KVER vc4 2>&1 | sed 's/^/       /'
 for f in bcm2711-rpi-4-b.dtb overlays/upstream-pi4.dtbo config.txt start4.elf fixup4.dat u-boot-rpi4.bin EFI/BOOT/bootaa64.efi; do [ -e $B/$f ] && ok "boot partition has $f" || bad "boot partition lacks $f"; done
 grep -E 'dtoverlay|kernel=' $B/config.txt | sed 's/^/       /'
+# v7.6.2: the Pi 3 boot chain (bootcode.bin -> start.elf -> u-boot-rpi3.bin -> grub), never checked before 7.6.2:
+# a 3B+ booted 7.6.1 with no USB and no Ethernet. The firmware takes the tree by name: bcm2710-rpi-3-b-plus.dtb
+# unless upstream_kernel=1, then the mainline bcm2837-rpi-3-b-plus.dtb, the only kind dtb-rpi3 ships.
+for f in bootcode.bin start.elf fixup.dat u-boot-rpi3.bin bcm2837-rpi-3-b.dtb bcm2837-rpi-3-b-plus.dtb bcm2837-rpi-3-a-plus.dtb; do
+  [ -s $B/$f ] && ok "boot partition has $f (Pi 3)" || bad "boot partition lacks $f (Pi 3)"
+done
+cfg_sec() { awk -v s="[$1]" '/^\[/{sec=$0; next} sec==s && !/^[ \t]*#/ && NF' $B/config.txt; }
+[ "$(cfg_sec pi3 | grep -c '^kernel=u-boot-rpi3.bin$')" = 1 ] && ok "config.txt [pi3]: kernel=u-boot-rpi3.bin" || bad "config.txt [pi3] does not boot u-boot-rpi3.bin"
+cfg_sec pi3 | grep -qx 'upstream_kernel=1' && ok "config.txt [pi3]: upstream_kernel=1 (the firmware loads the bcm2837 tree it has)" || bad "config.txt [pi3] lacks upstream_kernel=1: a Pi 3 looks for bcm2710-*.dtb, which the image does not have"
+ls $B/bcm2710-*.dtb >/dev/null 2>&1 && bad "boot partition has bcm2710 trees: upstream_kernel=1 would not be the whole story any more" || ok "no bcm2710 trees on the boot partition (mainline only, as upstream_kernel=1 expects)"
+# Every overlay config.txt applies must resolve against the tree of each board that applies it, or the firmware drops
+# it ("Failed to resolve overlay"): each label in its __fixups__ must be in that tree's __symbols__.
+ov_resolves() {  # overlay-name dtb
+  local o=$B/overlays/$1.dtbo l miss=""
+  [ -s "$o" ] || { echo " no $1.dtbo"; return 1; }
+  for l in $(dtc -I dtb -O dts "$o" 2>/dev/null | sed -n '/__fixups__ {/,/};/p' | sed -n 's/^[[:space:]]*\([A-Za-z0-9_]*\) = .*/\1/p'); do
+    fdtget -t s "$2" /__symbols__ "$l" >/dev/null 2>&1 || miss="$miss $l"
+  done
+  [ -z "$miss" ] || { echo "$miss"; return 1; }
+}
+for sec in pi3:bcm2837-rpi-3-b.dtb pi3:bcm2837-rpi-3-b-plus.dtb pi3:bcm2837-rpi-3-a-plus.dtb pi4:bcm2711-rpi-4-b.dtb all:bcm2837-rpi-3-b-plus.dtb all:bcm2711-rpi-4-b.dtb; do
+  s=${sec%%:*}; d=${sec#*:}
+  for o in $(cfg_sec $s | sed -n 's/^dtoverlay=\([^,]*\).*/\1/p'); do
+    m=$(ov_resolves "$o" $B/$d) && ok "[$s] dtoverlay=$o resolves against $d" || bad "[$s] dtoverlay=$o does not resolve against $d (missing:$m)"
+  done
+done
+# The 3B+ tree has what USB and Ethernet stand on: the dwc2 node, enabled, for the mainline driver, and the LAN7515.
+D3=$B/bcm2837-rpi-3-b-plus.dtb
+[ "$(fdtget -t s $D3 /soc/usb@7e980000 compatible 2>/dev/null)" = "brcm,bcm2835-usb" ] && ok "3B+ tree: usb@7e980000 is brcm,bcm2835-usb (dwc2)" || bad "3B+ tree: no dwc2 usb@7e980000"
+st=$(fdtget -t s -d okay $D3 /soc/usb@7e980000 status 2>/dev/null); [ "$st" = okay ] && ok "3B+ tree: usb@7e980000 enabled" || bad "3B+ tree: usb@7e980000 status=$st"
+[ "$(fdtget -t s $D3 /aliases ethernet0 2>/dev/null)" = "/soc/usb@7e980000/usb-port@1/usb-port@1/ethernet@1" ] && ok "3B+ tree: ethernet0 is the LAN7515 behind the USB hub" || bad "3B+ tree: ethernet0 alias is not the LAN7515"
+case "$(fdtget -t s $D3 / model 2>/dev/null)" in *"3 Model B+"*) ok "3B+ tree: model is a Raspberry Pi 3 Model B+" ;; *) bad "3B+ tree: model is $(fdtget -t s $D3 / model 2>&1)" ;; esac
+for a in 'Cbrcm,bcm2835-usb dwc2' 'usb:v0424p7800 lan78xx'; do
+  grep -q -F -- "${a% *}" $R/lib/modules/$KVER/modules.alias && grep -F -- "${a% *}" $R/lib/modules/$KVER/modules.alias | grep -q " ${a#* }\$" \
+    && ok "modules.alias: ${a#* } for ${a% *}" || bad "modules.alias has no ${a#* } for ${a% *}"
+done
 # dtbs on the FAT partition are byte-identical to those of the installed dtb package
 for f in bcm2711-rpi-4-b.dtb; do
   if same $B/$f $R/boot/dtb/$f || [ -z "$(ls $R/boot/dtb 2>/dev/null)" ]; then ok "dtb $f consistent (or no second copy)"; else bad "dtb $f differs from /boot/dtb"; fi

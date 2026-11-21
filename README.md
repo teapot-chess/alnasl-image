@@ -100,6 +100,23 @@ stops the box from hanging on it.
 - `start4.elf` and `fixup4.dat` come from raspberrypi/firmware `1.20260915`, pinned by SHA-256 in `assemble.sh`.
   They are on the boot partition, so an update does not bring them either; reflash for those.
 
+## The Pi 3 boots its own tree (7.6.2)
+
+A 3B+ on 7.6.1 had no USB (dead keyboard) and so no Ethernet (the LAN7515 is a USB device), while a Pi 4 with
+the same card was fine. Photon's `[pi3]` section in `config.txt` is written for the Raspberry Pi kernel's trees:
+without `upstream_kernel=1` the firmware asks for `bcm2710-rpi-3-b-plus.dtb`, and `dtoverlay=upstream` wants
+that tree's labels (`fb`, `hvs`, `pixelvalve0` ...). Photon's `dtb-rpi3` ships only the mainline
+`bcm2837-rpi-3-{b,b-plus,a-plus}.dtb`, so the firmware found no tree under the name it asked for, and the
+overlay could not resolve against the trees that are there. The Pi 4's `bcm2711-rpi-4-b.dtb` has one name for
+both kinds, which is why it never showed.
+
+`assemble.sh` replaces that overlay line with `upstream_kernel=1` in `[pi3]`: the firmware then loads the mainline
+tree for the board it is on. The image's kernel with the 3B+ tree, under QEMU's raspi3b (1 GB), brings up dwc2
+and a USB keyboard; real 3B+ hardware is the check that is left. `verify.sh` now checks the Pi 3 boot files, the
+`[pi3]` lines, that every `dtoverlay` in `config.txt` resolves against the tree of each board that applies it,
+the 3B+ tree's USB node and LAN7515, and the dwc2/lan78xx module aliases. Like the firmware, this is on the boot
+partition: a system update does not bring it, reflash a Pi 3's card.
+
 ## Tests
 
 - `cd setup-app && mix test`: ExUnit, runs locally (tests tagged `:unix` are skipped on Windows; the arm64 build

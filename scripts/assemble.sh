@@ -599,14 +599,28 @@ install -D -m 0644 $R/usr/share/alnasl/splash/alnasl-splash.png $R/boot/grub2/al
 bash $W/bootscreen.sh $R $B
 sed -i 's/\r$//' $B/config.txt
 ! grep -q 'disable_overscan\|core_freq_min' $B/config.txt || { echo "config.txt already has overscan/core_freq_min lines"; exit 1; }
+# v7.6.2, the Pi 3: Photon's [pi3] section is written for the Raspberry Pi kernel's own trees (bcm2710-rpi-3-b*.dtb,
+# which is what the firmware looks for by default), and its dtoverlay=upstream,miniuart-bt wants their labels
+# (fb, hvs, pixelvalve0 ...). The image has neither: dtb-rpi3 ships only the mainline trees, bcm2837-rpi-3-*.dtb.
+# So a 3B+ found no tree under the name the firmware asks for, and its USB (and the LAN7515 behind it) never came
+# up. upstream_kernel=1 makes the firmware load the mainline name for the board it is on (3B, 3B+, 3A+); the
+# overlay cannot resolve against those trees and is dropped. The Pi 4
+# keeps its downstream bcm2711 tree and upstream-pi4 (same file name either way, so it never had the problem).
+grep -qx 'dtoverlay=upstream,miniuart-bt' $B/config.txt && ! grep -q '^upstream_kernel' $B/config.txt || { echo "config.txt: Photon's [pi3] overlay line is not the one this edit replaces"; exit 1; }
 awk '
+  /^\[/ { sec = $0 }
+  sec == "[pi3]" && $0 == "dtoverlay=upstream,miniuart-bt" {
+    print "# The firmware loads the mainline tree for the board (bcm2837-rpi-3-b-plus.dtb on a 3B+): the only Pi 3 trees here."
+    print "upstream_kernel=1"; next }
   { print }
   /^\[pi4\]/ { print "# Keep the core clock (shared with peripherals) at 500 MHz: no scaling while the display driver reprograms it."; print "core_freq_min=500" }
   /^\[all\]/ { print "# No overscan: use the whole screen (the default made the framebuffer 1824x984 on a 1920x1080 display)."; print "disable_overscan=1"
                print "# v6 boot screen: no rainbow square at power-on."; print "disable_splash=1" }
 ' $B/config.txt > $W/config.txt.new
 cat $W/config.txt.new > $B/config.txt
-grep -q '^disable_overscan=1' $B/config.txt && grep -q '^core_freq_min=500' $B/config.txt && grep -q '^disable_splash=1' $B/config.txt || { echo "config.txt edit failed"; exit 1; }
+grep -q '^disable_overscan=1' $B/config.txt && grep -q '^core_freq_min=500' $B/config.txt && grep -q '^disable_splash=1' $B/config.txt \
+  && grep -qx 'upstream_kernel=1' $B/config.txt && ! grep -q '^dtoverlay=upstream,' $B/config.txt || { echo "config.txt edit failed"; exit 1; }
+for f in bcm2837-rpi-3-b.dtb bcm2837-rpi-3-b-plus.dtb bcm2837-rpi-3-a-plus.dtb; do [ -s $B/$f ] || { echo "boot partition lacks $f (upstream_kernel=1 needs it)"; exit 1; }; done
 cat $B/config.txt
 # v7.4.2: the Pi 4's GPU firmware from raspberrypi/firmware 1.20260915 instead of the 2023-04-24 copy in
 # Photon's image (raspberrypi-firmware-pi4, which tdnf may not update: section 9). Pinned by SHA-256; fetched
