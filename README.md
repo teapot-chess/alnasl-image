@@ -100,6 +100,19 @@ stops the box from hanging on it.
 - `start4.elf` and `fixup4.dat` come from raspberrypi/firmware `1.20260915`, pinned by SHA-256 in `assemble.sh`.
   They are on the boot partition, so an update does not bring them either; reflash for those.
 
+## A Pi 3 with 1 GB (7.6.3)
+
+The 3B+ on 7.6.2 came up on Ethernet and then stopped answering: the network said yes to ssh and to port 4040,
+nothing behind it did. The image has no swap (Photon's resizefs is masked), so a full 1 GB box drops the programs'
+own code and reads it back from the SD card, over and over. `alnasl-lowmem` runs before docker and the app:
+
+- below 2.5 GB: zram swap, half the RAM, lz4, priority 100, swappiness 100.
+- below 1.5 GB: `/run/alnasl-lowmem/small`. The kiosk waits (up to 10 min) for the app's port before Chromium,
+  with smaller tmpfs and shm and `--oom-score-adj 900`; the screen software unpacks at low priority.
+- ssh (both units), Alnasl, Arkab, Polis and Nunki run at `OOMScoreAdjust` -900/-800: Chromium goes first.
+- `alnasl-mem.txt` on the boot partition: memory, swap, load and the five largest programs every 15 s for the
+  first 20 minutes (the previous boot's as `alnasl-mem-previous.txt`). A frozen box leaves its last lines there.
+
 ## The Pi 3 boots its own tree (7.6.2)
 
 A 3B+ on 7.6.1 had no USB (dead keyboard) and so no Ethernet (the LAN7515 is a USB device), while a Pi 4 with

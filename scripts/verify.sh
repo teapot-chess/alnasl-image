@@ -228,7 +228,7 @@ grep -q -E '"ssh"|s_ssh' $R/usr/local/share/alnasl-setup/www/app.js && bad "app.
 echo "== units"
 for u in alnasl-firewall alnasl-firstboot alnasl-wifi alnasl-kiosk-load alnasl-kiosk alnasl-setup docker containerd alnasl alnasl-update.path wpa_supplicant@wlan0 systemd-networkd systemd-resolved getty@tty2 getty@tty3 \
          alnasl-splash alnasl-splash-reboot alnasl-splash-poweroff alnasl-os-update.timer alnasl-reset-boot \
-         alnasl-data alnasl-slot-check alnasl-upgrade-boot alnasl-mode alnasl-pin alnasl-pin-sync.path alnasl-system-update-check.timer alnasl-bootdiag; do
+         alnasl-data alnasl-slot-check alnasl-upgrade-boot alnasl-mode alnasl-pin alnasl-pin-sync.path alnasl-system-update-check.timer alnasl-bootdiag alnasl-lowmem; do
   s=$(chroot $R systemctl is-enabled $u 2>&1 | tail -1); [ "$s" = enabled ] && ok "$u enabled" || bad "$u: $s"
 done
 for u in getty@tty1 autovt@tty1; do
@@ -367,7 +367,7 @@ pyf=$(find $R/usr/local $R/etc/systemd $R/usr/share/alnasl -type f 2>/dev/null |
         [ "$(head -c 2 "$f" | tr -d '\0')" = '#!' ] && head -n 1 "$f" | grep -q -a python && echo "${f#$R}"
       done)
 [ -z "$pyf" ] && ok "no .py file and no python #! script in /usr/local, /etc/systemd, /usr/share/alnasl" || bad "python left: $(echo $pyf)"
-for s in alnasl-setup alnasl-kiosk alnasl-kiosk-load alnasl-firstboot alnasl-pin alnasl-wifi-setup alnasl-os-update alnasl-reset alnasl-data alnasl-mode alnasl-sound alnasl-firewall alnasl-cmdline-check alnasl-bootdiag; do bash -n $R/usr/local/sbin/$s && ok "bash -n $s" || bad "bash -n $s"; done
+for s in alnasl-setup alnasl-kiosk alnasl-kiosk-load alnasl-firstboot alnasl-pin alnasl-wifi-setup alnasl-os-update alnasl-reset alnasl-data alnasl-mode alnasl-sound alnasl-firewall alnasl-cmdline-check alnasl-bootdiag alnasl-lowmem; do bash -n $R/usr/local/sbin/$s && ok "bash -n $s" || bad "bash -n $s"; done
 echo "       vconsole.conf: $(cat $R/etc/vconsole.conf 2>/dev/null)"
 for k in be-latin1 fr-latin9 nl us-acentos de-latin1-nodeadkeys us uk es it pt-latin1; do
   f=$(find $R/usr/share/keymaps $R/usr/lib/kbd $R/lib/kbd -name "$k.map*" 2>/dev/null | head -n 1); [ -n "$f" ] && ok "keymap $k" || bad "keymap $k missing"
@@ -527,6 +527,11 @@ grep -q 'execCommand("insertText"' $E/kiosk-ext/osk.js && grep -q 'requestSubmit
 grep -q 'statusline' $E/kiosk-ext/bg.js && grep -q 'api/sysinfo' $E/kiosk-ext/bg.js && grep -q 'Slot ' $E/kiosk-ext/statusline.js && grep -q 'calc(100vh - ' $E/kiosk-ext/statusline.js && ok "status line: slot, address, version from /api/sysinfo; the page is made shorter by the line" || bad "status line (statusline.js / bg.js)"
 grep -q 'cursor: none !important' $E/kiosk-ext/touch.js && grep -q 'pointerType' $E/kiosk-ext/touch.js && ok "touch.js hides the mouse arrow; only a real mouse moving shows it" || bad "touch.js: cursor hiding"
 [ -f $R/etc/systemd/system/alnasl-bootdiag.service ] && grep -q '^ExecStart=/usr/local/sbin/alnasl-bootdiag$' $R/etc/systemd/system/alnasl-bootdiag.service && grep -q 'alnasl-boot.txt' $R/usr/local/sbin/alnasl-bootdiag && grep -q 'alnasl-boot.txt' $B/README-ALNASL.txt && ok "alnasl-bootdiag: unit, program and the boot partition README agree on alnasl-boot.txt" || bad "alnasl-bootdiag wiring"
+# v7.6.3: a board with little memory gets zram and a memory record; Chromium goes first when memory runs out, never ssh or the app.
+grep -q zram $R/usr/local/sbin/alnasl-lowmem && grep -q alnasl-mem.txt $R/usr/local/sbin/alnasl-lowmem && ok "alnasl-lowmem: zram and the memory record" || bad "alnasl-lowmem wiring"
+for d in sshd sshd@ alnasl arkab polis nunki; do grep -q "^OOMScoreAdjust=-[89]00$" $R/etc/systemd/system/$d.service.d/alnasl-oom.conf 2>/dev/null && ok "$d: OOMScoreAdjust" || bad "$d: no OOMScoreAdjust drop-in"; done
+grep -q -- "--oom-score-adj 900" $R/usr/local/sbin/alnasl-kiosk && grep -q /run/alnasl-lowmem/small $R/usr/local/sbin/alnasl-kiosk-load && ok "kiosk: little memory waits for the app, Chromium is the OOM pick" || bad "kiosk low-memory path"
+ls $R/usr/lib/modules/*/kernel/drivers/block/zram/zram.ko* >/dev/null 2>&1 && ok "zram module in the image" || bad "no zram module"
 for st in firstboot-1 firstboot-2 firstboot-3; do
   [ "$(awk -v k="\"$st\": {" 'index($0, k) {f=1} f && /"bar"/ {gsub(/[ ,]/, ""); print; exit}' $R/usr/share/alnasl/splash/messages.json)" = '"bar":true' ] && ok "messages.json: $st has the progress bar (one bar for the whole first boot)" || bad "messages.json: $st has no progress bar"
 done
