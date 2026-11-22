@@ -1,0 +1,72 @@
+#!/bin/bash
+# alnasl-lowmem (v7.6.3): a board with little memory (a Pi 3 B+, 1 GB) gets compressed swap in RAM and a record of
+# how its memory went, before docker, the kiosk and the app start.
+#
+#   below 2.5 GB   zram swap, half the RAM, lz4 if the kernel has it, priority 100. Photon's swap partition is gone
+#                  (resizefs is masked, see assemble.sh), so without this a full box has nowhere to put the app's
+#                  idle pages and drops the programs' own code instead: it reads them back from the SD card,
+#                  drops them again, and stops answering while its network still says yes. That is the "port open,
+#                  no answer" the first Pi 3 boots showed.
+#   below 1.5 GB   /run/alnasl-lowmem/small exists: the kiosk waits for the app before it starts Chromium, and the
+#                  load of the screen software runs at low priority.
+#                  For the first 20 minutes, every 15 s, a line of memory, swap and the five largest programs goes
+#                  to /boot/efi/alnasl-mem.txt (the FAT partition, readable on any PC). A box that freezes still
+#                  leaves its last lines there. The previous boot's file is kept as alnasl-mem-previous.txt.
+#
+# Exits 0 whatever happens: a box without zram is slower, not broken. No secrets in the file: memory sizes and
+# program names only (the names are the command, never its arguments).
+#
+# ALNASL_LOWMEM_MEMINFO, _OUT, _SAMPLES, _EVERY point it elsewhere (scripts/test-scripts.sh).
+set -u
+MEMINFO=${ALNASL_LOWMEM_MEMINFO:-/proc/meminfo}
+OUT=${ALNASL_LOWMEM_OUT:-/boot/efi/alnasl-mem.txt}
+SAMPLES=${ALNASL_LOWMEM_SAMPLES:-80}
+EVERY=${ALNASL_LOWMEM_EVERY:-15}
+FLAGDIR=${ALNASL_LOWMEM_FLAGDIR:-/run/alnasl-lowmem}
+
+total_kb=$(sed -n 's/^MemTotal:[[:space:]]*\([0-9]*\).*/\1/p' "$MEMINFO" 2>/dev/null)
+total_kb=${total_kb:-0}
+echo "alnasl-lowmem: ${total_kb} kB of memory"
+[ "$total_kb" -gt 0 ] || exit 0
+
+mkdir -p "$FLAGDIR"
+if [ "$total_kb" -lt 1572864 ]; then : > "$FLAGDIR/small"; else rm -f "$FLAGDIR/small"; fi
+
+zram_on() {
+  [ -n "${ALNASL_LOWMEM_MEMINFO:-}" ] && { echo "alnasl-lowmem: (test) zram skipped"; return 0; }
+  grep -q '^/dev/zram' /proc/swaps 2>/dev/null && { echo "alnasl-lowmem: zram swap already on"; return 0; }
+  modprobe zram num_devices=1 2>/dev/null || { echo "alnasl-lowmem: no zram module; no swap"; return 0; }
+  [ -e /sys/block/zram0/disksize ] || { echo "alnasl-lowmem: no /sys/block/zram0; no swap"; return 0; }
+  grep -q lz4 /sys/block/zram0/comp_algorithm 2>/dev/null && echo lz4 > /sys/block/zram0/comp_algorithm 2>/dev/null
+  echo $(( total_kb / 2 ))K > /sys/block/zram0/disksize 2>/dev/null || { echo "alnasl-lowmem: could not size zram0"; return 0; }
+  mkswap /dev/zram0 >/dev/null 2>&1 && swapon -p 100 /dev/zram0 2>/dev/null || { echo "alnasl-lowmem: swapon zram0 failed"; return 0; }
+  # Swap to RAM is cheap; reading code back from an SD card is not. Prefer the first, one page at a time.
+  sysctl -q -w vm.swappiness=100 vm.page-cluster=0 2>/dev/null
+  echo "alnasl-lowmem: zram swap on, $(( total_kb / 2048 )) MB, $(sed -n 's/.*\[\(.*\)\].*/\1/p' /sys/block/zram0/comp_algorithm 2>/dev/null)"
+}
+[ "$total_kb" -lt 2621440 ] && zram_on
+
+[ -f "$FLAGDIR/small" ] || exit 0
+
+# The memory record. Backgrounded off the unit (systemd-run would be neater, but a oneshot that forks is enough:
+# KillMode=none below keeps the sampler when the oneshot's main process is done).
+sample() {
+  local avail swap top
+  avail=$(sed -n 's/^MemAvailable:[[:space:]]*\([0-9]*\).*/\1/p' "$MEMINFO" 2>/dev/null)
+  swap=$(awk '/^SwapTotal/ {t=$2} /^SwapFree/ {f=$2} END {print int((t-f)/1024)}' "$MEMINFO" 2>/dev/null)
+  top=$(ps -eo rss=,comm= --sort=-rss 2>/dev/null | head -n 5 | awk '{printf "%s %dM, ", $2, $1/1024}')
+  printf '%s up %ss  available %sM  swap used %sM  load %s  %s\n' \
+    "$(date -u '+%H:%M:%S')" "$(cut -d. -f1 /proc/uptime 2>/dev/null)" "$(( ${avail:-0} / 1024 ))" "${swap:-?}" \
+    "$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null)" "${top%, }"
+}
+(
+  [ -f "$OUT" ] && mv -f "$OUT" "${OUT%.txt}-previous.txt" 2>/dev/null
+  { echo "Alnasl memory record, first $(( SAMPLES * EVERY / 60 )) minutes of this boot (UTC; the clock may be wrong until there is a network)"
+    echo "$(( total_kb / 1024 )) MB of memory; $(grep -c '^/dev/zram' /proc/swaps 2>/dev/null || echo 0) zram swap device(s)"; } > "$OUT" 2>/dev/null
+  for i in $(seq 1 "$SAMPLES"); do
+    sample >> "$OUT" 2>/dev/null
+    sync "$OUT" 2>/dev/null || sync
+    [ "$i" = "$SAMPLES" ] || sleep "$EVERY"
+  done
+) </dev/null >/dev/null 2>&1 &
+exit 0

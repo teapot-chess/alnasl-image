@@ -85,10 +85,21 @@ while true; do
     done < /var/lib/alnasl-setup/displays.conf
   fi
   [ "$role" = nunki ] && echo "kiosk: nunki screens: layout $KIOSK_LAYOUT, swap $KIOSK_SWAP, rotation $KIOSK_ROT1/$KIOSK_ROT2"
+  # v7.6.3: a board with little memory (alnasl-lowmem) starts Chromium only once the app answers, so the two never
+  # start up side by side, and hands Chromium to the kernel first when memory runs out (the app and ssh are -800/-900).
+  KIOSK_MEM_ARGS=(--tmpfs /tmp:exec,size=256m --shm-size=256m)
+  if [ -f /run/alnasl-lowmem/small ]; then
+    KIOSK_MEM_ARGS=(--tmpfs /tmp:exec,size=96m --shm-size=96m --oom-score-adj 900)
+    for i in $(seq 1 120); do
+      (exec 3<>"/dev/tcp/127.0.0.1/$app_port") 2>/dev/null && break
+      [ "$i" = 1 ] && echo "kiosk: little memory; waiting for the app on port $app_port before Chromium"
+      sleep 5
+    done
+  fi
   echo "kiosk: starting container (mode $mode, keyboard $KBD_LAYOUT/$KBD_VARIANT, scale $KIOSK_SCALE, resolution $KIOSK_RES${KIOSK_CARD:+, small screen on $KIOSK_CARD}${KIOSK_FORCE_MODE:+, small screen $KIOSK_FORCE_MODE}, rotation $KIOSK_ROTATE)"
   docker run --rm --name "$NAME" --privileged --network host --ipc host \
     -v /dev:/dev -v /run/udev:/run/udev:ro -v /run/alnasl-kiosk:/run/alnasl-kiosk \
-    --tmpfs /tmp:exec,size=256m --shm-size=256m \
+    "${KIOSK_MEM_ARGS[@]}" \
     -e KIOSK_MODE="$mode" -e KIOSK_URL=http://localhost:4041/boot -e KIOSK_APP_PORT="$app_port" \
     -e KBD_LAYOUT="$KBD_LAYOUT" -e KBD_VARIANT="$KBD_VARIANT" -e KIOSK_SCALE="$KIOSK_SCALE" -e KIOSK_RES="$KIOSK_RES" \
     -e KIOSK_CARD="$KIOSK_CARD" -e KIOSK_FB="$KIOSK_FB" -e KIOSK_FORCE_MODE="$KIOSK_FORCE_MODE" -e KIOSK_ROTATE="$KIOSK_ROTATE" \

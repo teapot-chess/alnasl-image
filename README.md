@@ -100,6 +100,36 @@ stops the box from hanging on it.
 - `start4.elf` and `fixup4.dat` come from raspberrypi/firmware `1.20260915`, pinned by SHA-256 in `assemble.sh`.
   They are on the boot partition, so an update does not bring them either; reflash for those.
 
+## A Pi 3 with 1 GB (7.6.3)
+
+The 3B+ on 7.6.2 came up on Ethernet and then stopped answering: the network said yes to ssh and to port 4040,
+nothing behind it did. The image has no swap (Photon's resizefs is masked), so a full 1 GB box drops the programs'
+own code and reads it back from the SD card, over and over. `alnasl-lowmem` runs before docker and the app:
+
+- below 2.5 GB: zram swap, half the RAM, lz4, priority 100, swappiness 100.
+- below 1.5 GB: `/run/alnasl-lowmem/small`. The kiosk waits (up to 10 min) for the app's port before Chromium,
+  with smaller tmpfs and shm and `--oom-score-adj 900`; the screen software unpacks at low priority.
+- ssh (both units), Alnasl, Arkab, Polis and Nunki run at `OOMScoreAdjust` -900/-800: Chromium goes first.
+- `alnasl-mem.txt` on the boot partition: memory, swap, load and the five largest programs every 15 s for the
+  first 20 minutes (the previous boot's as `alnasl-mem-previous.txt`). A frozen box leaves its last lines there.
+
+## The Pi 3 boots its own tree (7.6.2)
+
+A 3B+ on 7.6.1 had no USB (dead keyboard) and so no Ethernet (the LAN7515 is a USB device), while a Pi 4 with
+the same card was fine. Photon's `[pi3]` section in `config.txt` is written for the Raspberry Pi kernel's trees:
+without `upstream_kernel=1` the firmware asks for `bcm2710-rpi-3-b-plus.dtb`, and `dtoverlay=upstream` wants
+that tree's labels (`fb`, `hvs`, `pixelvalve0` ...). Photon's `dtb-rpi3` ships only the mainline
+`bcm2837-rpi-3-{b,b-plus,a-plus}.dtb`, so the firmware found no tree under the name it asked for, and the
+overlay could not resolve against the trees that are there. The Pi 4's `bcm2711-rpi-4-b.dtb` has one name for
+both kinds, which is why it never showed.
+
+`assemble.sh` replaces that overlay line with `upstream_kernel=1` in `[pi3]`: the firmware then loads the mainline
+tree for the board it is on. The image's kernel with the 3B+ tree, under QEMU's raspi3b (1 GB), brings up dwc2
+and a USB keyboard; real 3B+ hardware is the check that is left. `verify.sh` now checks the Pi 3 boot files, the
+`[pi3]` lines, that every `dtoverlay` in `config.txt` resolves against the tree of each board that applies it,
+the 3B+ tree's USB node and LAN7515, and the dwc2/lan78xx module aliases. Like the firmware, this is on the boot
+partition: a system update does not bring it, reflash a Pi 3's card.
+
 ## Tests
 
 - `cd setup-app && mix test`: ExUnit, runs locally (tests tagged `:unix` are skipped on Windows; the arm64 build

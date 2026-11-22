@@ -1,7 +1,7 @@
 {
   "_comment": "Exact release tags the image bundles. build.ps1 builds ONLY from these (git archive <tag>), never from a sibling checkout's HEAD. Bump a tag here, in the same commit as the release it belongs to. build.ps1 also checks that arkab equals the tag pinned by alnasl's mix.exs and mix.lock at the alnasl tag.",
-  "alnasl": { "tag": "v0.18.0" },
-  "arkab": { "tag": "v0.6.0" },
+  "alnasl": { "tag": "v0.19.1" },
+  "arkab": { "tag": "v0.6.1" },
   "polis": { "tag": "v0.6.0" },
   "nunki": { "tag": "v0.7.0" }
 }
