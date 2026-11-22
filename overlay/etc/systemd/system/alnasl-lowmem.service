@@ -1,0 +1,19 @@
+[Unit]
+Description=Alnasl: compressed swap and a memory record on a board with little memory
+# Before anything that fills memory. Needs /boot/efi for the record (a small board only).
+DefaultDependencies=no
+After=local-fs.target systemd-modules-load.service
+RequiresMountsFor=/boot/efi
+Before=docker.service containerd.service alnasl.service arkab.service polis.service nunki.service alnasl-kiosk-load.service alnasl-kiosk.service alnasl-setup.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/alnasl-lowmem
+# The memory record runs on in the background for 20 minutes; the oneshot's end must not kill it.
+KillMode=process
+TimeoutStartSec=60
+SuccessExitStatus=0
+
+[Install]
+WantedBy=multi-user.target

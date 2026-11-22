@@ -23,6 +23,38 @@ defmodule AlnaslSetup.Server.Remote do
 
   def link_stale, do: @link_stale
 
+  # The home screen asks every few seconds; Tailscale is asked at most this often.
+  @addr_ttl 30
+
+  @doc """
+  The box's tailnet address for the home screen, `%{"ip", "dns_name"}`, or nil while remote access is off or not
+  connected. Cached for #{@addr_ttl} s: the screen polls far more often than the address can change.
+  """
+  def address do
+    if Sys.exists?(@flag) do
+      now = Sys.now()
+
+      case State.get(:remote_addr) do
+        {t, v} when now - t < @addr_ttl ->
+          v
+
+        _ ->
+          {_rc, out} = Sys.run([@cli, "status"], timeout: 8)
+          st = Json.decode_or_nil(out) || %{}
+          v = address_of(summarize(st, %{on: true, now: now, started: nil, link_seen: nil}))
+          State.put(:remote_addr, {now, v})
+          v
+      end
+    end
+  end
+
+  @doc false
+  # The pure part of `address/0`: only a connected box with an address has one to show.
+  def address_of(%{"state" => "connected", "ip" => ip} = s) when is_binary(ip) and ip != "",
+    do: %{"ip" => ip, "dns_name" => s["dns_name"]}
+
+  def address_of(_), do: nil
+
   @doc "Remote access is installed in this image (the binaries are where alnasl-tailscale expects them)."
   def available?,
     do: Sys.exists?(@cli) and Sys.exists?("/usr/local/bin/tailscale") and Sys.exists?("/usr/local/sbin/tailscaled")

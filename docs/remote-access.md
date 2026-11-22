@@ -27,6 +27,8 @@ Settings > Remote access (HDMI menu), or Menu > Remote access on the panel.
    and the box joins that account's network. If your tailnet wants new machines approved, the menu says so:
    approve it in the admin console (Machines).
 3. **Connected.** The menu shows the tailnet address (100.x.y.z), the MagicDNS name and the network.
+   From then on the panel's home screen shows a Tailscale line too: the address, with the app's port when the box
+   runs one (100.x.y.z:4006), so you can read it off the box without opening the menu.
 
 What the menu does with the odd cases:
 

@@ -12,7 +12,7 @@ defmodule AlnaslSetup.Compact do
   `decide/1` is the pure part (compact_test.exs); `status/1` feeds it from the box.
   """
   alias AlnaslSetup.{QR, SmallScreen, Sys}
-  alias AlnaslSetup.Server.{Box, Net, Pin, PortalApi, State}
+  alias AlnaslSetup.Server.{Box, Net, Pin, PortalApi, Remote, State}
 
   @qr_seconds 120
 
@@ -102,6 +102,8 @@ defmodule AlnaslSetup.Compact do
       "role_up" => port != nil and Box.role_up?(role),
       "role_port" => port,
       "addrs" => addrs,
+      # v7.5: the tailnet address once remote access is connected, nil otherwise
+      "tailscale" => Remote.address(),
       "hostname" => Box.hostname(),
       "version" => Box.image_release()["version"],
       "hotspot" => %{"active" => hotspot["active"] == true, "ssid" => hotspot["ssid"]},

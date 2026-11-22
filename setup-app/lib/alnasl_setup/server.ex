@@ -28,7 +28,7 @@ defmodule AlnaslSetup.Server do
     ".svg" => "image/svg+xml",
     ".png" => "image/png"
   }
-  @spa ~w(/ /setup /menu /settings /info /diag /compact /help)
+  @spa ~w(/ /setup /menu /settings /info /diag /compact /help /logs)
 
   # ------------------------------------------------------------------------------------ process --
 
@@ -351,6 +351,10 @@ defmodule AlnaslSetup.Server do
 
       "/api/diag/journals" ->
         %{"journals" => Diag.journals()}
+
+      # v7.7: the panel's Last logs (?level=normal|warning|error)
+      "/api/logs" ->
+        Diag.recent_logs(List.first(Py.parse_qs(q)["level"] || ["normal"]))
 
       # the "Test Wi-Fi scan" button: raw outputs, nothing hidden
       "/api/diag/scan" ->

@@ -301,4 +301,56 @@ defmodule AlnaslSetup.DiagTest do
       assert text =~ "role requests to the setup server (last 10):\n  none"
     end
   end
+
+  describe "last logs (the stylus menu, v7.7)" do
+    test "the command: one merged journal of the diagnostics' units, journalctl's own level filter" do
+      n = Diag.recent_logs_argv("normal")
+      assert Enum.take(n, 6) == ["journalctl", "--no-pager", "-n", "200", "-o", "json"]
+      refute "-p" in n
+      assert "alnasl.service" in n and "alnasl-setup.service" in n
+      assert Enum.count(n, &(&1 == "-u")) == 24
+      assert Enum.drop_while(Diag.recent_logs_argv("warning"), &(&1 != "-p")) |> Enum.take(2) == ["-p", "warning"]
+      assert Enum.drop_while(Diag.recent_logs_argv("error"), &(&1 != "-p")) |> Enum.take(2) == ["-p", "err"]
+      assert Diag.recent_logs_argv("rm -rf") == n
+    end
+
+    test "lines: time, level, source, redacted message; junk and empty messages are left out" do
+      out =
+        Enum.join(
+          [
+            ~s({"__REALTIME_TIMESTAMP":"1700000000123456","PRIORITY":"6","_SYSTEMD_UNIT":"alnasl.service","MESSAGE":"board 3 up"}),
+            ~s({"__REALTIME_TIMESTAMP":"1700000001000000","PRIORITY":"3","SYSLOG_IDENTIFIER":"wpa_supplicant","MESSAGE":"psk=#{@psk}"}),
+            ~s({"__REALTIME_TIMESTAMP":"x","PRIORITY":"9","_SYSTEMD_UNIT":"alnasl-setup.service","MESSAGE":[104,105]}),
+            ~s({"PRIORITY":"4","MESSAGE":"   "}),
+            "-- No entries --",
+            ""
+          ],
+          "\n"
+        )
+
+      assert Diag.log_lines(out) == [
+               %{"ts" => 1_700_000_000_123, "p" => 6, "src" => "alnasl", "msg" => "board 3 up"},
+               %{"ts" => 1_700_000_001_000, "p" => 3, "src" => "wpa_supplicant", "msg" => "psk=<redacted>"},
+               %{"ts" => nil, "p" => 6, "src" => "alnasl-setup", "msg" => "hi"}
+             ]
+    end
+
+    test "recent_logs asks journalctl once, an unknown level reads as normal" do
+      Box.runner!(fn
+        ["journalctl" | _] = argv ->
+          send(self(), {:argv, argv})
+          {0, ~s({"__REALTIME_TIMESTAMP":"1000","PRIORITY":"4","_SYSTEMD_UNIT":"x.service","MESSAGE":"w"}\n)}
+
+        _ ->
+          nil
+      end)
+
+      assert %{"level" => "warning", "lines" => [%{"p" => 4, "src" => "x", "msg" => "w", "ts" => 1}]} =
+               Diag.recent_logs("warning")
+
+      assert_received {:argv, argv}
+      assert "-p" in argv
+      assert Diag.recent_logs("bogus")["level"] == "normal"
+    end
+  end
 end

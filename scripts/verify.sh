@@ -46,7 +46,7 @@ ls $R/lib/modules/ | tr '\n' ' '; echo
 [ "$(ls $R/lib/modules/)" = "$KVER" ] && ok "one modules dir: $KVER" || bad "modules dirs: $(ls $R/lib/modules/)"
 [ -f $R/boot/vmlinuz-$KVER ] && [ -f $R/boot/initrd.img-$KVER ] && ok "kernel+initrd in /boot ($KVER)" || bad "kernel files"
 grep -q "vmlinuz-$KVER" $R/boot/photon.cfg && ok "grub env points at $KVER" || bad "photon.cfg"
-rpm --root=$R -q linux linux-drivers-gpu dtb-rpi4 dtb-rpi-overlay dtb-raspberrypi raspberrypi-firmware-pi4 u-boot-rpi4 grub2-efi-image linux-firmware docker | sed 's/^/       /'
+rpm --root=$R -q linux linux-drivers-gpu dtb-rpi4 dtb-rpi3 dtb-rpi-overlay dtb-raspberrypi raspberrypi-firmware-pi4 raspberrypi-firmware-pi3 u-boot-rpi4 u-boot-rpi3 grub2-efi-image linux-firmware docker | sed 's/^/       /'
 vc4=$(find $R/lib/modules/$KVER -name 'vc4.ko*'); [ -n "$vc4" ] && ok "vc4: ${vc4#$R}" || bad "no vc4 module"
 for m in vc4 hid-multitouch cdc-acm ch341 drm_kms_helper; do
   chroot $R modinfo -k $KVER $m 2>/dev/null | grep -E '^(filename|vermagic)' | tr '\n' ' ' | sed 's/^/       /'; echo
@@ -58,6 +58,42 @@ chroot $R modprobe -n -v -d / -S $KVER hid-multitouch 2>&1 | sed 's/^/       /'
 chroot $R modprobe -n -v -S $KVER vc4 2>&1 | sed 's/^/       /'
 for f in bcm2711-rpi-4-b.dtb overlays/upstream-pi4.dtbo config.txt start4.elf fixup4.dat u-boot-rpi4.bin EFI/BOOT/bootaa64.efi; do [ -e $B/$f ] && ok "boot partition has $f" || bad "boot partition lacks $f"; done
 grep -E 'dtoverlay|kernel=' $B/config.txt | sed 's/^/       /'
+# v7.6.2: the Pi 3 boot chain (bootcode.bin -> start.elf -> u-boot-rpi3.bin -> grub), never checked before 7.6.2:
+# a 3B+ booted 7.6.1 with no USB and no Ethernet. The firmware takes the tree by name: bcm2710-rpi-3-b-plus.dtb
+# unless upstream_kernel=1, then the mainline bcm2837-rpi-3-b-plus.dtb, the only kind dtb-rpi3 ships.
+for f in bootcode.bin start.elf fixup.dat u-boot-rpi3.bin bcm2837-rpi-3-b.dtb bcm2837-rpi-3-b-plus.dtb bcm2837-rpi-3-a-plus.dtb; do
+  [ -s $B/$f ] && ok "boot partition has $f (Pi 3)" || bad "boot partition lacks $f (Pi 3)"
+done
+cfg_sec() { awk -v s="[$1]" '/^\[/{sec=$0; next} sec==s && !/^[ \t]*#/ && NF' $B/config.txt; }
+[ "$(cfg_sec pi3 | grep -c '^kernel=u-boot-rpi3.bin$')" = 1 ] && ok "config.txt [pi3]: kernel=u-boot-rpi3.bin" || bad "config.txt [pi3] does not boot u-boot-rpi3.bin"
+cfg_sec pi3 | grep -qx 'upstream_kernel=1' && ok "config.txt [pi3]: upstream_kernel=1 (the firmware loads the bcm2837 tree it has)" || bad "config.txt [pi3] lacks upstream_kernel=1: a Pi 3 looks for bcm2710-*.dtb, which the image does not have"
+ls $B/bcm2710-*.dtb >/dev/null 2>&1 && bad "boot partition has bcm2710 trees: upstream_kernel=1 would not be the whole story any more" || ok "no bcm2710 trees on the boot partition (mainline only, as upstream_kernel=1 expects)"
+# Every overlay config.txt applies must resolve against the tree of each board that applies it, or the firmware drops
+# it ("Failed to resolve overlay"): each label in its __fixups__ must be in that tree's __symbols__.
+ov_resolves() {  # overlay-name dtb
+  local o=$B/overlays/$1.dtbo l miss=""
+  [ -s "$o" ] || { echo " no $1.dtbo"; return 1; }
+  for l in $(dtc -I dtb -O dts "$o" 2>/dev/null | sed -n '/__fixups__ {/,/};/p' | sed -n 's/^[[:space:]]*\([A-Za-z0-9_]*\) = .*/\1/p'); do
+    fdtget -t s "$2" /__symbols__ "$l" >/dev/null 2>&1 || miss="$miss $l"
+  done
+  [ -z "$miss" ] || { echo "$miss"; return 1; }
+}
+for sec in pi3:bcm2837-rpi-3-b.dtb pi3:bcm2837-rpi-3-b-plus.dtb pi3:bcm2837-rpi-3-a-plus.dtb pi4:bcm2711-rpi-4-b.dtb all:bcm2837-rpi-3-b-plus.dtb all:bcm2711-rpi-4-b.dtb; do
+  s=${sec%%:*}; d=${sec#*:}
+  for o in $(cfg_sec $s | sed -n 's/^dtoverlay=\([^,]*\).*/\1/p'); do
+    m=$(ov_resolves "$o" $B/$d) && ok "[$s] dtoverlay=$o resolves against $d" || bad "[$s] dtoverlay=$o does not resolve against $d (missing:$m)"
+  done
+done
+# The 3B+ tree has what USB and Ethernet stand on: the dwc2 node, enabled, for the mainline driver, and the LAN7515.
+D3=$B/bcm2837-rpi-3-b-plus.dtb
+[ "$(fdtget -t s $D3 /soc/usb@7e980000 compatible 2>/dev/null)" = "brcm,bcm2835-usb" ] && ok "3B+ tree: usb@7e980000 is brcm,bcm2835-usb (dwc2)" || bad "3B+ tree: no dwc2 usb@7e980000"
+st=$(fdtget -t s -d okay $D3 /soc/usb@7e980000 status 2>/dev/null); [ "$st" = okay ] && ok "3B+ tree: usb@7e980000 enabled" || bad "3B+ tree: usb@7e980000 status=$st"
+[ "$(fdtget -t s $D3 /aliases ethernet0 2>/dev/null)" = "/soc/usb@7e980000/usb-port@1/usb-port@1/ethernet@1" ] && ok "3B+ tree: ethernet0 is the LAN7515 behind the USB hub" || bad "3B+ tree: ethernet0 alias is not the LAN7515"
+case "$(fdtget -t s $D3 / model 2>/dev/null)" in *"3 Model B+"*) ok "3B+ tree: model is a Raspberry Pi 3 Model B+" ;; *) bad "3B+ tree: model is $(fdtget -t s $D3 / model 2>&1)" ;; esac
+for a in 'Cbrcm,bcm2835-usb dwc2' 'usb:v0424p7800 lan78xx'; do
+  grep -q -F -- "${a% *}" $R/lib/modules/$KVER/modules.alias && grep -F -- "${a% *}" $R/lib/modules/$KVER/modules.alias | grep -q " ${a#* }\$" \
+    && ok "modules.alias: ${a#* } for ${a% *}" || bad "modules.alias has no ${a#* } for ${a% *}"
+done
 # dtbs on the FAT partition are byte-identical to those of the installed dtb package
 for f in bcm2711-rpi-4-b.dtb; do
   if same $B/$f $R/boot/dtb/$f || [ -z "$(ls $R/boot/dtb 2>/dev/null)" ]; then ok "dtb $f consistent (or no second copy)"; else bad "dtb $f differs from /boot/dtb"; fi
@@ -192,7 +228,7 @@ grep -q -E '"ssh"|s_ssh' $R/usr/local/share/alnasl-setup/www/app.js && bad "app.
 echo "== units"
 for u in alnasl-firewall alnasl-firstboot alnasl-wifi alnasl-kiosk-load alnasl-kiosk alnasl-setup docker containerd alnasl alnasl-update.path wpa_supplicant@wlan0 systemd-networkd systemd-resolved getty@tty2 getty@tty3 \
          alnasl-splash alnasl-splash-reboot alnasl-splash-poweroff alnasl-os-update.timer alnasl-reset-boot \
-         alnasl-data alnasl-slot-check alnasl-upgrade-boot alnasl-mode alnasl-pin alnasl-pin-sync.path alnasl-system-update-check.timer alnasl-bootdiag; do
+         alnasl-data alnasl-slot-check alnasl-upgrade-boot alnasl-mode alnasl-pin alnasl-pin-sync.path alnasl-system-update-check.timer alnasl-bootdiag alnasl-lowmem; do
   s=$(chroot $R systemctl is-enabled $u 2>&1 | tail -1); [ "$s" = enabled ] && ok "$u enabled" || bad "$u: $s"
 done
 for u in getty@tty1 autovt@tty1; do
@@ -331,7 +367,7 @@ pyf=$(find $R/usr/local $R/etc/systemd $R/usr/share/alnasl -type f 2>/dev/null |
         [ "$(head -c 2 "$f" | tr -d '\0')" = '#!' ] && head -n 1 "$f" | grep -q -a python && echo "${f#$R}"
       done)
 [ -z "$pyf" ] && ok "no .py file and no python #! script in /usr/local, /etc/systemd, /usr/share/alnasl" || bad "python left: $(echo $pyf)"
-for s in alnasl-setup alnasl-kiosk alnasl-kiosk-load alnasl-firstboot alnasl-pin alnasl-wifi-setup alnasl-os-update alnasl-reset alnasl-data alnasl-mode alnasl-sound alnasl-firewall alnasl-cmdline-check alnasl-bootdiag; do bash -n $R/usr/local/sbin/$s && ok "bash -n $s" || bad "bash -n $s"; done
+for s in alnasl-setup alnasl-kiosk alnasl-kiosk-load alnasl-firstboot alnasl-pin alnasl-wifi-setup alnasl-os-update alnasl-reset alnasl-data alnasl-mode alnasl-sound alnasl-firewall alnasl-cmdline-check alnasl-bootdiag alnasl-lowmem; do bash -n $R/usr/local/sbin/$s && ok "bash -n $s" || bad "bash -n $s"; done
 echo "       vconsole.conf: $(cat $R/etc/vconsole.conf 2>/dev/null)"
 for k in be-latin1 fr-latin9 nl us-acentos de-latin1-nodeadkeys us uk es it pt-latin1; do
   f=$(find $R/usr/share/keymaps $R/usr/lib/kbd $R/lib/kbd -name "$k.map*" 2>/dev/null | head -n 1); [ -n "$f" ] && ok "keymap $k" || bad "keymap $k missing"
@@ -480,6 +516,7 @@ bar = Enum.find(cs, &("external-bar.js" in Map.get(&1, "js", [])))
 for p <- [4040, 4041, 4050, 4061, 4062],
     do: a.("http://localhost:#{p}/*" in bar["exclude_matches"] and "http://127.0.0.1:#{p}/*" in bar["exclude_matches"], "external-bar excludes #{p}")
 a.(String.starts_with?(m["version"], "7."), "version 7.x")
+with_js = fn f -> Enum.find(cs, &(f in Map.get(&1, "js", []))) end
 sl = with_js.("statusline.js")
 a.(sl["matches"] == Enum.map([4040, 4050, 4061, 4062], &"http://localhost:#{&1}/*") and !sl["all_frames"], "statusline matches the four app ports, top frame only")
 EX
@@ -490,6 +527,11 @@ grep -q 'execCommand("insertText"' $E/kiosk-ext/osk.js && grep -q 'requestSubmit
 grep -q 'statusline' $E/kiosk-ext/bg.js && grep -q 'api/sysinfo' $E/kiosk-ext/bg.js && grep -q 'Slot ' $E/kiosk-ext/statusline.js && grep -q 'calc(100vh - ' $E/kiosk-ext/statusline.js && ok "status line: slot, address, version from /api/sysinfo; the page is made shorter by the line" || bad "status line (statusline.js / bg.js)"
 grep -q 'cursor: none !important' $E/kiosk-ext/touch.js && grep -q 'pointerType' $E/kiosk-ext/touch.js && ok "touch.js hides the mouse arrow; only a real mouse moving shows it" || bad "touch.js: cursor hiding"
 [ -f $R/etc/systemd/system/alnasl-bootdiag.service ] && grep -q '^ExecStart=/usr/local/sbin/alnasl-bootdiag$' $R/etc/systemd/system/alnasl-bootdiag.service && grep -q 'alnasl-boot.txt' $R/usr/local/sbin/alnasl-bootdiag && grep -q 'alnasl-boot.txt' $B/README-ALNASL.txt && ok "alnasl-bootdiag: unit, program and the boot partition README agree on alnasl-boot.txt" || bad "alnasl-bootdiag wiring"
+# v7.6.3: a board with little memory gets zram and a memory record; Chromium goes first when memory runs out, never ssh or the app.
+grep -q zram $R/usr/local/sbin/alnasl-lowmem && grep -q alnasl-mem.txt $R/usr/local/sbin/alnasl-lowmem && ok "alnasl-lowmem: zram and the memory record" || bad "alnasl-lowmem wiring"
+for d in sshd sshd@ alnasl arkab polis nunki; do grep -q "^OOMScoreAdjust=-[89]00$" $R/etc/systemd/system/$d.service.d/alnasl-oom.conf 2>/dev/null && ok "$d: OOMScoreAdjust" || bad "$d: no OOMScoreAdjust drop-in"; done
+grep -q -- "--oom-score-adj 900" $R/usr/local/sbin/alnasl-kiosk && grep -q /run/alnasl-lowmem/small $R/usr/local/sbin/alnasl-kiosk-load && ok "kiosk: little memory waits for the app, Chromium is the OOM pick" || bad "kiosk low-memory path"
+ls $R/usr/lib/modules/*/kernel/drivers/block/zram/zram.ko* >/dev/null 2>&1 && ok "zram module in the image" || bad "no zram module"
 for st in firstboot-1 firstboot-2 firstboot-3; do
   [ "$(awk -v k="\"$st\": {" 'index($0, k) {f=1} f && /"bar"/ {gsub(/[ ,]/, ""); print; exit}' $R/usr/share/alnasl/splash/messages.json)" = '"bar":true' ] && ok "messages.json: $st has the progress bar (one bar for the whole first boot)" || bad "messages.json: $st has no progress bar"
 done
@@ -687,7 +729,7 @@ grep -q -- '--security' $R/usr/local/sbin/alnasl-os-update && grep -q 'excludepk
 bhas Diag updates_text alnasl-os-update && ok "diagnostics include the OS update result" || bad "AlnaslSetup.Diag lacks the OS update section"
 grep -q '127.0.0.1:4040/local/status' $R/usr/local/sbin/alnasl-os-update && ! grep -q 'round_in_progress() { return 1; }' $R/usr/local/sbin/alnasl-os-update && ok "OS update asks Alnasl's /local/status before touching anything" || bad "alnasl-os-update still stubs the round check"
 J=$R/usr/local/share/alnasl-setup/www/app.js
-src server.ex "\"/api/help/send\"" "\"/api/help/url\"" " /help)" && bhas Server.Help support/upload valid_support_url && ok "Get help: the setup server sends the report to an https-only upload address" || bad "Get help missing from the setup server"
+src server.ex "\"/api/help/send\"" "\"/api/help/url\"" " /help /logs)" && bhas Server.Help support/upload valid_support_url && ok "Get help: the setup server sends the report to an https-only upload address" || bad "Get help missing from the setup server"
 bhas Server.Help x-alnasl-box x-alnasl-version x-alnasl-mode autoredirect && ok "Get help: /help page, box/version/mode headers, no redirects" || bad "Get help details missing from the setup server"
 grep -q 'helpPage' $J && grep -q 'helpSettings' $J && ok "Get help: menu page and Settings page in app.js" || bad "Get help missing from app.js"
 for key in m_help help_d help_send help_read help_err_no_internet help_err_rate_limited help_err_support_off help_err_too_large help_url; do n=$(grep -c -E "(^|[^A-Za-z0-9_])$key:" $J); [ "$n" = 2 ] && ok "app.js: $key in EN and NL" || bad "app.js: $key found $n times (2 expected)"; done
@@ -788,7 +830,7 @@ grep -q -- '--nightly' $R/usr/local/sbin/alnasl-os-update && ok "the nightly run
 grep -q 'ConditionPathExists=/boot/efi/alnasl-upgrade.txt' $R/etc/systemd/system/alnasl-upgrade-boot.service && ok "headless upgrade: alnasl-upgrade.txt on the boot partition" || bad "alnasl-upgrade-boot.service"
 [ -f $R/usr/share/alnasl/kiosk-image-id ] && [ "$(cat $R/usr/share/alnasl/kiosk-image-id)" = "$(docker image inspect alnasl-kiosk:latest --format '{{.Id}}')" ] && ok "kiosk image id recorded (a new slot reloads its own kiosk)" || bad "kiosk-image-id"
 src server.ex "\"/api/system/upgrade\"" "\"UPGRADE\"" "\"/api/system/install\"" && ok "setup server: /api/system (GET), check, install (INSTALL), upgrade (UPGRADE)" || bad "setup server system API"
-for key in upd upd_install upd_upgrade upd_upgrade_q upd_offer upd_r_rolled_back upd_trial; do n=$(grep -c "$key:" $J); [ "$n" = 2 ] && ok "app.js: $key in EN and NL" || bad "app.js: $key found $n times (2 expected)"; done
+for key in upd upd_install upd_upgrade upd_upgrade_q upd_offer upd_r_rolled_back upd_trial; do n=$(grep -c -E "(^|[^A-Za-z0-9_])$key:" $J); [ "$n" = 2 ] && ok "app.js: $key in EN and NL" || bad "app.js: $key found $n times (2 expected)"; done
 if grep -q 'ALNASL-PLACEHOLDER' $R/etc/alnasl/update-key.pub; then
   if [ "${ALNASL_RELEASE:-0}" = 1 ]; then bad "update-key.pub is the PLACEHOLDER in a release build"; else echo "  WARN update-key.pub is the PLACEHOLDER: boxes with this image install no system update (fine for a test build)"; fi
 else
@@ -1272,6 +1314,13 @@ for key in cmp_menu cmp_qr_setup cmp_qr_in cmp_qr_url cmp_status_in cmp_t_role c
   n=$(grep -c -E "(^|[^A-Za-z0-9_])$key:" $J); [ "$n" = 2 ] && ok "app.js: $key in EN and NL" || bad "app.js: $key found $n times (2 expected)"
 done
 grep -q "pin: pinPage" $J && grep -q "function pinPage" $J && grep -q "/api/pin" $J && grep -q "id: \"cmp-pin\"" $J && ! grep -q "function pinPad" $J && ok "app.js: Settings > PIN, the PIN on the compact status, no number pad" || bad "app.js PIN page or compact PIN row"
+# v7.7: the stylus menu's Last logs (read-only, three levels) and Update (the menu's own updPage, not a second updater)
+grep -q 'function logsPage' $J && grep -q 'p === "/logs"' $J && grep -q '/api/logs?level=' $J && grep -q 'go("/logs?from=compact")' $J && grep -q 'go("/settings/updates?from=compact")' $J \
+  && [ "$(grep -c '/api/system/install' $J)" = 1 ] && [ "$(grep -c '/api/system/upgrade' $J)" = 1 ] \
+  && ok "app.js: stylus menu has Last logs and Update (one update path)" || bad "app.js stylus menu lacks Last logs or Update, or has a second update path"
+for key in cmp_t_logs cmp_t_upd lg_normal lg_warn lg_err lg_none lg_up lg_down lg_paused; do
+  n=$(grep -c -E "(^|[^A-Za-z0-9_])$key:" $J); [ "$n" = 2 ] && ok "app.js: $key in EN and NL" || bad "app.js: $key found $n times (2 expected)"
+done
 ! grep -q -e 'langToggle()' -e '/api/lang' $J && grep -q '^    LANG = "en";' $J && ok "app.js: the box's screens are English only, no language switch" || bad "app.js can still switch language"
 
 echo "== sizes"

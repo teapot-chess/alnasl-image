@@ -41,7 +41,11 @@ set -o pipefail  # (kept: the load pipeline below reports docker's status)
 # gzip's read position (/proc/PID/fdinfo/0) is the progress: no helper process, no extra copy of the tarball.
 # v7.1: the bar is a nicety. A painter slow to start (a busy SD card) must not cut the pipe; it only skips a step.
 SIZE=$(stat -c %s "$TAR"); [ "${SIZE:-0}" -gt 0 ] || SIZE=1
-gzip -dc < "$TAR" | docker load &
+if [ -f /run/alnasl-lowmem/small ]; then  # v7.6.3: little memory (alnasl-lowmem); the app comes first
+  nice -n 10 ionice -c 2 -n 7 gzip -dc < "$TAR" | nice -n 10 docker load &
+else
+  gzip -dc < "$TAR" | docker load &
+fi
 LOAD=$!
 GZ=
 last=-1
