@@ -90,8 +90,15 @@ while true; do
   KIOSK_MEM_ARGS=(--tmpfs /tmp:exec,size=256m --shm-size=256m)
   if [ -f /run/alnasl-lowmem/small ]; then
     KIOSK_MEM_ARGS=(--tmpfs /tmp:exec,size=96m --shm-size=96m --oom-score-adj 900)
+    # Only for an app that is switched on and has not failed: one switched off in Settings > Services (or given up on
+    # by systemd) never answers, and the screen must not sit 10 minutes on the boot picture at every restart for it.
+    app_unit=${role:-alnasl}.service
     for i in $(seq 1 120); do
       (exec 3<>"/dev/tcp/127.0.0.1/$app_port") 2>/dev/null && break
+      if ! systemctl is-enabled -q "$app_unit" 2>/dev/null || systemctl is-failed -q "$app_unit" 2>/dev/null; then
+        echo "kiosk: little memory, but $app_unit is switched off or failed; not waiting for it"
+        break
+      fi
       [ "$i" = 1 ] && echo "kiosk: little memory; waiting for the app on port $app_port before Chromium"
       sleep 5
     done
