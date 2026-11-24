@@ -5,3 +5,26 @@
 *.ps1 text eol=crlf
 *.ttf binary
 overlay/boot-efi/alnasl-pin.txt -text
+
+# More binaries: images, archives, fonts and databases are never line-ending converted.
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.icns binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.xz binary
+*.tgz binary
+*.7z binary
+*.jar binary
+*.woff binary
+*.woff2 binary
+*.otf binary
+*.eot binary
+*.db binary
+*.sqlite3 binary
+*.img binary
+*.dtbo binary
