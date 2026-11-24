@@ -49,7 +49,7 @@ zram_on() {
 [ -f "$FLAGDIR/small" ] || exit 0
 
 # The memory record. Backgrounded off the unit (systemd-run would be neater, but a oneshot that forks is enough:
-# KillMode=none below keeps the sampler when the oneshot's main process is done).
+# KillMode=process in alnasl-lowmem.service keeps the sampler when the oneshot's main process is done).
 sample() {
   local avail swap top
   avail=$(sed -n 's/^MemAvailable:[[:space:]]*\([0-9]*\).*/\1/p' "$MEMINFO" 2>/dev/null)

@@ -93,6 +93,11 @@ fresh; run; app; setcard 'ëéïöü'; run; grep -a -q 'too short' "$T/b/alnasl-
 app; sed -i 's/^PIN=[^\r]*/PIN=caf\xe9123/' "$T/b/alnasl-pin.txt"; run
 [ ! -e "$T/d/pin-request" ] && grep -a -q 'not plain text' "$T/b/alnasl-pin.txt" && ok "a PIN in a non-UTF-8 file is refused and says why" || bad "non-UTF-8 PIN"
 
+# 11c. The app's data folder is the app's: a link it planted at pin-request.new is replaced, never written through.
+fresh; printf 'keep me\n' > "$T/victim"; ln -s "$T/victim" "$T/d/pin-request.new"; printf 'set\nlinked-pin1\n' > "$T/s/pin-wanted"; run --apply
+[ "$(cat "$T/victim")" = 'keep me' ] && [ "$(req)" = 'set|linked-pin1|' ] && [ ! -L "$T/d/pin-request" ] && [ "$(stat -c %a "$T/d/pin-request")" = 600 ] \
+  && [ -z "$(ls -A "$T/s" | grep '^\.pin-request\.')" ] && ok "a symlink at pin-request.new is not followed; the request is a fresh 0600 file" || bad "pin-request.new symlink followed"
+
 # 12. The script never prints or logs a PIN variable.
 ! grep -n -E '(echo|say)[^#]*\$(pin|p|a|t|edit|want)\b|logger|set -x|\| *tee' "$PS" >/dev/null && ok "alnasl-pin never echoes, logs or tees a PIN" || bad "alnasl-pin may show the PIN"
 exit $fail
