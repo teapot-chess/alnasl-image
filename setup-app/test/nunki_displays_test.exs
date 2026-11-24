@@ -17,7 +17,15 @@ defmodule AlnaslSetup.NunkiDisplaysTest do
     end
 
     test "round trip, CRLF and quotes forgiven" do
-      c = %{"layout" => "two", "swap" => true, "rotate1" => "left", "rotate2" => "inverted"}
+      c = %{
+        "layout" => "two",
+        "swap" => true,
+        "rotate1" => "left",
+        "rotate2" => "inverted",
+        "mode1" => "1280x720",
+        "mode2" => "auto"
+      }
+
       assert Displays.parse(Displays.serialize(c)) == c
       assert Displays.parse("LAYOUT=\"mirror\"\r\nSWAP=1\r\n")["layout"] == "mirror"
     end
@@ -26,6 +34,8 @@ defmodule AlnaslSetup.NunkiDisplaysTest do
       assert_raise ArgumentError, fn -> Displays.serialize(%{"layout" => "three"}) end
       assert_raise ArgumentError, fn -> Displays.serialize(%{"rotate2" => "diagonal"}) end
       assert_raise ArgumentError, fn -> Displays.serialize(%{"swap" => "1"}) end
+      assert_raise ArgumentError, fn -> Displays.serialize(%{"mode2" => "1280x720;reboot"}) end
+      assert Displays.parse("MODE1=1x1\nMODE2=1920x1080i\n")["mode1"] == "auto"
     end
   end
 
@@ -137,7 +147,17 @@ defmodule AlnaslSetup.NunkiDisplaysTest do
       :persistent_term.put({__MODULE__, :mode}, :first)
       assert %{"ok" => true, "state" => s} = Nunki.state()
 
-      assert s["screens"] == %{"hdmi1" => %{"mode" => "paused", "tournament" => 7, "source" => nil, "url" => nil}} and
+      assert s["screens"] == %{
+               "hdmi1" => %{
+                 "mode" => "paused",
+                 "tournament" => 7,
+                 "source" => nil,
+                 "url" => nil,
+                 "boards" => nil,
+                 "boards_url" => nil,
+                 "shows" => nil
+               }
+             } and
                not s["two_screens"]
     end
 

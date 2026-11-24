@@ -417,3 +417,25 @@ input.range { flex: 1; min-width: 180px; height: 44px; accent-color: var(--accen
 .lg-note { flex: none; font-size: clamp(11px, 2.8vw, 14px); color: var(--dim); text-align: center; }
 /* v7.7: System updates opened from the stylus menu: the same page, bigger targets. */
 .upd-stylus .btn, .btn.stylus { min-height: 56px; padding: 0 18px; font-size: 18px; }
+/* v7.7: Live boards on HDMI (app.js liveBoardsPage): a wizard of big tiles, no typing. The counts sit in a grid of
+   equal squares, the range stepper's - and + are thumb-sized, Back / Next stay at the bottom of every step. */
+.lb-head { display: flex; align-items: center; gap: 8px; justify-content: space-between; margin-bottom: 6px; }
+.lb-grid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); margin-bottom: 8px; }
+.lb-opt { min-height: 64px; padding: 0 8px; font-size: 20px; transition: background .15s, border-color .15s; }
+.lb-other .lb-opt { font-size: 17px; }
+.lb-now { font-weight: 600; color: var(--accent); margin: 4px 0; }
+.lb-nav { display: flex; gap: 10px; margin-top: 10px; } .lb-nav .lb-big { flex: 1; min-height: 64px; font-size: 20px; }
+.lb-tours .lb-item { min-height: 56px; width: 100%; } .lb-tours .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--bad); flex: none; }
+.lb-tours .dot.ok { background: var(--ok); }
+.lb-step { align-items: center; gap: 10px; margin: 8px 0; } .lb-pm { min-width: 72px; min-height: 64px; font-size: 28px; padding: 0; }
+.lb-num { min-width: 3ch; text-align: center; font-size: 26px; }
+.lb-res { margin-bottom: 6px; } .lb-res .lb-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); } .lb-res .lb-opt { font-size: 16px; min-height: 52px; }
+.lb-sum { margin: 6px 0 10px; padding-left: 18px; line-height: 1.6; }
+@media (max-width: 520px), (max-height: 360px) {
+  .lb-grid { grid-template-columns: repeat(4, 1fr); gap: 5px; margin-bottom: 5px; } .lb-opt { min-height: 48px; font-size: 18px; }
+  .lb-other { grid-template-columns: repeat(3, 1fr); } .lb-other .lb-opt { font-size: 14px; padding: 0 4px; }
+  .lb-body h2 { margin: 0 0 2px; font-size: 17px; } .lb-body p.small { margin: 0 0 4px; } .lb-now { margin: 2px 0; font-size: 14px; }
+  .lb-nav { margin-top: 6px; gap: 6px; } .lb-nav .lb-big { min-height: 48px; font-size: 17px; }
+  .lb-res .lb-grid { grid-template-columns: repeat(3, 1fr); } .lb-res .lb-opt { min-height: 44px; font-size: 14px; padding: 0 4px; }
+  .lb-tours .lb-item { min-height: 48px; } .lb-pm { min-width: 60px; min-height: 52px; } .lb-sum { line-height: 1.4; font-size: 14px; }
+}

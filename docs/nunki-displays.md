@@ -14,7 +14,7 @@ HDMI monitor on a nunki box now opens the broadcast instead of Nunki's admin pag
 
 ## Layouts
 
-`/var/lib/alnasl-setup/displays.conf` on the data partition (it survives updates). Four lines, read word by word
+`/var/lib/alnasl-setup/displays.conf` on the data partition (it survives updates). Four lines (six since 7.7), read word by word
 by `alnasl-kiosk`, never sourced:
 
 ```
@@ -22,6 +22,8 @@ LAYOUT=auto|single|manage|mirror|two
 SWAP=0|1
 ROTATE1=normal|right|inverted|left
 ROTATE2=normal|right|inverted|left
+MODE1=auto|WxH        (7.7, the Live boards wizard)
+MODE2=auto|WxH
 ```
 
 | Layout | HDMI 0 | HDMI 1 |
@@ -50,8 +52,8 @@ Settings > Screens (HDMI menu), or Menu > Screens on the panel. One page, four n
    broadcast 2 green, dark is dark).
 2. **Which monitor is which**: *Identify screens* puts a big number and its job ("HDMI 1: Hall screen 1") on
    every monitor for eight seconds; *Swap* if the numbers are on the wrong monitors.
-3. **Turned**: a rotation per output (xrandr, cheap; a resolution per output is not offered, `auto` takes each
-   monitor's preferred mode).
+3. **Turned**: a rotation per output (xrandr, cheap). A resolution per output is the Live boards wizard's (7.7);
+   this page keeps whatever it set.
 4. **Tournaments**: per broadcast screen, Nunki's choice or a fixed tournament (through Nunki's API; skipped with
    a note when Nunki does not answer).
 
@@ -76,6 +78,58 @@ answers 404 is "too old: update Nunki", one that does not answer is "Nunki does 
 on the panel. Big targets: the three mode buttons are 60 px high on a 480x320 panel. The volume slider is the
 box's own (`alnasl-sound`, the same as Settings > Sound). Nunki's sound is off in a fresh image
 (`NUNKI_AUDIO=off` in `/etc/nunki/nunki.env`: only the default; the button turns it on).
+
+## Live boards on HDMI (7.7)
+
+The panel's **Live boards** (stylus menu, Hall screens, or the HDMI menu's tile; `/liveboards`) puts OpenResults'
+live boards on the monitors. A wizard of big tiles, nothing to type:
+
+1. **Tournament**: *Whatever is playing* (Nunki's own pick, `id: null`) or one of Nunki's tournaments; one that is
+   not published on OpenResults says so.
+2. **Screen 1**, then **Screen 2** with two monitors: the first 1/2/4/6/8/12/16 boards (screen 2 goes on where
+   screen 1 ends: 1-4 then 5-8), a *From - to* stepper (- and +, 1 to 999), *All* (screen 1), *Broadcast* (the
+   ordinary hall screen), and for screen 2 *Same as screen 1* (mirror) or *Off*. *Identify screens* is on these steps.
+3. **Resolution** per monitor that has its own picture: *Auto* (the monitor's preferred mode) or any mode the kernel
+   lists for it (`/sys/class/drm/<card>-HDMI-A-n/modes`). The two may differ. A mirror takes screen 1's mode when
+   monitor 2 lists it, else its own preferred one.
+4. **Check**, then **Done**.
+
+`POST /api/liveboards` (`AlnaslSetup.Server.LiveBoards`) sets, per hall screen, Nunki's tournament and its source
+`boards` (Nunki 0.9.0: `POST /api/local/v1/screen_source {"source": "boards", "boards": "5-8"}`). Nunki frames
+`<results>/live/current/projector?kiosk=1&boards=5-8`, where `<results>` is the tournament's OpenResults address that
+OpenPairings sends over the hall link. That page always shows the latest round and moves on by itself, so the
+screens follow round after round with nobody touching anything. Nunki keeps the source and the selection in its
+own state: they survive a restart of Nunki or the box. Nothing published: Nunki's frame says the tournament is not
+on OpenResults, in big letters, instead of an error page.
+
+Then the box's half (`Displays.apply_live`): `displays.conf` gets the layout the answers mean (screen 2 boards or
+broadcast: `two`; *Same as screen 1*: `mirror`; *Off* or one monitor: `single`) and two more lines:
+
+```
+MODE1=auto|WxH
+MODE2=auto|WxH
+```
+
+**Nothing reboots, and the X server does not restart.** The setup app runs `docker exec alnasl-kiosk kiosk-res
+layout <extend|mirror|single> X1 job1 mode1 rot1 X2 job2 mode2 rot2`: xrandr lays the outputs out again (`--mode`
+or `--auto`, `--right-of` or `--same-as` or `--off`), writes each window's place to `/run/alnasl-kiosk/win-1` and
+`win-2`, and ends only the Chromium windows whose line changed; each window's loop starts it again where it now
+goes. The panel (`:1`) is not touched. With one monitor it is `kiosk-res apply`. Only a kiosk that cannot do it live
+(fbdev, or one started by an older image) restarts its container, about half a minute, panel included.
+
+**A new resolution must be kept.** The panel asks *Keep this resolution?* with a 15-second count; Undo, or nothing,
+puts the previous modes back (the server's own timer, so a panel that froze or a monitor that went black reverts
+anyway; 45 seconds when the kiosk had to restart). A change that touches no mode is final at once. A kiosk restart
+comes back to `/liveboards`, which asks again while the timer runs.
+
+Why OpenResults and not the box's own Alnasl, in a hall without internet: Alnasl's board pages sit behind its
+operator login, and the broadcast delay (the anti-cheating minutes between a move and the public seeing it) is
+OpenResults'. A hall screen that showed Alnasl's boards would show the moves before the delay. Without internet the
+frame says the page cannot be reached and keeps trying; *Broadcast* (Nunki's own hall screen) works offline.
+
+**Dutch.** The panel's Nunki pages (the compact screen and its menu, Hall screens, Screens, Live boards) speak Dutch
+once the menu's *Language* tile says so (`/api/lang`, the box-wide setting). Every other page of the box stays
+English.
 
 ## How it is built, and why this way
 
@@ -120,3 +174,11 @@ The whole dual-screen path was written against fake sysfs, fake Xorg and a scrat
 - hot-plug (the vc4 driver's connector status on unplug, and how long it takes);
 - Identify matching windows by `screenX`/`screenY` in a window without a window manager;
 - rotation per output with the window geometry read back after the rotation.
+
+Added in 7.7, also never on a Pi:
+
+- two monitors with different modes on a Pi 4 (`--mode` per output, `--right-of` with unequal heights);
+- `kiosk-res layout` on real vc4: the geometry read back after a mode change, and a window that lands in it;
+- the 15-second revert putting the previous modes back, and the 45-second one after a kiosk restart;
+- a Chromium window ended and started again while the other keeps running (the profile lock of its own directory);
+- the kiosk restart path (fbdev or an older kiosk) coming back to `/liveboards` with the question still open.

@@ -10,6 +10,9 @@ defmodule AlnaslSetup.Server.Nunki do
       POST /api/local/v1/hall_tournament {"screen": "hdmi1"|"hdmi2", "id": id|null}
       POST /api/local/v1/screen_source     {"screen": "hdmi1"|"hdmi2", "source": "hall"|"web", "url": "https://..."} (Nunki 0.8.0+;
                                           "screens.<n>" then also has "source" and "url"; a 404 is "old", a 422 carries its sentence)
+                                         {"source": "boards", "boards": "1-4"} (Nunki 0.9.0+: OpenResults' live boards of the
+                                          screen's tournament, following the round; "screens.<n>" has "boards" and "boards_url",
+                                          each tournament its OpenResults address "results", null when it is not published)
 
   A Nunki without "screens" (the first v1) has one hall screen: the top-level "screen" and "hall_tournament" are
   hdmi1's, and hdmi2 is reported as not there. A Nunki older than the API answers 404: that is said plainly
@@ -21,7 +24,9 @@ defmodule AlnaslSetup.Server.Nunki do
 
   @screens ~w(hdmi1 hdmi2)
   @modes ~w(live paused black)
-  @sources ~w(hall web)
+  @sources ~w(hall web boards)
+  # Nunki's own grammar (0.9.0): empty = every board, else N or N-M items, comma-separated. Nunki has the last word.
+  @boards_re ~r/\A(\d{1,3}(-\d{1,3})?(,\d{1,3}(-\d{1,3})?){0,19})?\z/
   @timeout 3000
 
   defp base, do: Py.env(:nunki_url, "http://127.0.0.1:4062")
@@ -69,7 +74,12 @@ defmodule AlnaslSetup.Server.Nunki do
 
     tournaments =
       for %{} = t <- List.wrap(s["tournaments"]),
-          do: %{"id" => t["id"], "name" => name(t), "connected" => t["connected"] == true}
+          do: %{
+            "id" => t["id"],
+            "name" => name(t),
+            "connected" => t["connected"] == true,
+            "results" => str(t["results"])
+          }
 
     %{
       "screens" => screens,
@@ -89,9 +99,23 @@ defmodule AlnaslSetup.Server.Nunki do
       "mode" => if(mode in @modes, do: mode, else: "live"),
       "tournament" => t,
       "source" => if(v["source"] in @sources, do: v["source"], else: nil),
-      "url" => if(is_binary(v["url"]), do: v["url"], else: nil)
+      "url" => if(is_binary(v["url"]), do: v["url"], else: nil),
+      # Nunki 0.9.0+: the live boards' selection ("" = all) and the page they come from (nil: not on OpenResults)
+      "boards" => str(v["boards"]),
+      "boards_url" => str(v["boards_url"]),
+      "shows" => v["shows"]
     }
   end
+
+  defp str(v), do: if(is_binary(v), do: v, else: nil)
+
+  @doc "A board selection as Nunki takes it (spaces dropped): `{:ok, selection}` or `:error`."
+  def boards(sel) when is_binary(sel) do
+    sel = String.replace(sel, " ", "")
+    if byte_size(sel) <= 100 and Regex.match?(@boards_re, sel), do: {:ok, sel}, else: :error
+  end
+
+  def boards(_other), do: :error
 
   @doc "POST /api/nunki/screen {screen, mode}"
   def set_screen(%{} = b) do
@@ -116,7 +140,10 @@ defmodule AlnaslSetup.Server.Nunki do
     post("/hall_tournament", %{"screen" => sc, "id" => id})
   end
 
-  @doc "POST /api/nunki/source {screen, source, url}; url only for web, and optional when the screen has one."
+  @doc """
+  POST /api/nunki/source {screen, source, url | boards}: url only for web (optional when the screen has one), boards
+  only for boards (optional: the screen keeps its selection; "" is every board).
+  """
   def set_source(%{} = b) do
     sc = b["screen"] || "hdmi1"
     if sc not in @screens, do: raise(ArgumentError, "bad_screen")
@@ -124,7 +151,23 @@ defmodule AlnaslSetup.Server.Nunki do
     url = b["url"]
     if not (is_nil(url) or (is_binary(url) and byte_size(url) <= 2000)), do: raise(ArgumentError, "bad_url")
     body = %{"screen" => sc, "source" => b["source"]}
-    post("/screen_source", if(b["source"] == "web" and url, do: Map.put(body, "url", url), else: body), true)
+
+    body =
+      case {b["source"], b["boards"]} do
+        {"web", _} when is_binary(url) ->
+          Map.put(body, "url", url)
+
+        {"boards", sel} when sel != nil ->
+          case boards(sel) do
+            {:ok, sel} -> Map.put(body, "boards", sel)
+            :error -> raise ArgumentError, "bad_boards"
+          end
+
+        _ ->
+          body
+      end
+
+    post("/screen_source", body, true)
   end
 
   # sentence: a 422 from Nunki says why in a sentence made to be shown; the caller may pass it on
