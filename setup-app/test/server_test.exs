@@ -371,7 +371,7 @@ defmodule AlnaslSetup.ServerTest do
       assert get("/data.bin").headers["content-type"] == "application/octet-stream"
       assert get("/index.html").headers["content-type"] == "text/html; charset=utf-8"
 
-      for p <- ~w(/setup /menu /settings /info /diag /help /settings/network /settings/x/y) do
+      for p <- ~w(/setup /menu /settings /info /diag /help /nunki /liveboards /settings/network /settings/x/y) do
         r = get(p)
         assert r.status == 200 and r.body =~ "app.js", p
       end

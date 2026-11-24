@@ -72,6 +72,12 @@ sentence is shown as it is), and the last address is kept, so switching back to 
 0.8.0 answers 404: the source buttons stay away when its state has no `source`, and a try says it needs updating.
 Proxied as `POST /api/nunki/source` like the other Hall screens buttons.
 
+7.7 (in progress): live boards on HDMI for the nunki role (`docs/nunki-displays.md`, "Live boards on HDMI"): a panel
+wizard puts OpenResults' follow-the-round board pages on each monitor (Nunki 0.9.0's `boards` source), with a
+resolution per monitor, all applied live: `kiosk-res layout` re-lays the outputs and restarts only the windows that
+changed, and a new resolution reverts after 15 seconds unless kept. No reboot. The panel's Nunki pages gained Dutch
+(the menu's Language tile). Needs Nunki 0.9.0 in versions.json and the OpenPairings plugin 0.9.0 on the hosted side.
+
 ## 2. Boot screen: the log
 
 From power-on until the role's page is up the screen shows the Alnasl mark, a status line ("starting

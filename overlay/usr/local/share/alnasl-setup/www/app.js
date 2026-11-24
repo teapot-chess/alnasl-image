@@ -179,6 +179,19 @@ const TX = {
     rm_leave: "Leave", rm_leave_q: "Leave remote access? The box logs out, forgets its Tailscale key and is off the network. Remove it from the admin console too.",
     rm_left: "Remote access is off.", not_installed: "Remote access is not part of this image.", no_tun: "The kernel has no TUN device; remote access cannot start.",
     no_daemon: "Tailscale did not start. Try again in a moment.", not_nunki: "Only a Nunki box does this.",
+    // v7.7: live boards on HDMI (the wizard), the panel's language tile
+    nk_src_boards: "Live boards", cmp_t_lang: "Language",
+    lb: "Live boards", lb_tile: "OpenResults' boards on the monitors, round after round", lb_s_tour: "Which tournament?",
+    lb_auto: "Whatever is playing", lb_auto_d: "Nunki's choice", lb_nores: "not on OpenResults", lb_none: "Nunki knows no tournament yet.",
+    lb_scr: "Screen %s (%s)", lb_how: "How many boards? The next screen goes on where this one ends.", lb_all: "All", lb_range: "From - to",
+    lb_from: "From board", lb_to: "To board", lb_ok: "OK", lb_hall: "Broadcast", lb_same: "Same as screen 1", lb_off: "Off",
+    lb_sel: "Boards %s", lb_sel_all: "All boards", lb_res: "Resolution", lb_res_auto: "Auto (%s)", lb_sum: "Check", lb_done: "Done",
+    lb_nores_d: "This tournament is not published on OpenResults: its screens say so until it is.",
+    lb_applying: "Putting it on the screens...", lb_applied: "On the screens. They follow the next round by themselves.",
+    lb_restart: "On the screens. They start again for it: about half a minute.", lb_nunki: "Screen %s: %s",
+    lb_keep_q: "Keep this resolution?", lb_keep_d: "If the picture is wrong, do nothing: it goes back by itself in", lb_reverted: "The previous resolution is back.",
+    bad_boards: "Those boards are not a selection Nunki takes.", bad_mode: "That resolution is not one this monitor offers.",
+    bad_show: "That is not something a screen can show.", bad_screens: "No screens were given.", bad_id: "That is not a tournament.",
   },
   nl: {
     welcome: "Welkom bij je Alnasl-box", welcome_d: "Nog een paar korte stappen en de box is klaar voor de zaal. Je kunt alles later wijzigen via het menu.",
@@ -330,6 +343,37 @@ const TX = {
     pin_new: "Nieuwe pincode", pin_random: "Nieuwe willekeurige pincode", pin_saved: "Opgeslagen. %s start opnieuw om hem te gebruiken; elke andere browser moet de nieuwe pincode geven.",
     pin_short: "Minstens 6 tekens.", pin_long: "Hoogstens 64 tekens.", pin_edges: "Geen spatie aan het begin of het eind.",
     pin_control: "Alleen gewone tekens, geen onzichtbare.", app_missing: "De app staat niet op deze kast.", pin_failed: "De kast kon de pincode niet wijzigen. Probeer het opnieuw.",
+    // v7.5 + v7.7: the nunki panel (Zaalschermen, Schermen, Live borden); the only Dutch pages on the box's own screens
+    nk: "Zaalschermen", nk_tile: "Live, pauze, zwart, toernooi, geluid", nk_down: "Nunki antwoordt niet. Misschien start het nog; blijft dit zo, herstart dan de kast.",
+    nk_old: "Deze Nunki is te oud voor deze knoppen. Werk Nunki (of de kast) bij en probeer het opnieuw.", nk_refused: "Nunki weigerde dat.",
+    nk_bad: "Nunki antwoordde iets wat deze pagina niet begrijpt.", nk_screen: "Zaalscherm %s", nk_live: "Live", nk_paused: "Pauze", nk_black: "Zwart",
+    nk_tour: "Toernooi", nk_auto: "Keuze van Nunki", nk_pick: "Welk toernooi op zaalscherm %s?", nk_sound: "Geluid", nk_on: "Aan", nk_off: "Uit",
+    nk_status: "Nunki %s, %s van %s toernooien verbonden", nk_one: "Deze Nunki stuurt één zaalscherm.", nk_src: "Toont", nk_src_hall: "Uitzending", nk_src_web: "Webpagina",
+    nk_src_old: "Deze Nunki is ouder dan 0.8.0 en kan niet veranderen wat een scherm toont. Werk Nunki (of de kast) bij en probeer het opnieuw.",
+    nk_src_pick: "Webpagina op zaalscherm %s", nk_src_url: "Adres (https://...)", nk_src_set: "Tonen", nk_src_none: "Nog geen adres.", nk_countdown: "Aftellen loopt",
+    nk_src_boards: "Live borden", cmp_t_lang: "Taal",
+    scr: "Schermen", scr_tile: "Eén of twee monitoren, welke is welke", scr_only: "Alleen een Nunki-kast stuurt twee monitoren. Zet de kast eerst op Nunki.",
+    scr_1: "1. Wat de monitoren tonen", scr_2: "2. Welke monitor is welke", scr_3: "3. Gedraaid", scr_4: "4. Toernooien", scr_conn: "Nu verbonden: %s",
+    scr_none: "geen monitor", scr_ident: "Schermen aanwijzen", scr_ident_d: "Zet acht seconden lang een groot nummer op elke monitor.", scr_swap: "De twee monitoren omwisselen",
+    scr_save: "Opslaan en de schermen herstarten", scr_saved: "Opgeslagen. De schermen starten ermee opnieuw; dat duurt ongeveer een halve minuut.",
+    scr_fallback: "Er is maar één monitor verbonden: die toont de uitzending tot de tweede terug is.", scr_tour_later: "Nunki antwoordt niet; kies de toernooien later bij Zaalschermen.",
+    lay_auto: "Automatisch", lay_auto_d: "Eén monitor: de uitzending. Twee: beheer op HDMI 0, uitzending op HDMI 1.",
+    lay_single: "Eén uitzending", lay_single_d: "Alleen de eerste monitor; een tweede blijft donker.", lay_manage: "Beheer + uitzending",
+    lay_manage_d: "De eigen pagina van Nunki op de ene, het zaalscherm op de andere.", lay_mirror: "Spiegelen", lay_mirror_d: "Dezelfde uitzending op beide.",
+    lay_two: "Twee toernooien", lay_two_d: "Zaalscherm 1 en zaalscherm 2, elk met een eigen toernooi.",
+    rot_normal: "Normaal", rot_right: "Rechts", rot_inverted: "Ondersteboven", rot_left: "Links", job_manage: "Beheer", job_hall1: "Zaal 1", job_hall2: "Zaal 2",
+    not_nunki: "Alleen een Nunki-kast doet dit.", rm: "Toegang op afstand",
+    lb: "Live borden", lb_tile: "De borden van OpenResults op de monitoren, ronde na ronde", lb_s_tour: "Welk toernooi?",
+    lb_auto: "Wat er nu speelt", lb_auto_d: "Keuze van Nunki", lb_nores: "niet op OpenResults", lb_none: "Nunki kent nog geen toernooi.",
+    lb_scr: "Scherm %s (%s)", lb_how: "Hoeveel borden? Het volgende scherm gaat verder waar dit ophoudt.", lb_all: "Alle", lb_range: "Van - tot",
+    lb_from: "Van bord", lb_to: "Tot bord", lb_ok: "OK", lb_hall: "Uitzending", lb_same: "Zelfde als scherm 1", lb_off: "Uit",
+    lb_sel: "Borden %s", lb_sel_all: "Alle borden", lb_res: "Resolutie", lb_res_auto: "Automatisch (%s)", lb_sum: "Nakijken", lb_done: "Klaar",
+    lb_nores_d: "Dit toernooi staat niet op OpenResults: de schermen zeggen dat tot het er wel op staat.",
+    lb_applying: "Bezig met de schermen...", lb_applied: "Staat op de schermen. Ze volgen vanzelf de volgende ronde.",
+    lb_restart: "Staat op de schermen. Ze starten ervoor opnieuw: ongeveer een halve minuut.", lb_nunki: "Scherm %s: %s",
+    lb_keep_q: "Deze resolutie houden?", lb_keep_d: "Is het beeld niet goed, doe dan niets: het gaat vanzelf terug over", lb_reverted: "De vorige resolutie is terug.",
+    bad_boards: "Die borden zijn geen keuze die Nunki aanneemt.", bad_mode: "Die resolutie biedt deze monitor niet aan.",
+    bad_show: "Dat kan een scherm niet tonen.", bad_screens: "Er werden geen schermen opgegeven.", bad_id: "Dat is geen toernooi.",
   },
 };
 let LANG = "en";
@@ -500,13 +544,15 @@ function qset(obj) {
   ping();
 }
 
+// v7.7: the pages of a nunki box's touch panel that may speak Dutch (see route)
+const NL_PAGES = ["/compact", "/nunki", "/settings/screens", "/liveboards"];
 async function route() {
   const p = location.pathname;
   try {
     S = Object.assign(S, await api("/api/state"));
-    // The box's own screens are English, every one of them, HDMI too: no language switch anywhere. The tables keep
-    // their Dutch (the hotspot's phone page still speaks it), but nothing here reads S.lang any more.
-    LANG = "en";
+    // The box's own screens are English, HDMI too. v7.7, one exception: a nunki box's touch panel (the compact page and
+    // its stylus menu, Hall screens, Screens, Live boards) speaks Dutch once its Language tile says so (S.lang).
+    LANG = S.lang === "nl" && NL_PAGES.includes(p) && roleNow() === "nunki" ? "nl" : "en";
     applyTheme(S.theme);
     if (WHERE === "hdmi") S.compact = false;   // the panel is compact; the HDMI monitor beside it is not
   } catch (e) { shell("", [msg("bad", t("error")), h("button", { class: "btn", onclick: route }, t("retry"))], { langToggle: false }); return; }
@@ -514,6 +560,7 @@ async function route() {
   compactStop();
   if (p === "/compact") return compactPage();
   if (p === "/nunki") return nunkiPage();
+  if (p === "/liveboards") return liveBoardsPage();
   if (p === "/setup") {
     WIZ = true;
     const st = Number(qget("step") ?? sessionStorage.getItem("wizstep") ?? 0);
@@ -646,7 +693,14 @@ function compactMenu(r) {
     tile(t("cmp_t_pin"), "", done(() => go("/settings/pin?from=compact"))),
     tile(t("wifi"), "", done(() => go("/settings/network?tab=wifi&from=compact"))),
     role === "nunki" ? tile(t("nk"), "", done(() => go("/nunki?from=compact"))) : null,
+    role === "nunki" ? tile(t("lb"), "", done(() => go("/liveboards?from=compact"))) : null,
     role === "nunki" ? tile(t("scr"), "", done(() => go("/settings/screens?from=compact"))) : null,
+    // v7.7: the nunki panel's own language, English or Dutch; every other page of the box stays English
+    role === "nunki" ? tile(t("cmp_t_lang"), LANG === "nl" ? "Nederlands" : "English", done(async () => {
+      S.lang = LANG === "nl" ? "en" : "nl";
+      await api("/api/lang", { lang: S.lang }).catch(() => 0);
+      route();
+    })) : null,
     tile(t("rm"), "", done(() => go("/settings/remote?from=compact"))),
     tile(t("cmp_t_logs"), "", done(() => go("/logs?from=compact"))),
     // the menu's own System updates page (updPage), stylus-sized: one updater, two ways in
@@ -752,6 +806,7 @@ function menu() {
   shell(t("menu"), [statusStrip(r), hotspotCard(), h("div", { class: "grid" },
     tile(ROLE_NAME[r], t(r === "alnasl" ? "m_alnasl_d" : "m_" + r + "_d"), openAlnasl),
     r === "nunki" ? tile(t("nk"), t("nk_tile"), () => go("/nunki")) : null,
+    r === "nunki" ? tile(t("lb"), t("lb_tile"), () => go("/liveboards")) : null,
     tile(t("m_settings"), t("m_settings_d"), () => go("/settings")),
     pinTile(),
     tile(t("m_info"), t("m_info_d"), () => go("/info")),
@@ -1241,8 +1296,12 @@ async function nunkiPage() {
         h("button", { class: "btn" + (s.source === "hall" ? " on" : ""), id: "nk-" + sc + "-hall", onclick: () => setSource(sc, "hall") }, t("nk_src_hall")),
         // a web page already set is switched back to as it is; with none (or when it is the page now) the address is asked
         h("button", { class: "btn" + (s.source === "web" ? " on" : ""), id: "nk-" + sc + "-web",
-          onclick: () => (s.url && s.source !== "web" ? setSource(sc, "web") : pickWeb(sc, st)) }, t("nk_src_web"))) : null,
+          onclick: () => (s.url && s.source !== "web" ? setSource(sc, "web") : pickWeb(sc, st)) }, t("nk_src_web")),
+        // v7.7: OpenResults' live boards of this screen's tournament (Nunki 0.9.0); which boards: the Live boards wizard
+        h("button", { class: "btn" + (s.source === "boards" ? " on" : ""), id: "nk-" + sc + "-boards", onclick: () => setSource(sc, "boards") }, t("nk_src_boards"))) : null,
       s.source === "web" && s.url ? h("p", { class: "dim small nk-url-line" }, s.url) : null,
+      s.source === "boards" ? h("p", { class: "dim small nk-url-line", id: "nk-" + sc + "-boards-line" },
+        (s.boards ? tf("lb_sel", s.boards) : t("lb_sel_all")) + (s.boards_url ? "" : "  |  " + t("lb_nores"))) : null,
       h("button", { class: "btn nk-tour", id: "nk-" + sc + "-tour", onclick: () => pickTournament(sc, st) },
         h("span", { class: "dim" }, t("nk_tour") + ": "), tour ? tour.name : t("nk_auto")));
   };
@@ -1261,6 +1320,8 @@ async function nunkiPage() {
         st.countdown ? "  |  " + t("nk_countdown") : ""),
       h("div", { class: "nk-screens" }, Object.keys(st.screens).sort().map((sc) => screenCard(sc, st))),
       st.two_screens ? null : h("p", { class: "dim small" }, t("nk_one")),
+      h("div", { class: "row" }, h("button", { class: "btn", id: "nk-liveboards",
+        onclick: () => go("/liveboards" + (qget("from") === "compact" ? "?from=compact" : "")) }, t("lb") + " →")),
       h("div", { class: "row nk-audio" }, h("span", {}, t("nk_sound")),
         h("div", { class: "seg" },
           h("button", { class: "btn" + (st.audio ? " on" : ""), id: "nk-audio-on", onclick: () => act("/api/nunki/audio", { enabled: true }) }, t("nk_on")),
@@ -1336,6 +1397,150 @@ async function screensPage() {
       h("label", { class: "f" }, h("span", {}, "HDMI 0"), rotSel("rotate1")), h("label", { class: "f" }, h("span", {}, "HDMI 1"), rotSel("rotate2")))),
     h("div", { class: "card" }, h("h2", {}, t("scr_4")), tours),
     h("div", { class: "row" }, save), status]);
+}
+
+/* ------------------------------------------------- live boards on HDMI -- */
+// v7.7 (docs/nunki-displays.md, "Live boards on HDMI"): a wizard for the touch panel (480x320, big targets, no typing):
+// tournament -> what each monitor shows (the first N boards, a range, the same as screen 1, Nunki's broadcast, off)
+// -> a resolution per monitor -> summary -> Done. All of it applies live (AlnaslSetup.Server.LiveBoards): Nunki frames
+// OpenResults' follow-the-round projector page, the kiosk lays its windows out again without a restart, and a new
+// resolution comes back by itself unless Keep is pressed within 15 seconds.
+const LB_COUNTS = [1, 2, 4, 6, 8, 12, 16];
+const lbLast = (sel) => Math.max(0, ...String(sel || "").split(",").map((x) => Number(x.split("-").pop()) || 0));
+const lbRange = (a, n) => (n <= 1 ? String(a) : a + "-" + (a + n - 1));
+function lbWhat(s) {
+  if (!s) return t("lb_off");
+  if (s.show === "boards") return s.boards ? tf("lb_sel", s.boards) : t("lb_sel_all");
+  return t({ hall: "lb_hall", mirror: "lb_same", off: "lb_off" }[s.show]);
+}
+let LB_COUNT = null;
+function lbKeep(seconds, back) {
+  let left = seconds;
+  const n = h("b", { id: "lb-left" }, String(left));
+  const close = modal([h("h2", {}, t("lb_keep_q")), h("p", {}, t("lb_keep_d"), " ", n, " ", t("seconds")),
+    h("div", { class: "row lb-nav" },
+      h("button", { class: "btn primary lb-big", id: "lb-keep", onclick: async () => { stop(); await api("/api/liveboards/keep", {}).catch(() => 0); go(back); } }, t("keep")),
+      h("button", { class: "btn lb-big", id: "lb-undo", onclick: async () => { stop(); await api("/api/liveboards/undo", {}).catch(() => 0); lbDone(t("lb_reverted"), back); } }, t("revert")))]);
+  // the server goes back by itself whatever happens here; this only says so
+  const stop = () => { clearInterval(LB_COUNT); LB_COUNT = null; close(); };
+  clearInterval(LB_COUNT);
+  LB_COUNT = setInterval(() => { left -= 1; n.textContent = String(Math.max(0, left)); if (left <= 0) { stop(); lbDone(t("lb_reverted"), back); } }, 1000);
+}
+function lbDone(text, back) {
+  shell(t("lb"), [msg("ok", text), h("div", { class: "row lb-nav" }, h("button", { class: "btn primary lb-big", id: "lb-back", onclick: () => go(back) }, t("back")))], { home: true });
+}
+async function liveBoardsPage() {
+  const back = qget("from") === "compact" || S.compact ? "/compact" : "/menu";
+  let r;
+  try { r = await api("/api/liveboards"); } catch (e) { shell(t("lb"), [msg("bad", errText(e))], { home: true, back: [back, t("back")] }); return; }
+  const d = r.displays;
+  if (d.role !== "nunki") { shell(t("lb"), [msg("warn", t("not_nunki"))], { home: true, back: [back, t("back")] }); return; }
+  const nk = r.nunki.ok ? r.nunki.state : null;
+  if (!nk) { shell(t("lb"), [msg("bad", nkReason(r.nunki.reason))], { home: true, back: [back, t("back")] }); return; }
+  // which monitor is screen 1: the kiosk's own order (swap included); its modes from the kernel
+  const outs = (d.plan.outputs || []).map((o) => Object.assign({}, o, { modes: ((d.connected || []).find((c) => c.connector === o.connector) || {}).modes || [] }));
+  const two = outs.length >= 2;
+  const scrName = (i) => tf("lb_scr", i + 1, outs[i] ? outs[i].label : "HDMI " + i);
+  // the wizard starts from what the screens show now
+  const cur = (sc) => { const s = nk.screens[sc]; return s && s.source === "boards" ? { show: "boards", boards: s.boards || "" } : { show: "hall", boards: "" }; };
+  const lay = d.config.layout;
+  const W = {
+    tour: (nk.screens.hdmi1 || {}).tournament ?? null,
+    s: [cur("hdmi1"), !two ? null : lay === "mirror" ? { show: "mirror", boards: "" } : lay === "single" ? { show: "off", boards: "" } : cur("hdmi2")],
+    modes: [d.config.mode1 || "auto", d.config.mode2 || "auto"],
+  };
+  const steps = ["tour", "s0"].concat(two ? ["s1"] : [], ["res", "sum"]);
+  let step = 0;
+  const status = h("div", { id: "lb-msg" });
+  const pick = (on, id, label, fn, extra) => h("button", { class: "btn lb-opt" + (on ? " on" : "") + (extra ? " " + extra : ""), id, onclick: () => { fn(); draw(); } }, label);
+  function rangeDialog(i) {
+    const start = i === 0 ? 1 : lbLast(W.s[0] && W.s[0].show === "boards" ? W.s[0].boards : "") + 1;
+    let [a, b] = (W.s[i].show === "boards" && /^\d+-\d+$/.test(W.s[i].boards)) ? W.s[i].boards.split("-").map(Number) : [start, start + 3];
+    const va = h("b", { class: "lb-num", id: "lb-from" }), vb = h("b", { class: "lb-num", id: "lb-to" });
+    const show = () => { va.textContent = String(a); vb.textContent = String(b); };
+    const step1 = (which, dlt) => () => {
+      if (which === "a") { a = Math.min(999, Math.max(1, a + dlt)); if (b < a) b = a; } else { b = Math.min(999, Math.max(a, b + dlt)); }
+      show();
+    };
+    const row = (label, which, v) => h("div", { class: "row lb-step" }, h("span", { class: "grow" }, label),
+      h("button", { class: "btn lb-pm", id: "lb-" + which + "-minus", onclick: step1(which, -1) }, "−"), v,
+      h("button", { class: "btn lb-pm", id: "lb-" + which + "-plus", onclick: step1(which, 1) }, "+"));
+    show();
+    const close = modal([h("h2", {}, scrName(i)), row(t("lb_from"), "a", va), row(t("lb_to"), "b", vb),
+      h("div", { class: "row lb-nav" },
+        h("button", { class: "btn primary lb-big", id: "lb-range-ok", onclick: () => { W.s[i] = { show: "boards", boards: a === b ? String(a) : a + "-" + b }; close(); draw(); } }, t("lb_ok")),
+        h("button", { class: "btn lb-big", onclick: () => close() }, t("cancel")))]);
+  }
+  function screenStep(i) {
+    const s = W.s[i];
+    const start = i === 0 ? 1 : lbLast(W.s[0] && W.s[0].show === "boards" ? W.s[0].boards : "") + 1;
+    const counts = LB_COUNTS.map((n) => { const sel = lbRange(start, n); return pick(s.show === "boards" && s.boards === sel, "lb-" + i + "-n" + n, String(n), () => { W.s[i] = { show: "boards", boards: sel }; }); });
+    return [h("h2", {}, scrName(i)), h("p", { class: "dim small" }, t("lb_how")),
+      h("div", { class: "lb-grid", id: "lb-" + i + "-counts" }, counts,
+        i === 0 ? pick(s.show === "boards" && s.boards === "", "lb-0-all", t("lb_all"), () => { W.s[0] = { show: "boards", boards: "" }; }) : null,
+        h("button", { class: "btn lb-opt" + (s.show === "boards" && /-/.test(s.boards) && !counts.some((c) => c.classList.contains("on")) ? " on" : ""), id: "lb-" + i + "-range", onclick: () => rangeDialog(i) }, t("lb_range"))),
+      h("div", { class: "lb-grid lb-other" },
+        i === 1 ? pick(s.show === "mirror", "lb-1-mirror", t("lb_same"), () => { W.s[1] = { show: "mirror", boards: "" }; }) : null,
+        pick(s.show === "hall", "lb-" + i + "-hall", t("lb_hall"), () => { W.s[i] = { show: "hall", boards: "" }; }),
+        i === 1 ? pick(s.show === "off", "lb-1-off", t("lb_off"), () => { W.s[1] = { show: "off", boards: "" }; }) : null),
+      h("p", { class: "lb-now", id: "lb-" + i + "-now" }, lbWhat(s))];
+  }
+  const resAsked = (i) => outs[i] && (i === 0 || (W.s[1] && W.s[1].show !== "off" && W.s[1].show !== "mirror"));
+  function resStep() {
+    return [h("h2", {}, t("lb_res")), ...[0, 1].filter(resAsked).map((i) => h("div", { class: "lb-res", id: "lb-res-" + i },
+      h("p", { class: "dim small" }, scrName(i)),
+      h("div", { class: "lb-grid" },
+        pick(W.modes[i] === "auto", "lb-res-" + i + "-auto", tf("lb_res_auto", outs[i].modes[0] || "?"), () => { W.modes[i] = "auto"; }),
+        outs[i].modes.map((m) => pick(W.modes[i] === m, "lb-res-" + i + "-" + m, m, () => { W.modes[i] = m; })))))];
+  }
+  function sumStep() {
+    const tour = W.tour == null ? null : nk.tournaments.find((x) => String(x.id) === String(W.tour));
+    const nores = (tour && !tour.results) || (W.tour == null && nk.tournaments.length && nk.tournaments.every((x) => !x.results));
+    const line = (i) => h("li", { id: "lb-sum-" + i }, h("b", {}, scrName(i) + ": "), lbWhat(W.s[i]),
+      resAsked(i) ? ", " + (W.modes[i] === "auto" ? tf("lb_res_auto", outs[i].modes[0] || "?") : W.modes[i]) : "");
+    return [h("h2", {}, t("lb_sum")), h("ul", { class: "lb-sum" },
+      h("li", {}, h("b", {}, t("nk_tour") + ": "), tour ? tour.name : t("lb_auto")),
+      line(0), two ? line(1) : null),
+      nores ? msg("warn", t("lb_nores_d")) : null];
+  }
+  function tourStep() {
+    return [h("h2", {}, t("lb_s_tour")), h("div", { class: "list lb-tours" },
+      h("button", { class: "item lb-item" + (W.tour == null ? " sel" : ""), id: "lb-t-auto", onclick: () => { W.tour = null; draw(); } },
+        h("span", { class: "grow" }, t("lb_auto")), h("span", { class: "dim small" }, t("lb_auto_d"))),
+      nk.tournaments.map((x) => h("button", { class: "item lb-item" + (String(x.id) === String(W.tour) ? " sel" : ""), id: "lb-t-" + x.id, onclick: () => { W.tour = x.id; draw(); } },
+        h("i", { class: "dot " + (x.connected ? "ok" : "bad") }), h("span", { class: "grow" }, x.name), x.results ? null : h("span", { class: "dim small" }, t("lb_nores"))))),
+      nk.tournaments.length ? null : msg("warn", t("lb_none"))];
+  }
+  async function done(btn) {
+    btn.disabled = true;
+    status.replaceChildren(busy(t("lb_applying")));
+    let res;
+    try {
+      // a monitor whose resolution was not asked (off, or the same as screen 1) keeps the one it has
+      const modes = [W.modes[0], resAsked(1) ? W.modes[1] : d.config.mode2 || "auto"];
+      res = await api("/api/liveboards", { tournament: W.tour, screens: W.s.filter(Boolean), modes });
+    } catch (e) { status.replaceChildren(msg("bad", errText(e))); btn.disabled = false; return; }
+    const warn = (res.nunki || []).map((p) => tf("lb_nunki", p.screen === "hdmi2" ? 2 : 1, p.reason === "refused" && p.message ? p.message : nkReason(p.reason)));
+    if (warn.length) { status.replaceChildren(...warn.map((w) => msg("bad", w))); btn.disabled = false; if (!res.pending) return; }
+    if (res.pending) lbKeep(res.confirm_seconds, back);
+    else lbDone(res.restart ? t("lb_restart") : t("lb_applied"), back);
+  }
+  function draw() {
+    const k = steps[step];
+    const body = k === "tour" ? tourStep() : k === "s0" ? screenStep(0) : k === "s1" ? screenStep(1) : k === "res" ? resStep() : sumStep();
+    const last = step === steps.length - 1;
+    const nextBtn = h("button", { class: "btn primary lb-big", id: last ? "lb-done" : "lb-next", onclick: (e) => (last ? done(e.currentTarget) : (step++, draw())) }, last ? t("lb_done") : t("next"));
+    shell(t("lb"), [
+      h("div", { class: "lb-head" }, h("span", { class: "dim small", id: "lb-step" }, (step + 1) + " / " + steps.length),
+        two && (k === "s0" || k === "s1") ? h("button", { class: "btn sm", id: "lb-identify", onclick: () => api("/api/displays/identify", {}).catch(() => 0) }, t("scr_ident")) : null),
+      h("div", { class: "lb-body" }, body), status,
+      h("div", { class: "row lb-nav" },
+        h("button", { class: "btn lb-big", id: "lb-prev", onclick: () => (step === 0 ? go(back) : (step--, draw())) }, step === 0 ? t("cancel") : t("back")), nextBtn)],
+    { home: true, back: [back, t("back")] });
+  }
+  draw();
+  // the kiosk had to start again for a new resolution (this panel with it): the question is still open, ask it again
+  if (d.pending && d.pending.pending) lbKeep(d.pending.seconds_left, back);
 }
 
 /* ------------------------------------------------------ remote access -- */

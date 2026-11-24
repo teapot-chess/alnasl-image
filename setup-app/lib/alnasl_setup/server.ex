@@ -17,7 +17,23 @@ defmodule AlnaslSetup.Server do
   """
   use Supervisor
   alias AlnaslSetup.{Compact, Diag, Http, Json, Lock, SmallScreen, Sys, Wifi}
-  alias AlnaslSetup.Server.{Box, Displays, Help, Net, Nunki, Pin, PortalApi, Printers, Py, Remote, Resolution, State, TouchCal}
+
+  alias AlnaslSetup.Server.{
+    Box,
+    Displays,
+    Help,
+    LiveBoards,
+    Net,
+    Nunki,
+    Pin,
+    PortalApi,
+    Printers,
+    Py,
+    Remote,
+    Resolution,
+    State,
+    TouchCal
+  }
 
   @port 4041
   @www "/usr/local/share/alnasl-setup/www"
@@ -28,7 +44,8 @@ defmodule AlnaslSetup.Server do
     ".svg" => "image/svg+xml",
     ".png" => "image/png"
   }
-  @spa ~w(/ /setup /menu /settings /info /diag /compact /help /logs)
+  # v7.7: /nunki and /liveboards too: a kiosk restart (a new resolution) comes back to the page it was on
+  @spa ~w(/ /setup /menu /settings /info /diag /compact /help /logs /nunki /liveboards)
 
   # ------------------------------------------------------------------------------------ process --
 
@@ -87,7 +104,8 @@ defmodule AlnaslSetup.Server do
   defp access_log(method, target, status) do
     if target != "/healthz" and not String.starts_with?(target, "/api/ping") and
          not String.contains?(target, "/api/kiosk-busy") and
-         not (method == "GET" and hd(String.split(target, "?")) in ~w(/api/displays/identify /api/nunki /api/remote)),
+         not (method == "GET" and
+                hd(String.split(target, "?")) in ~w(/api/displays/identify /api/nunki /api/remote /api/liveboards)),
        # v7.5: asked every second or few by every window / the panel; a log line each would bury the rest
        do: Py.log("#{method} #{target |> String.split("?") |> hd()} #{status}")
   end
@@ -338,6 +356,10 @@ defmodule AlnaslSetup.Server do
       "/api/nunki" ->
         Nunki.state()
 
+      # v7.7: live boards on HDMI (the panel wizard): Nunki's state and the monitors, in one answer
+      "/api/liveboards" ->
+        LiveBoards.status()
+
       # v7.5: remote access (opt-in)
       "/api/remote" ->
         Remote.status()
@@ -562,6 +584,16 @@ defmodule AlnaslSetup.Server do
 
       "/api/displays/identify" ->
         Displays.identify_start()
+
+      # v7.7: live boards on HDMI: applied live; a resolution change waits for keep (or comes back by itself)
+      "/api/liveboards" ->
+        LiveBoards.apply(obj!(b))
+
+      "/api/liveboards/keep" ->
+        Displays.confirm()
+
+      "/api/liveboards/undo" ->
+        Displays.undo()
 
       # v7.5: the touch panel's Nunki controls (Nunki's local API on the loopback does the work)
       "/api/nunki/" <> what when what in ["screen", "audio", "tournament", "source"] ->

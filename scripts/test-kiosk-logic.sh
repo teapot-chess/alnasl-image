@@ -8,6 +8,7 @@
 #   5. no KMS card -> fbdev straight away
 #   6. (v7.3) a 3.5-inch HDMI stylus screen: forced mode and xrandr rotation
 #   7. (v7.3) an SPI panel: its card only, no second GPU, its fb for the fallback
+#   8. (v7.5) a nunki box's monitors; (v7.7) a resolution per monitor and kiosk-res layout, the live re-layout
 # Prints "ok"/"FAIL" lines; exit status 1 on any failure.
 fail=0
 ok()  { echo "ok   $*"; }
@@ -136,22 +137,61 @@ run x KIOSK_ROLE=nunki KIOSK_NO_HOTPLUG=1 ; rc=$?
 grep -q 'nunki screens: layout single' $T/out.log && grep -q 'to=hall1&where=hdmi&solo=1' $T/xclient.1.sh && grep -q 'exec /usr/bin/chromium' $T/xclient.1.sh && ok "nunki, one monitor: the broadcast (hall1) full screen, the only screen (solo)" || bad "nunki single monitor"
 echo connected > $T/drm/card0-HDMI-A-2/status
 run x KIOSK_ROLE=nunki KIOSK_NO_HOTPLUG=1 ; rc=$?
-grep -q 'nunki screens: layout manage (asked auto' $T/out.log && grep -q "^U1='http://localhost:4041/boot?to=manage&where=hdmi'" $T/xclient.1.sh && grep -q "^U2='http://localhost:4041/boot?to=hall1&where=hdmi'" $T/xclient.1.sh && ok "nunki, two monitors, nothing chosen: management on the first, broadcast on the second" || bad "nunki auto with two monitors"
-grep -q "^X1='HDMI-1'" $T/xclient.1.sh && grep -q -- '--right-of' $T/xclient.1.sh && ! grep -q matchbox $T/xclient.1.sh && grep -q 'chromium-\$1' $T/xclient.1.sh && ok "one X screen over both (right-of), one profile per window, no window manager" || bad "two-window X client"
+grep -q 'nunki screens: layout manage (asked auto' $T/out.log && grep -q "^WIN1='manage'" $T/xclient.1.sh && grep -q "^WIN2='hall1'" $T/xclient.1.sh && grep -q "^U_manage='http://localhost:4041/boot?to=manage&where=hdmi'" $T/xclient.1.sh && grep -q "^U_hall1='http://localhost:4041/boot?to=hall1&where=hdmi'" $T/xclient.1.sh && ok "nunki, two monitors, nothing chosen: management on the first, broadcast on the second" || bad "nunki auto with two monitors"
+grep -q "^X1='HDMI-1'" $T/xclient.1.sh && grep -q "^LK='extend'" $T/xclient.1.sh && grep -q 'kiosk-res layout "$LK"' $T/xclient.1.sh && ! grep -q matchbox $T/xclient.1.sh && grep -q 'chromium-w\$1' $T/xclient.1.sh && grep -q 'RUN/win-\$1' $T/xclient.1.sh && ok "one X screen over both (kiosk-res layout extend), one profile per window number, each window reads its place before every start, no window manager" || bad "two-window X client"
 grep -q 'kmsdev" ".*/card0"' $T/xorg.1.conf && grep -q 'AutoAddGPU" "false"' $T/xorg.1.conf && ! grep -q ADS7846 $T/xorg.1.conf && ok "X :0 on the HDMI card only; no stylus rule without a panel" || bad "nunki xorg.conf"
 grep -q 'two monitors need the modesetting driver' $T/out.log && grep -q 'to=hall1&where=hdmi&solo=1' $T/xclient.2.sh && ok "the fbdev fallback shows one broadcast (not the management page)" || bad "fbdev fallback of two monitors"
 run x KIOSK_ROLE=nunki KIOSK_NO_HOTPLUG=1 KIOSK_SWAP=1 ; rc=$?
 grep -q "^X1='HDMI-2'" $T/xclient.1.sh && grep -q "^X2='HDMI-1'" $T/xclient.1.sh && ok "swap: HDMI-2 is the first output" || bad "swap"
 run x KIOSK_ROLE=nunki KIOSK_NO_HOTPLUG=1 KIOSK_LAYOUT=mirror ; rc=$?
-grep -q "^LAY='mirror'" $T/xclient.1.sh && grep -q -- '--same-as' $T/xclient.1.sh && grep -q "^WIN1='hall1'" $T/xclient.1.sh && ok "mirror: the same broadcast on both" || bad "mirror"
+grep -q "^LAY='mirror'" $T/xclient.1.sh && grep -q "^LK='mirror'" $T/xclient.1.sh && grep -q "^WIN1='hall1'" $T/xclient.1.sh && ok "mirror: the same broadcast on both" || bad "mirror"
 run x KIOSK_ROLE=nunki KIOSK_NO_HOTPLUG=1 KIOSK_LAYOUT=two KIOSK_ROT2=left ; rc=$?
 grep -q "^WIN1='hall1'" $T/xclient.1.sh && grep -q "^WIN2='hall2'" $T/xclient.1.sh && grep -q "^ROT2='left'" $T/xclient.1.sh && ok "two tournaments: hall1 and hall2, the second turned left" || bad "two broadcasts"
 run x KIOSK_ROLE=nunki KIOSK_NO_HOTPLUG=1 KIOSK_LAYOUT=single ; rc=$?
-grep -q 'nunki screens: layout single' $T/out.log && grep -q -- '--output HDMI-2 --off' $T/xclient.1.sh && grep -q 'matchbox' $T/xclient.1.sh && ok "single with two connected: the second output dark, the old one-window client" || bad "single with two monitors"
+grep -q 'nunki screens: layout single' $T/out.log && grep -q "^LK='single'" $T/xclient.1.sh && grep -q "^WIN2='off'" $T/xclient.1.sh && ! grep -q matchbox $T/xclient.1.sh && ok "single with two connected: still two windows, the second output off (so the wizard can turn it on live)" || bad "single with two monitors"
 run x KIOSK_ROLE=nunki KIOSK_NO_HOTPLUG=1 'KIOSK_LAYOUT=two;reboot' KIOSK_ROT1=sideways ; rc=$?
 grep -q 'ignoring a malformed KIOSK_LAYOUT' $T/out.log && grep -q 'ignoring a malformed KIOSK_ROT1' $T/out.log && grep -q 'layout manage (asked auto' $T/out.log && ok "a malformed layout or rotation means the default" || bad "malformed layout got through"
 run x KIOSK_ROLE=alnasl ; rc=$?
 ! grep -q 'nunki screens' $T/out.log && grep -q '"http://localhost:4041/boot"$' $T/xclient.1.sh && grep -q matchbox $T/xclient.1.sh && ok "another role with two monitors: exactly as before (one window, /boot)" || bad "a non-nunki box changed"
+run x KIOSK_ROLE=nunki KIOSK_NO_HOTPLUG=1 KIOSK_LAYOUT=two KIOSK_MODE1=1280x720 KIOSK_MODE2=800x600 ; rc=$?
+grep -q "^M1='1280x720'" $T/xclient.1.sh && grep -q "^M2='auto'" $T/xclient.1.sh && grep -q 'does not offer 800x600' $T/out.log && ok "(v7.7) a resolution per monitor: a listed one is used, an unlisted one is the preferred mode" || bad "per-monitor modes"
+run x KIOSK_ROLE=nunki KIOSK_NO_HOTPLUG=1 'KIOSK_MODE1=1280x720;x' ; rc=$?
+grep -q "^M1='auto'" $T/xclient.1.sh && grep -q 'ignoring a malformed screen mode' $T/out.log && ok "(v7.7) a malformed mode is auto" || bad "malformed mode got through"
+echo "-- 8e. (v7.7) kiosk-res layout: the live layout the wizard calls"
+cat > $T/stubs/xrandr <<'XR'
+#!/bin/sh
+echo "XRANDR $*" >> /tmp/kt/xrandr.log
+if [ "$1" = --current ]; then
+  echo "Screen 0: minimum 320 x 200, current 3200 x 1080, maximum 8192 x 8192"
+  echo "HDMI-1 connected primary 1920x1080+0+0 (normal left inverted right x axis y axis) 600mm x 340mm"
+  if [ -e /tmp/kt/x2off ]; then echo "HDMI-2 connected (normal left inverted right x axis y axis)"; else echo "HDMI-2 connected 1280x720+1920+0 (normal left inverted right x axis y axis) 600mm x 340mm"; fi
+fi
+exit 0
+XR
+chmod 755 $T/stubs/xrandr; rm -f $T/xrandr.log $T/run/win-* $T/tmp/win-*.pid
+kr() { env PATH=$T/stubs:$PATH KIOSK_RUN=$T/run KIOSK_TMP=$T/tmp sh /usr/local/bin/kiosk-res layout "$@" >> $T/kr.out 2>&1; }
+echo "path=x driver=modesetting scale=1.00 vt=vt1" > $T/run/state
+kr extend HDMI-1 hall1 auto normal HDMI-2 hall2 1280x720 left; rc=$?
+[ "$rc" = 0 ] && grep -q -- '--output HDMI-1 --auto --rotate normal --pos 0x0 --primary --output HDMI-2 --mode 1280x720 --rotate left --right-of HDMI-1' $T/xrandr.log &&
+  [ "$(cat $T/run/win-1)" = "hall1 1920x1080+0+0" ] && [ "$(cat $T/run/win-2)" = "hall2 1280x720+1920+0" ] &&
+  grep -q '^2 HDMI-2 hall2 1280x720+1920+0$' $T/run/outputs && grep -q 'layout=extend .* scale=1.00 vt=vt1$' $T/run/state &&
+  ok "extend: each output its own mode, each window its place (win-1/win-2, outputs, state keeps scale and vt)" || bad "kiosk-res layout extend (rc $rc)"
+sleep 300 & p1=$!; sleep 300 & p2=$!
+echo $p1 > $T/tmp/win-1.pid; echo $p2 > $T/tmp/win-2.pid
+touch $T/x2off
+kr mirror HDMI-1 hall1 auto normal HDMI-2 hall2 auto normal; rc=$?
+sleep 0.5
+grep -q -- '--output HDMI-2 --auto --rotate normal --same-as HDMI-1' $T/xrandr.log && [ "$(cat $T/run/win-2)" = "off none" ] &&
+  ! kill -0 $p2 2>/dev/null && kill -0 $p1 2>/dev/null &&
+  ok "a live change ends only the window whose job or place changed (the second, now off), the first carries on" || bad "kiosk-res layout restart rule"
+kill $p1 2>/dev/null; rm -f $T/x2off $T/tmp/win-*.pid
+kr single HDMI-1 hall1 1280x720 normal HDMI-2 hall2 auto normal
+grep -q -- '--mode 1280x720 --rotate normal --pos 0x0 --primary --output HDMI-2 --off' $T/xrandr.log && ok "single: the second output off" || bad "kiosk-res layout single"
+kr extend 'HDMI-1;x' hall1 auto normal HDMI-2 hall2 auto normal; r1=$?
+kr extend HDMI-1 hall3 auto normal HDMI-2 hall2 auto normal; r2=$?
+kr extend HDMI-1 hall1 '1x1x1' normal HDMI-2 hall2 auto normal; r3=$?
+[ "$r1" = 2 ] && [ "$r2" = 2 ] && [ "$r3" = 2 ] && ok "kiosk-res layout refuses a bad output, job or mode (exit 2)" || bad "kiosk-res layout validation ($r1 $r2 $r3)"
+rm -f $T/stubs/xrandr $T/run/win-* $T/run/outputs
 echo "-- 8b. nunki with the touch panel beside two monitors"
 echo up > $T/xmode
 mkdir -p $T/drm/card1 $T/drm/card1-SPI-1 $T/input/event3/device; echo connected > $T/drm/card1-SPI-1/status; : > $T/dri/card1

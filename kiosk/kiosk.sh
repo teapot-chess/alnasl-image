@@ -169,7 +169,8 @@ if [ "$NUNKI" = 1 ]; then
     fi
     # X :0 drives the HDMI outputs' card, and only that one (no second GPU: the panel is :1's).
     CARDS=${O1%%-*}
-    [ "$LAY" != single ] && MULTI=1
+    # v7.7: two monitors are always two windows (single = the second one off), so the wizard can change the layout live
+    [ -n "$O2" ] && MULTI=1
     echo "kiosk: nunki screens: layout $LAY (asked ${KIOSK_LAYOUT:-auto}${KIOSK_SWAP:+, swap ${KIOSK_SWAP}}); ${O1:-none}: ${WIN1:-off}${O2:+, $O2: ${WIN2:-off}}${PANEL_COMPANION:+$([ "$PANEL_COMPANION" = 1 ] && echo ", touch panel: the menu")}"
   else
     echo "kiosk: nunki screens: no HDMI monitor connected; $([ "$SPI_PANEL" = 1 ] && echo "the touch panel alone, as on any box" || echo "the screen as on any box")"
@@ -227,10 +228,21 @@ case "${KIOSK_FORCE_MODE:-}" in
   *x*) RES=$KIOSK_FORCE_MODE ;;
 esac
 if [ -n "${KIOSK_FORCE_MODE:-}" ] || [ "$ROT" != normal ]; then echo "kiosk: small stylus screen: mode ${KIOSK_FORCE_MODE:-auto}, rotation $ROT (alnasl-screen.txt)"; fi
-# v7.5: a nunki box's monitors turn as its screen wizard says; with two connected each takes its own preferred mode.
+# v7.5: a nunki box's monitors turn as its screen wizard says. v7.7: and each takes the resolution the live-boards wizard
+# chose for it (KIOSK_MODE1/KIOSK_MODE2: auto or one the monitor lists; anything else is auto). These, not the box's
+# Resolution setting, rule a nunki box's HDMI monitors; a small stylus screen's forced mode still wins over both.
+nunki_mode() { # connector mode -> the mode when that monitor lists it, else auto
+  case "$2" in ''|auto) echo auto; return 0 ;; *[!0-9x]*|x*|*x|*x*x*) echo "kiosk: ignoring a malformed screen mode" >&2; echo auto; return 0 ;; esac
+  if [ -n "$1" ] && grep -qx "$2" "$DRM/$1/modes" 2>/dev/null; then echo "$2"; else echo "kiosk: ${1:-the monitor} does not offer $2; its preferred mode instead" >&2; echo auto; fi
+}
+M1=auto; M2=auto
 if [ "$NUNKI" = 1 ] && [ -n "$WIN1" ]; then
   [ "$ROT" = normal ] && ROT=${KIOSK_ROT1:-normal}
-  if [ -n "$O2" ] && [ "$RES" != auto ]; then echo "kiosk: two HDMI monitors: each gets its preferred mode; saved resolution $RES not used"; RES=auto; fi
+  M1=$(nunki_mode "$O1" "${KIOSK_MODE1:-auto}"); [ -n "$O2" ] && M2=$(nunki_mode "$O2" "${KIOSK_MODE2:-auto}")
+  if [ -z "${KIOSK_FORCE_MODE:-}" ]; then
+    # one monitor: its own mode when the wizard chose one, else the box's Resolution setting as before; two: their own
+    if [ -n "$O2" ]; then RES=auto; elif [ "$M1" != auto ]; then RES=$M1; fi
+  fi
 fi
 echo "kiosk: resolution setting=$RES connector=${conn_name:-none}"
 [ "$RES" != auto ] && drm_size=$RES
@@ -346,53 +358,57 @@ run_cage() {
 
 # --- v7.5: the nunki screens' helpers ------------------------------------------------------------------------
 INPUT=${KIOSK_INPUT:-/sys/class/input}   # (overridable for scripts/test-kiosk-logic.sh, like the DRM tree)
-# The X client of a two-window layout: one X screen over both outputs (xrandr puts the second right of the first, or on
-# top of it for mirror), one browser per output at that output's place, each with its own profile and its own
-# restart loop. No window manager: matchbox makes every window the size of the whole X screen, which here spans
-# both monitors. The values go in as a quoted prelude, the body is a quoted heredoc (nothing in it expands twice).
+# The X client of a box with two monitors: one X screen over both outputs (xrandr puts the second right of the first, on
+# top of it for mirror, or switches it off for single), one browser per output at that output's place, each with its own
+# profile and its own restart loop. No window manager: matchbox makes every window the size of the whole X screen, which
+# here spans both monitors. The values go in as a quoted prelude, the body is a quoted heredoc (nothing in it expands
+# twice).
+# v7.7: the layout is kiosk-res's (`kiosk-res layout`), here at the start and from the setup app later on: the wizard
+# changes a monitor's resolution or what it shows LIVE. Each window loop reads its job and place from $RUN/win-<n>
+# before every start; kiosk-res ends a window whose line changed, and the loop starts it where it now belongs. A
+# window with nothing to show (single, mirror) waits for a line that gives it something. One profile per window
+# number (chromium-w1, chromium-w2), not per job: a job moving from one window to the other must never find its
+# profile still locked by the window it left.
 write_multi_client() { # vt
   {
-    printf "X1='%s'\nX2='%s'\nLAY='%s'\nWIN1='%s'\nWIN2='%s'\nROT1='%s'\nROT2='%s'\n" \
-      "$(xname "$O1")" "$(xname "$O2")" "$LAY" "$WIN1" "$WIN2" "$ROT" "${KIOSK_ROT2:-normal}"
-    printf "U1='%s'\nU2='%s'\nTMPD='%s'\nRUN='%s'\nSTATE='%s'\nBASE='%s'\nVT='%s'\nSCALE='%s'\n" \
-      "$(win_url "$WIN1")" "$(win_url "$WIN2")" "$TMPD" "$RUN" "$STATE" "$BASE" "$1" "$SCALE"
+    lk=extend; [ "$LAY" = mirror ] && lk=mirror; [ "$LAY" = single ] && lk=single
+    printf "X1='%s'\nX2='%s'\nLAY='%s'\nLK='%s'\nWIN1='%s'\nWIN2='%s'\nROT1='%s'\nROT2='%s'\nM1='%s'\nM2='%s'\n" \
+      "$(xname "$O1")" "$(xname "$O2")" "$LAY" "$lk" "$WIN1" "${WIN2:-off}" "$ROT" "${KIOSK_ROT2:-normal}" "$M1" "$M2"
+    printf "U_manage='%s'\nU_hall1='%s'\nU_hall2='%s'\nTMPD='%s'\nRUN='%s'\nSTATE='%s'\nBASE='%s'\nVT='%s'\nSCALE='%s'\n" \
+      "$(win_url manage)" "$(win_url hall1)" "$(win_url hall2)" "$TMPD" "$RUN" "$STATE" "$BASE" "$1" "$SCALE"
     printf "CHROMIUM_COMMON='%s'\n" "$CHROMIUM_COMMON"
     cat <<'XCL'
 printf '#define e_width 1\n#define e_height 1\nstatic unsigned char e_bits[] = { 0x00 };\n' > "$TMPD/empty.xbm"
 xsetroot -cursor "$TMPD/empty.xbm" "$TMPD/empty.xbm" 2>/dev/null
 touch "$TMPD/x-up"
-echo "kiosk: X server is up (t=$(cut -d' ' -f1 /proc/uptime)s), two monitors: $X1 and $X2, layout $LAY"
+echo "kiosk: X server is up (t=$(cut -d' ' -f1 /proc/uptime)s), two monitors: $X1 and $X2, layout $LAY, modes $M1/$M2"
 xset s off s noblank -dpms 2>/dev/null
-if [ "$LAY" = mirror ]; then second="--same-as $X1"; r2=$ROT1; else second="--right-of $X1"; r2=$ROT2; fi
-# shellcheck disable=SC2086
-xrandr --output "$X1" --auto --rotate "$ROT1" --pos 0x0 --primary --output "$X2" --auto --rotate "$r2" $second ||
-  echo "kiosk: xrandr could not lay out $X1 and $X2 ($LAY); the windows go where xrandr says the outputs are"
-geom() { xrandr --current 2>/dev/null | awk -v o="$1" '$1 == o && / connected/ { for (i = 2; i <= NF; i++) if ($i ~ /^[0-9]+x[0-9]+\+[0-9]+\+[0-9]+$/) { print $i; exit } }'; }
-g1=$(geom "$X1"); g2=$(geom "$X2")
-if [ -z "$g1" ]; then
-  sz=$(xrandr --current 2>/dev/null | sed -n 's/.*current \([0-9]*\) x \([0-9]*\).*/\1x\2/p' | head -n 1)
-  g1="${sz:-1920x1080}+0+0"; g2=""
-  echo "kiosk: xrandr does not show $X1 as connected; one window over the whole screen ($g1)"
-fi
-# Where each window is, for the identify button (the menu server reads it) and the System info page.
-{ echo "1 $X1 $WIN1 $g1"; [ -n "$g2" ] && echo "2 $X2 $([ "$LAY" = mirror ] && echo mirror || echo "$WIN2") $g2"; } > "$RUN/outputs.new"
-mv -f "$RUN/outputs.new" "$RUN/outputs"
-echo "path=x driver=modesetting layout=$LAY $X1=$WIN1@$g1 $X2=${WIN2:-off}@${g2:-none} scale=$SCALE vt=$VT" > "$STATE"
+echo "path=x driver=modesetting scale=$SCALE vt=$VT" > "$STATE"
+rm -f "$RUN/win-1" "$RUN/win-2" "$TMPD/win-1.pid" "$TMPD/win-2.pid"
+KIOSK_RUN="$RUN" KIOSK_TMP="$TMPD" /usr/local/bin/kiosk-res layout "$LK" "$X1" "$WIN1" "$M1" "$ROT1" "$X2" "$WIN2" "$M2" "$ROT2" ||
+  echo "kiosk: the layout did not come out as asked; the windows go where xrandr says the outputs are"
 until curl -fsS -o /dev/null --max-time 2 "$BASE/healthz"; do sleep 0.3; done
-win() { # name url WxH+X+Y
-  w=${3%%x*}; r=${3#*x}; h=${r%%+*}; r=${r#*+}; x=${r%%+*}; y=${r#*+}
+win() { # window number
   while [ ! -e "$TMPD/x-stop" ]; do
-    echo "kiosk: window $1 at $x,$y, ${w}x$h (t=$(cut -d' ' -f1 /proc/uptime)s)"
+    spec=$(cat "$RUN/win-$1" 2>/dev/null); job=${spec%% *}; g=${spec#* }
+    case "$job" in manage) u=$U_manage ;; hall1) u=$U_hall1 ;; hall2) u=$U_hall2 ;; *) sleep 1; continue ;; esac
+    case "$g" in [0-9]*x[0-9]*+[0-9]*+[0-9]*) ;; *) sleep 1; continue ;; esac
+    w=${g%%x*}; r=${g#*x}; h=${r%%+*}; r=${r#*+}; x=${r%%+*}; y=${r#*+}
+    echo "kiosk: window $1 ($job) at $x,$y, ${w}x$h (t=$(cut -d' ' -f1 /proc/uptime)s)"
     # shellcheck disable=SC2086
-    /usr/bin/chromium $CHROMIUM_COMMON --user-data-dir="$TMPD/chromium-$1" --disk-cache-dir="$TMPD/chromium-cache-$1" \
-      --window-position="$x,$y" --window-size="$w,$h" "$2"
+    /usr/bin/chromium $CHROMIUM_COMMON --user-data-dir="$TMPD/chromium-w$1" --disk-cache-dir="$TMPD/chromium-cache-w$1" \
+      --window-position="$x,$y" --window-size="$w,$h" "$u" &
+    echo $! > "$TMPD/win-$1.pid"
+    wait $!
     rc=$?
+    rm -f "$TMPD/win-$1.pid"
     [ -e "$TMPD/x-stop" ] && break
+    if [ "$(cat "$RUN/win-$1" 2>/dev/null)" != "$spec" ]; then echo "kiosk: window $1 laid out again"; continue; fi
     echo "kiosk: window $1 ended (exit $rc); again in 2 s"; sleep 2
   done
 }
-win "$WIN1" "$U1" "$g1" &
-if [ "$LAY" != mirror ] && [ -n "$g2" ]; then win "$WIN2" "$U2" "$g2" & fi
+win 1 &
+win 2 &
 wait
 XCL
   } > "$TMPD/xclient.sh"
@@ -532,9 +548,6 @@ XC
   apply_line=":"
   if [ "$drv" = modesetting ]; then
     { [ "$RES" != auto ] || [ "$ROT" != normal ]; } && apply_line="/usr/local/bin/kiosk-res apply - \"$RES\" \"$ROT\""
-    # v7.5: a nunki box with two monitors and one broadcast: the first output only, the other one dark.
-    [ "$NUNKI" = 1 ] && [ "$MULTI" = 0 ] && [ -n "$O2" ] &&
-      apply_line="xrandr --output $(xname "$O1") --auto --rotate $ROT --pos 0x0 --primary --output $(xname "$O2") --off || echo 'kiosk: xrandr could not switch $(xname "$O2") off'"
   elif [ "$ROT" != normal ]; then
     apply_line="echo 'kiosk: rotation $ROT needs the modesetting driver; the fbdev fallback shows the picture unturned'"
   fi

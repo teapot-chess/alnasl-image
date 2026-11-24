@@ -11,7 +11,59 @@
 export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/0}
 export WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0}
 export DISPLAY=${DISPLAY:-:0}
-STATE=/run/alnasl-kiosk/state
+# v7.7: the nunki screens laid out LIVE (docs/nunki-displays.md, "Live boards on HDMI"). The two-window X client calls
+# it once at its start; the setup app calls it (docker exec) when the wizard changes a resolution or which monitor shows
+# what, so nothing restarts but the windows whose place or job changed.
+#   kiosk-res layout <extend|mirror|single> <X1> <job1> <mode1> <rot1> <X2> <job2> <mode2> <rot2>
+#     X1/X2: xrandr names (HDMI-1); job: manage|hall1|hall2|off; mode: auto|WxH (one the output lists)
+# Writes $RUN/win-1 and $RUN/win-2 ("job WxH+X+Y", read by the window loops before every start), $RUN/outputs (identify)
+# and the layout part of $STATE; then ends each window whose line changed, and its loop starts it again where it now goes.
+RUN=${KIOSK_RUN:-/run/alnasl-kiosk}
+TMPD=${KIOSK_TMP:-/tmp}
+STATE=$RUN/state
+layout() {
+  lay=$1; x1=$2; j1=$3; m1=$4; r1=$5; x2=$6; j2=$7; m2=$8; r2=$9
+  case "$lay" in extend|mirror|single) ;; *) echo "bad layout"; return 2 ;; esac
+  for v in "$x1" "$x2"; do case "$v" in HDMI-[0-9]|HDMI-[0-9][0-9]) ;; *) echo "bad output"; return 2 ;; esac; done
+  for v in "$j1" "$j2"; do case "$v" in manage|hall1|hall2|off) ;; *) echo "bad job"; return 2 ;; esac; done
+  for v in "$m1" "$m2"; do case "$v" in auto) ;; [0-9]*x[0-9]*) case "$v" in *[!0-9x]*|*x*x*|*x) echo "bad mode"; return 2 ;; esac ;; *) echo "bad mode"; return 2 ;; esac; done
+  for v in "$r1" "$r2"; do case "$v" in normal|right|inverted|left) ;; *) echo "bad rotation"; return 2 ;; esac; done
+  pick() { if [ "$1" = auto ]; then echo "--auto"; else echo "--mode $1"; fi; }
+  case "$lay" in
+    mirror) second="--output $x2 $(pick "$m2") --rotate $r1 --same-as $x1"; j2=off ;;
+    single) second="--output $x2 --off"; j2=off ;;
+    *) second="--output $x2 $(pick "$m2") --rotate $r2 --right-of $x1" ;;
+  esac
+  # shellcheck disable=SC2046,SC2086
+  r=$(xrandr --output "$x1" $(pick "$m1") --rotate "$r1" --pos 0x0 --primary $second 2>&1) || { echo "xrandr could not lay out $x1 and $x2 ($lay): $r" | head -n 3; xfail=1; }
+  geom() { xrandr --current 2>/dev/null | awk -v o="$1" '$1 == o && / connected/ { for (i = 2; i <= NF; i++) if ($i ~ /^[0-9]+x[0-9]+\+[0-9]+\+[0-9]+$/) { print $i; exit } }'; }
+  g1=$(geom "$x1"); g2=$(geom "$x2")
+  if [ -z "$g1" ]; then
+    sz=$(xrandr --current 2>/dev/null | sed -n 's/.*current \([0-9]*\) x \([0-9]*\).*/\1x\2/p' | head -n 1)
+    g1="${sz:-1920x1080}+0+0"; g2=""
+    echo "xrandr does not show $x1 as connected; one window over the whole screen ($g1)"
+  fi
+  [ -z "$g2" ] && j2=off
+  mkdir -p "$RUN"
+  w1="$j1 $g1"; w2="$j2 ${g2:-none}"
+  { echo "1 $x1 $j1 $g1"
+    if [ "$lay" = mirror ] && [ -n "$g2" ]; then echo "2 $x2 mirror $g2"; elif [ "$j2" != off ]; then echo "2 $x2 $j2 $g2"; fi
+  } > "$RUN/outputs.new" && mv -f "$RUN/outputs.new" "$RUN/outputs"
+  tail=$(sed -n 's/.*\( scale=.*\)$/\1/p' "$STATE" 2>/dev/null | head -n 1)
+  echo "path=x driver=modesetting layout=$lay $x1=$j1@$g1 $x2=$j2@${g2:-none}$tail" > "$STATE"
+  n=1
+  for w in "$w1" "$w2"; do
+    old=$(cat "$RUN/win-$n" 2>/dev/null)
+    echo "$w" > "$RUN/win-$n.new" && mv -f "$RUN/win-$n.new" "$RUN/win-$n"
+    if [ "$old" != "$w" ] && [ -r "$TMPD/win-$n.pid" ]; then
+      p=$(cat "$TMPD/win-$n.pid"); case "$p" in ''|*[!0-9]*) ;; *) kill -TERM "$p" 2>/dev/null ;; esac
+    fi
+    n=$((n + 1))
+  done
+  echo "x: $lay, $x1 $j1 ${m1}/$r1 at $g1, $x2 $j2 ${m2}/$r2 at ${g2:-none}"
+  [ -z "${xfail:-}" ]
+}
+case "$1" in layout) shift; [ $# = 9 ] || { echo "usage: kiosk-res layout <extend|mirror|single> X1 job1 mode1 rot1 X2 job2 mode2 rot2"; exit 2; }; layout "$@"; exit $? ;; esac
 cmd=$1; conn=$2; mode=$3; rot=${4:-normal}
 case "$mode" in auto) ;; [0-9]*x[0-9]*) case "$mode" in *[!0-9x]*) echo "bad mode"; exit 2 ;; esac ;; *) echo "bad mode"; exit 2 ;; esac
 case "$conn" in *[!A-Za-z0-9-]*) echo "bad connector"; exit 2 ;; esac
@@ -68,5 +120,5 @@ case "$cmd" in
       i=$((i+1)); sleep 1
     done
     apply ;;
-  *) echo "usage: kiosk-res apply|wait-apply <connector|-> <WxH|auto> [normal|right|inverted|left]"; exit 2 ;;
+  *) echo "usage: kiosk-res apply|wait-apply <connector|-> <WxH|auto> [normal|right|inverted|left] | layout ..."; exit 2 ;;
 esac
