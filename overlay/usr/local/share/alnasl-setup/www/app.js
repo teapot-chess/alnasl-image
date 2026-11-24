@@ -159,7 +159,7 @@ const TX = {
     nk_old: "This Nunki is too old for these buttons. Update Nunki (or the box), then try again.", nk_refused: "Nunki said no to that.",
     nk_bad: "Nunki answered something this page does not understand.", nk_screen: "Hall screen %s", nk_live: "Live", nk_paused: "Pause", nk_black: "Black",
     nk_tour: "Tournament", nk_auto: "Nunki's choice", nk_pick: "Which tournament on hall screen %s?", nk_sound: "Sound", nk_on: "On", nk_off: "Off",
-    nk_status: "Nunki %s, %s of %s tournaments connected", nk_one: "This Nunki drives one hall screen.", nk_countdown: "Countdown running",
+    nk_status: "Nunki %s, %s of %s tournaments connected", nk_one: "This Nunki drives one hall screen.", nk_src: "Shows", nk_src_hall: "Broadcast", nk_src_web: "Web page", nk_src_old: "This Nunki is older than 0.8.0 and cannot change what a screen shows. Update Nunki (or the box), then try again.", nk_src_pick: "Web page on hall screen %s", nk_src_url: "Address (https://...)", nk_src_set: "Show it", nk_src_none: "No address yet.", nk_countdown: "Countdown running",
     scr: "Screens", scr_tile: "One or two monitors, which is which", scr_only: "Only a Nunki box drives two monitors. Switch the box to Nunki first.",
     scr_1: "1. What the monitors show", scr_2: "2. Which monitor is which", scr_3: "3. Turned", scr_4: "4. Tournaments", scr_conn: "Connected now: %s",
     scr_none: "no monitor", scr_ident: "Identify screens", scr_ident_d: "Puts a big number on every monitor for eight seconds.", scr_swap: "Swap the two monitors",
@@ -1190,6 +1190,8 @@ async function soundPage() {
 const NK_MODES = ["live", "paused", "black"];
 function nkBack() { return qget("from") === "compact" ? ["/compact", t("back")] : [S.compact ? "/compact" : "/menu", t("menu")]; }
 function nkReason(reason) { return t({ down: "nk_down", old: "nk_old", refused: "nk_refused" }[reason] || "nk_bad"); }
+// source changes: a 404 means a Nunki before 0.8.0, a refusal carries Nunki's own sentence (shown as text, never as HTML)
+function nkSrcReason(r) { return r.reason === "old" ? t("nk_src_old") : r.reason === "refused" && r.message ? r.message : nkReason(r.reason); }
 async function nunkiPage() {
   const back = nkBack();
   const holder = h("div", { id: "nk-state" }, busy("..."));
@@ -1202,6 +1204,21 @@ async function nunkiPage() {
       status.replaceChildren(r.ok ? "" : msg("bad", nkReason(r.reason)));
     } catch (e) { status.replaceChildren(msg("bad", errText(e))); }
     draw();
+  };
+  const setSource = async (sc, source, url) => {
+    try {
+      const r = await api("/api/nunki/source", url ? { screen: sc, source, url } : { screen: sc, source });
+      status.replaceChildren(r.ok ? "" : msg("bad", nkSrcReason(r)));
+    } catch (e) { status.replaceChildren(msg("bad", errText(e))); }
+    draw();
+  };
+  const pickWeb = (sc, st) => {
+    const url = h("input", { type: "url", id: "nk-" + sc + "-url", class: "nk-url", placeholder: t("nk_src_url"), value: st.screens[sc].url || "" });
+    const close = modal([h("h2", {}, tf("nk_src_pick", sc.slice(-1))), url,
+      h("div", { class: "row" },
+        h("button", { class: "btn primary", id: "nk-" + sc + "-url-set", onclick: () => { const v = url.value.trim(); close(); setSource(sc, "web", v || null); } }, t("nk_src_set")),
+        h("button", { class: "btn", onclick: () => close() }, t("cancel")))]);
+    url.focus();
   };
   const pickTournament = (sc, st) => {
     const close = modal([h("h2", {}, tf("nk_pick", sc.slice(-1))),
@@ -1220,6 +1237,12 @@ async function nunkiPage() {
       h("h2", {}, tf("nk_screen", sc.slice(-1))),
       h("div", { class: "seg" }, NK_MODES.map((m) => h("button", { class: "btn" + (s.mode === m ? " on" : "") + (m === "black" ? " nk-black" : ""),
         id: "nk-" + sc + "-" + m, onclick: () => act("/api/nunki/screen", { screen: sc, mode: m }) }, t("nk_" + m)))),
+      s.source ? h("div", { class: "seg nk-src", id: "nk-" + sc + "-src" },
+        h("button", { class: "btn" + (s.source === "hall" ? " on" : ""), id: "nk-" + sc + "-hall", onclick: () => setSource(sc, "hall") }, t("nk_src_hall")),
+        // a web page already set is switched back to as it is; with none (or when it is the page now) the address is asked
+        h("button", { class: "btn" + (s.source === "web" ? " on" : ""), id: "nk-" + sc + "-web",
+          onclick: () => (s.url && s.source !== "web" ? setSource(sc, "web") : pickWeb(sc, st)) }, t("nk_src_web"))) : null,
+      s.source === "web" && s.url ? h("p", { class: "dim small nk-url-line" }, s.url) : null,
       h("button", { class: "btn nk-tour", id: "nk-" + sc + "-tour", onclick: () => pickTournament(sc, st) },
         h("span", { class: "dim" }, t("nk_tour") + ": "), tour ? tour.name : t("nk_auto")));
   };

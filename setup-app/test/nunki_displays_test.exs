@@ -136,7 +136,9 @@ defmodule AlnaslSetup.NunkiDisplaysTest do
     test "the first API v1: one hall screen, from the top-level fields" do
       :persistent_term.put({__MODULE__, :mode}, :first)
       assert %{"ok" => true, "state" => s} = Nunki.state()
-      assert s["screens"] == %{"hdmi1" => %{"mode" => "paused", "tournament" => 7}} and not s["two_screens"]
+
+      assert s["screens"] == %{"hdmi1" => %{"mode" => "paused", "tournament" => 7, "source" => nil, "url" => nil}} and
+               not s["two_screens"]
     end
 
     test "a Nunki older than the API says so; one that does not answer says that" do
