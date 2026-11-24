@@ -57,8 +57,13 @@ hall-screen controls are in `docs/nunki-displays.md`. Nunki's sound is off in a 
 Remote access for every role (opt-in Tailscale): `docs/remote-access.md`.
 7.6: Alnasl 0.18.0, Arkab 0.6.0, Polis 0.6.0 (Nunki stays 0.7.0); smoother touch calibration, and the panel's home
 screen shows the Tailscale address and port once remote access is connected.
-Next (7.7): the panel's stylus menu gets Last logs (journal, Normal / Warnings / Errors) and Update (the menu's own
-System updates page); docs/spi-screens.md.
+7.6.3: Alnasl 0.24.4, Arkab 0.7.5, Polis 0.6.1, Nunki 0.8.2. The Pi 3 finally boots the device tree it has
+instead of one it was told about (`upstream_kernel=1`), so USB and Ethernet exist again. A 1 GB board gets zram,
+waits for the app before Chromium, and when memory runs out Chromium is the one that goes, not ssh or the app;
+`alnasl-mem.txt` on the boot partition keeps the last 20 minutes of a box that froze anyway. The panel's stylus
+menu gained Last logs (journal, Normal / Warnings / Errors) and Update (docs/spi-screens.md). The PIN hand-over
+no longer trusts an app folder's name, and a small box no longer waits ten minutes for an app that is switched
+off. The Pi 3 part lives on the boot partition: an OTA update does not bring it, a Pi 3 needs a reflash.
 
 ## 2. Boot screen: the log
 
