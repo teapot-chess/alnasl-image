@@ -564,13 +564,14 @@ defmodule AlnaslSetup.Server do
         Displays.identify_start()
 
       # v7.5: the touch panel's Nunki controls (Nunki's local API on the loopback does the work)
-      "/api/nunki/" <> what when what in ["screen", "audio", "tournament"] ->
+      "/api/nunki/" <> what when what in ["screen", "audio", "tournament", "source"] ->
         if Box.running_role() != "nunki", do: raise(ArgumentError, "not_nunki")
 
         case what do
           "screen" -> Nunki.set_screen(obj!(b))
           "audio" -> Nunki.set_audio(obj!(b))
           "tournament" -> Nunki.set_tournament(obj!(b))
+          "source" -> Nunki.set_source(obj!(b))
         end
 
       # v7.5: remote access, opt-in (docs/remote-access.md). Every role; nothing runs before Start.

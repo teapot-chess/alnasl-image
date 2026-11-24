@@ -8,6 +8,8 @@ defmodule AlnaslSetup.Server.Nunki do
       POST /api/local/v1/screen          {"screen": "hdmi1"|"hdmi2", "mode": "live"|"paused"|"black"}
       POST /api/local/v1/audio           {"enabled": bool}
       POST /api/local/v1/hall_tournament {"screen": "hdmi1"|"hdmi2", "id": id|null}
+      POST /api/local/v1/screen_source     {"screen": "hdmi1"|"hdmi2", "source": "hall"|"web", "url": "https://..."} (Nunki 0.8.0+;
+                                          "screens.<n>" then also has "source" and "url"; a 404 is "old", a 422 carries its sentence)
 
   A Nunki without "screens" (the first v1) has one hall screen: the top-level "screen" and "hall_tournament" are
   hdmi1's, and hdmi2 is reported as not there. A Nunki older than the API answers 404: that is said plainly
@@ -19,6 +21,7 @@ defmodule AlnaslSetup.Server.Nunki do
 
   @screens ~w(hdmi1 hdmi2)
   @modes ~w(live paused black)
+  @sources ~w(hall web)
   @timeout 3000
 
   defp base, do: Py.env(:nunki_url, "http://127.0.0.1:4062")
@@ -58,10 +61,10 @@ defmodule AlnaslSetup.Server.Nunki do
     screens =
       case s["screens"] do
         %{} = m ->
-          for {k, %{} = v} <- m, k in @screens, into: %{}, do: {k, screen(v["mode"], v["tournament"])}
+          for {k, %{} = v} <- m, k in @screens, into: %{}, do: {k, screen(v["mode"], v["tournament"], v)}
 
         _ ->
-          %{"hdmi1" => screen(s["screen"], s["hall_tournament"])}
+          %{"hdmi1" => screen(s["screen"], s["hall_tournament"], s)}
       end
 
     tournaments =
@@ -80,7 +83,15 @@ defmodule AlnaslSetup.Server.Nunki do
 
   defp name(t), do: if(is_binary(t["name"]) and t["name"] != "", do: t["name"], else: to_string(t["id"]))
 
-  defp screen(mode, t), do: %{"mode" => if(mode in @modes, do: mode, else: "live"), "tournament" => t}
+  # "source" is nil on a Nunki before 0.8.0: the panel then offers no source choice
+  defp screen(mode, t, v) do
+    %{
+      "mode" => if(mode in @modes, do: mode, else: "live"),
+      "tournament" => t,
+      "source" => if(v["source"] in @sources, do: v["source"], else: nil),
+      "url" => if(is_binary(v["url"]), do: v["url"], else: nil)
+    }
+  end
 
   @doc "POST /api/nunki/screen {screen, mode}"
   def set_screen(%{} = b) do
@@ -105,13 +116,33 @@ defmodule AlnaslSetup.Server.Nunki do
     post("/hall_tournament", %{"screen" => sc, "id" => id})
   end
 
-  defp post(path, body) do
+  @doc "POST /api/nunki/source {screen, source, url}; url only for web, and optional when the screen has one."
+  def set_source(%{} = b) do
+    sc = b["screen"] || "hdmi1"
+    if sc not in @screens, do: raise(ArgumentError, "bad_screen")
+    if b["source"] not in @sources, do: raise(ArgumentError, "bad_source")
+    url = b["url"]
+    if not (is_nil(url) or (is_binary(url) and byte_size(url) <= 2000)), do: raise(ArgumentError, "bad_url")
+    body = %{"screen" => sc, "source" => b["source"]}
+    post("/screen_source", if(b["source"] == "web" and url, do: Map.put(body, "url", url), else: body), true)
+  end
+
+  # sentence: a 422 from Nunki says why in a sentence made to be shown; the caller may pass it on
+  defp post(path, body, sentence \\ false) do
     case request(:post, path, body) do
       :down -> %{"ok" => false, "reason" => "down"}
       {404, _} -> %{"ok" => false, "reason" => "old"}
+      {422, r} when sentence -> refused(r)
       {422, _} -> %{"ok" => false, "reason" => "refused"}
       {s, _} when s in 200..299 -> %{"ok" => true}
       {s, _} -> %{"ok" => false, "reason" => "bad", "status" => s}
+    end
+  end
+
+  defp refused(resp) do
+    case Json.decode_or_nil(resp) do
+      %{"error" => e} when is_binary(e) -> %{"ok" => false, "reason" => "refused", "message" => String.slice(e, 0, 300)}
+      _ -> %{"ok" => false, "reason" => "refused"}
     end
   end
 end
