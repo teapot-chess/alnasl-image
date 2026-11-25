@@ -1301,7 +1301,10 @@ grep -q 'function logsPage' $J && grep -q 'p === "/logs"' $J && grep -q '/api/lo
 for key in cmp_t_logs cmp_t_upd lg_normal lg_warn lg_err lg_none lg_up lg_down lg_paused; do
   n=$(grep -c -E "(^|[^A-Za-z0-9_])$key:" $J); [ "$n" = 2 ] && ok "app.js: $key in EN and NL" || bad "app.js: $key found $n times (2 expected)"
 done
-! grep -q -e 'langToggle()' -e '/api/lang' $J && grep -q '^    LANG = "en";' $J && ok "app.js: the box's screens are English only, no language switch" || bad "app.js can still switch language"
+# v7.7: English everywhere except a nunki box's touch panel (compact, Hall screens, Screens, Live boards), which may speak Dutch
+! grep -q 'langToggle()' $J && grep -q '^const NL_PAGES = \["/compact", "/nunki", "/settings/screens", "/liveboards"\];' $J \
+  && grep -q '^    LANG = S.lang === "nl" && NL_PAGES.includes(p) && roleNow() === "nunki" ? "nl" : "en";' $J \
+  && ok "app.js: English only, but for the nunki panel's own pages (Dutch when its Language tile says so)" || bad "app.js language rule"
 
 echo "== sizes"
 df -h $R | tail -1

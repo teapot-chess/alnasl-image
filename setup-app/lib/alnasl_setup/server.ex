@@ -45,7 +45,7 @@ defmodule AlnaslSetup.Server do
     ".png" => "image/png"
   }
   # v7.7: /nunki and /liveboards too: a kiosk restart (a new resolution) comes back to the page it was on
-  @spa ~w(/ /setup /menu /settings /info /diag /compact /help /logs /nunki /liveboards)
+  @spa ~w(/ /setup /menu /settings /info /diag /compact /nunki /liveboards /help /logs)
 
   # ------------------------------------------------------------------------------------ process --
 

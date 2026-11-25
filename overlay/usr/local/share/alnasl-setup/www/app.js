@@ -185,7 +185,7 @@ const TX = {
     lb_auto: "Whatever is playing", lb_auto_d: "Nunki's choice", lb_nores: "not on OpenResults", lb_none: "Nunki knows no tournament yet.",
     lb_scr: "Screen %s (%s)", lb_how: "How many boards? The next screen goes on where this one ends.", lb_all: "All", lb_range: "From - to",
     lb_from: "From board", lb_to: "To board", lb_ok: "OK", lb_hall: "Broadcast", lb_same: "Same as screen 1", lb_off: "Off",
-    lb_sel: "Boards %s", lb_sel_all: "All boards", lb_res: "Resolution", lb_res_auto: "Auto (%s)", lb_sum: "Check", lb_done: "Done",
+    lb_sel: "Boards %s", lb_sel_all: "All boards", lb_res: "Resolution", lb_automode: "Auto (%s)", lb_sum: "Check", lb_done: "Done",
     lb_nores_d: "This tournament is not published on OpenResults: its screens say so until it is.",
     lb_applying: "Putting it on the screens...", lb_applied: "On the screens. They follow the next round by themselves.",
     lb_restart: "On the screens. They start again for it: about half a minute.", lb_nunki: "Screen %s: %s",
@@ -367,7 +367,7 @@ const TX = {
     lb_auto: "Wat er nu speelt", lb_auto_d: "Keuze van Nunki", lb_nores: "niet op OpenResults", lb_none: "Nunki kent nog geen toernooi.",
     lb_scr: "Scherm %s (%s)", lb_how: "Hoeveel borden? Het volgende scherm gaat verder waar dit ophoudt.", lb_all: "Alle", lb_range: "Van - tot",
     lb_from: "Van bord", lb_to: "Tot bord", lb_ok: "OK", lb_hall: "Uitzending", lb_same: "Zelfde als scherm 1", lb_off: "Uit",
-    lb_sel: "Borden %s", lb_sel_all: "Alle borden", lb_res: "Resolutie", lb_res_auto: "Automatisch (%s)", lb_sum: "Nakijken", lb_done: "Klaar",
+    lb_sel: "Borden %s", lb_sel_all: "Alle borden", lb_res: "Resolutie", lb_automode: "Automatisch (%s)", lb_sum: "Nakijken", lb_done: "Klaar",
     lb_nores_d: "Dit toernooi staat niet op OpenResults: de schermen zeggen dat tot het er wel op staat.",
     lb_applying: "Bezig met de schermen...", lb_applied: "Staat op de schermen. Ze volgen vanzelf de volgende ronde.",
     lb_restart: "Staat op de schermen. Ze starten ervoor opnieuw: ongeveer een halve minuut.", lb_nunki: "Scherm %s: %s",
@@ -1321,7 +1321,7 @@ async function nunkiPage() {
       h("div", { class: "nk-screens" }, Object.keys(st.screens).sort().map((sc) => screenCard(sc, st))),
       st.two_screens ? null : h("p", { class: "dim small" }, t("nk_one")),
       h("div", { class: "row" }, h("button", { class: "btn", id: "nk-liveboards",
-        onclick: () => go("/liveboards" + (qget("from") === "compact" ? "?from=compact" : "")) }, t("lb") + " →")),
+        onclick: () => go("/liveboards" + (qget("from") === "compact" ? "?from=compact" : "")) }, t("lb"))),
       h("div", { class: "row nk-audio" }, h("span", {}, t("nk_sound")),
         h("div", { class: "seg" },
           h("button", { class: "btn" + (st.audio ? " on" : ""), id: "nk-audio-on", onclick: () => act("/api/nunki/audio", { enabled: true }) }, t("nk_on")),
@@ -1490,14 +1490,14 @@ async function liveBoardsPage() {
     return [h("h2", {}, t("lb_res")), ...[0, 1].filter(resAsked).map((i) => h("div", { class: "lb-res", id: "lb-res-" + i },
       h("p", { class: "dim small" }, scrName(i)),
       h("div", { class: "lb-grid" },
-        pick(W.modes[i] === "auto", "lb-res-" + i + "-auto", tf("lb_res_auto", outs[i].modes[0] || "?"), () => { W.modes[i] = "auto"; }),
+        pick(W.modes[i] === "auto", "lb-res-" + i + "-auto", tf("lb_automode", outs[i].modes[0] || "?"), () => { W.modes[i] = "auto"; }),
         outs[i].modes.map((m) => pick(W.modes[i] === m, "lb-res-" + i + "-" + m, m, () => { W.modes[i] = m; })))))];
   }
   function sumStep() {
     const tour = W.tour == null ? null : nk.tournaments.find((x) => String(x.id) === String(W.tour));
     const nores = (tour && !tour.results) || (W.tour == null && nk.tournaments.length && nk.tournaments.every((x) => !x.results));
     const line = (i) => h("li", { id: "lb-sum-" + i }, h("b", {}, scrName(i) + ": "), lbWhat(W.s[i]),
-      resAsked(i) ? ", " + (W.modes[i] === "auto" ? tf("lb_res_auto", outs[i].modes[0] || "?") : W.modes[i]) : "");
+      resAsked(i) ? ", " + (W.modes[i] === "auto" ? tf("lb_automode", outs[i].modes[0] || "?") : W.modes[i]) : "");
     return [h("h2", {}, t("lb_sum")), h("ul", { class: "lb-sum" },
       h("li", {}, h("b", {}, t("nk_tour") + ": "), tour ? tour.name : t("lb_auto")),
       line(0), two ? line(1) : null),
