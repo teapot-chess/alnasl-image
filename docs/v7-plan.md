@@ -65,14 +65,14 @@ menu gained Last logs (journal, Normal / Warnings / Errors) and Update (docs/spi
 no longer trusts an app folder's name, and a small box no longer waits ten minutes for an app that is switched
 off. The Pi 3 part lives on the boot partition: an OTA update does not bring it, a Pi 3 needs a reflash.
 
-Next (after 7.6.3, unreleased): the panel's Hall screens page gained a per-screen source, Nunki 0.8.0+ (`POST
+7.7 (Nunki 0.9.0; Alnasl, Arkab and Polis unchanged): the panel's Hall screens page gained a per-screen source, Nunki 0.8.0+ (`POST
 /api/local/v1/screen_source`, loopback only, JSON, no PIN: Nunki's local API has none). Broadcast / Web page per
 HDMI screen; a web page is given by address (https anywhere, http only on the hall's network; Nunki's own refusal
 sentence is shown as it is), and the last address is kept, so switching back to it is one tap. A Nunki older than
 0.8.0 answers 404: the source buttons stay away when its state has no `source`, and a try says it needs updating.
 Proxied as `POST /api/nunki/source` like the other Hall screens buttons.
 
-7.7 (in progress): live boards on HDMI for the nunki role (`docs/nunki-displays.md`, "Live boards on HDMI"): a panel
+7.7 also: live boards on HDMI for the nunki role (`docs/nunki-displays.md`, "Live boards on HDMI"): a panel
 wizard puts OpenResults' follow-the-round board pages on each monitor (Nunki 0.9.0's `boards` source), with a
 resolution per monitor, all applied live: `kiosk-res layout` re-lays the outputs and restarts only the windows that
 changed, and a new resolution reverts after 15 seconds unless kept. No reboot. The panel's Nunki pages gained Dutch
