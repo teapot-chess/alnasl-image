@@ -77,6 +77,7 @@ wizard puts OpenResults' follow-the-round board pages on each monitor (Nunki 0.9
 resolution per monitor, all applied live: `kiosk-res layout` re-lays the outputs and restarts only the windows that
 changed, and a new resolution reverts after 15 seconds unless kept. No reboot. The panel's Nunki pages gained Dutch
 (the menu's Language tile). Needs Nunki 0.9.0 in versions.json and the OpenPairings plugin 0.9.0 on the hosted side.
+7.7.1: Alnasl 0.25.1, Polis 0.7.0, Nunki 0.9.1 (Arkab 0.7.5 unchanged). Only the bundled apps move; the image itself is as 7.7.
 
 ## 2. Boot screen: the log
 
